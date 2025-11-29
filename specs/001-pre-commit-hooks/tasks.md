@@ -122,15 +122,15 @@ Single project structure:
 
 ### Implementation for User Story 3
 
-- [ ] T042 [P] [US3] Add CONTRIBUTING.md with guidelines for hook updates at repository root
-- [ ] T043 [US3] Document semantic versioning strategy in CONTRIBUTING.md per FR-011
-- [ ] T043b [US3] Add to README.md: how users should reference tags in .pre-commit-config.yaml (rev: v1.0.0 syntax) to enable autoupdate
-- [ ] T044 [US3] Add backward compatibility guidelines to CONTRIBUTING.md
-- [ ] T045 [US3] Add performance testing section to CONTRIBUTING.md (SC-002 requirement)
-- [ ] T046 [US3] Document release process (tagging, changelog) in CONTRIBUTING.md
-- [ ] T047 [US3] Add troubleshooting section to README.md (common issues, solutions)
-- [ ] T048 [US3] Create initial git tag v1.0.0 for first release
-- [ ] T049 [US3] Add CI/CD configuration recommendations to CONTRIBUTING.md
+- [X] T042 [P] [US3] Add CONTRIBUTING.md with guidelines for hook updates at repository root
+- [X] T043 [US3] Document semantic versioning strategy in CONTRIBUTING.md per FR-011
+- [X] T043b [US3] Add to README.md: how users should reference tags in .pre-commit-config.yaml (rev: v1.0.0 syntax) to enable autoupdate
+- [X] T044 [US3] Add backward compatibility guidelines to CONTRIBUTING.md
+- [X] T045 [US3] Add performance testing section to CONTRIBUTING.md (SC-002 requirement)
+- [X] T046 [US3] Document release process (tagging, changelog) in CONTRIBUTING.md
+- [X] T047 [US3] Add troubleshooting section to README.md (common issues, solutions)
+- [X] T048 [US3] Create initial git tag v1.0.0 for first release
+- [X] T049 [US3] Add CI/CD configuration recommendations to CONTRIBUTING.md
 
 **Checkpoint**: All user stories should now be independently functional with full lifecycle support
 
@@ -140,17 +140,17 @@ Single project structure:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T050 [P] Add inline code comments explaining AST visitor logic in pre_commit_hooks/forbid_vars.py
-- [ ] T051 [P] Add docstrings to all functions and classes in pre_commit_hooks/forbid_vars.py
-- [ ] T052 [P] Verify error messages meet SC-003 (include what/where/how per spec)
-- [ ] T052b [P] Manual validation: test error messages with fresh eyes (simulate new user, verify fix-ability without docs)
-- [ ] T053 Run prettier on .pre-commit-hooks.yaml and README.md
-- [ ] T054 Verify hook processes <1000 files in <5 seconds (SC-002 performance check)
-- [ ] T055 Test hook on Linux, macOS, Windows environments per SC-006
-- [ ] T056 [P] Add badge links to README.md (pre-commit compatible, Python version)
-- [ ] T057 Validate quickstart.md scenarios manually (install, use, configure)
-- [ ] T058 Run full test suite with pytest and ensure 100% pass rate
-- [ ] T059 Final constitutional compliance check (all 5 principles met)
+- [X] T050 [P] Add inline code comments explaining AST visitor logic in pre_commit_hooks/forbid_vars.py
+- [X] T051 [P] Add docstrings to all functions and classes in pre_commit_hooks/forbid_vars.py
+- [X] T052 [P] Verify error messages meet SC-003 (include what/where/how per spec)
+- [X] T052b [P] Manual validation: test error messages with fresh eyes (simulate new user, verify fix-ability without docs)
+- [X] T053 Run prettier on .pre-commit-hooks.yaml and README.md
+- [X] T054 Verify hook processes <1000 files in <5 seconds (SC-002 performance check)
+- [X] T055 Test hook on Linux, macOS, Windows environments per SC-006
+- [X] T056 [P] Add badge links to README.md (pre-commit compatible, Python version)
+- [X] T057 Validate quickstart.md scenarios manually (install, use, configure)
+- [X] T058 Run full test suite with pytest and ensure 100% pass rate
+- [X] T059 Final constitutional compliance check (all 5 principles met)
 
 ---
 
