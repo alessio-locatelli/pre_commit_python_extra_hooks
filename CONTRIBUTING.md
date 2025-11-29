@@ -78,6 +78,126 @@ Before writing code:
 - Decide what exit codes to use (0 = success, 1 = failure)
 - Plan the error message format
 - Consider configuration options (CLI arguments)
+- **Choose the right implementation approach** (see below)
+
+#### Choosing Between Bash and Python
+
+**Constitution I (KISS Principle)** states: *"Prefer Bash + Git commands; fall back to Python only when necessary."*
+
+Use this decision tree to choose the right tool:
+
+##### ✅ Use Bash/Grep When:
+
+The check is **pattern-based** and **context-independent**:
+
+```bash
+# ✓ Check for trailing whitespace
+grep -n ' $' "$@"
+
+# ✓ Check for TODO/FIXME comments
+grep -n 'TODO\|FIXME' "$@"
+
+# ✓ Check for hardcoded IPs
+grep -E '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$@"
+
+# ✓ Check for print() debugging statements
+grep -n 'print(' "$@"
+
+# ✓ Check for console.log in JavaScript
+grep -n 'console\.log' "$@"
+
+# ✓ Ensure files end with newline
+for file in "$@"; do
+    [ -n "$(tail -c 1 "$file")" ] && echo "$file: Missing final newline"
+done
+```
+
+**Characteristics of bash-appropriate checks:**
+- Simple string/regex matching
+- No need to understand syntax context
+- Pattern means the same thing everywhere
+- No false positives from strings/comments/etc.
+- No complex suppression logic needed
+
+##### ⚠️ Use Python/AST When:
+
+The check requires **syntax awareness** or **semantic understanding**:
+
+```python
+# ✗ CANNOT use bash reliably:
+
+# Forbidden variable names (forbid-vars hook)
+# - Must distinguish: data = 1  vs  obj.data = 1  vs  "data = 1"
+# - Must detect function parameters: def foo(data):
+# - Needs inline suppression logic
+
+# Unused imports
+# - Must parse import statements
+# - Must track variable usage in scope
+
+# Function complexity (too many parameters)
+# - Must parse function signatures
+# - Must handle *args, **kwargs
+
+# Enforce type hints
+# - Must understand Python syntax (def foo(x: int) -> str)
+# - Must distinguish annotated from non-annotated functions
+```
+
+**Characteristics of Python-appropriate checks:**
+- Requires parsing language syntax
+- Context-dependent (same text means different things)
+- Risk of false positives with simple grep
+- Needs suppression via inline comments
+- Requires accurate line number tracking
+
+##### Real-World Example: Why forbid-vars Uses AST
+
+**Bash/grep approach (WRONG):**
+
+```bash
+grep -E "\bdata =|\bresult =" *.py
+```
+
+**Problems:**
+
+```python
+# Test file
+obj.data = 1                    # ❌ False positive (attribute, not variable)
+user_data = 1                   # ❌ False positive (\b matches "user_data")
+data = fetch()                  # ✓ Correct detection
+def process(data):              # ❌ MISSED (function parameter not detected!)
+    result = transform(data)    # ✓ Correct detection
+    "data = 1"                  # ❌ False positive (inside string)
+```
+
+**Bash accuracy: ~50%** (1 false positive, 1 missed violation)
+
+**Python/AST approach (CORRECT):**
+
+```python
+# Uses ast.NodeVisitor to check:
+# - ast.Assign (data = 1)
+# - ast.AnnAssign (data: int = 1)
+# - ast.FunctionDef parameters (def foo(data):)
+# - Filters out attributes, strings, comments automatically
+```
+
+**Python accuracy: 100%** (zero false positives, zero misses)
+
+##### Decision Criteria Summary
+
+| Question | Bash | Python |
+|----------|------|--------|
+| Simple string pattern? | ✓ | |
+| Works in any context (strings, comments, code)? | ✓ | |
+| Need to understand language syntax? | | ✓ |
+| Need to distinguish variables vs attributes? | | ✓ |
+| Need inline suppression logic? | | ✓ |
+| Risk of false positives with grep? | | ✓ |
+| Checking Python/JS/Go code structure? | | ✓ |
+
+**When in doubt:** Start with bash. If you find false positives or missed violations in testing, switch to Python with proper parsing.
 
 ### 2. Create Hook Module
 
