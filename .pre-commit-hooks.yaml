@@ -1,0 +1,6 @@
+- id: forbid-vars
+  name: forbid meaningless variable names
+  description: Prevents use of meaningless variable names like 'data' and 'result'
+  entry: forbid-vars
+  language: python
+  types: [python]

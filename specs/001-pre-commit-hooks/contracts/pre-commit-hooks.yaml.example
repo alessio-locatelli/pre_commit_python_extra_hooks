@@ -1,0 +1,10 @@
+# Example .pre-commit-hooks.yaml
+# This file will be placed at the repository root
+# It defines the hooks available in this repository for pre-commit framework
+
+- id: forbid-vars
+  name: forbid meaningless variable names
+  description: Prevents use of meaningless variable names like 'data' and 'result'
+  entry: forbid-vars
+  language: python
+  types: [python]
