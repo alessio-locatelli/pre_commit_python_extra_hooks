@@ -164,14 +164,14 @@ grep -E "\bdata =|\bresult =" *.py
 ```python
 # Test file
 obj.data = 1                    # ❌ False positive (attribute, not variable)
-user_data = 1                   # ❌ False positive (\b matches "user_data")
 data = fetch()                  # ✓ Correct detection
 def process(data):              # ❌ MISSED (function parameter not detected!)
     result = transform(data)    # ✓ Correct detection
     "data = 1"                  # ❌ False positive (inside string)
+    # data = 1                  # ❌ False positive (inside comment)
 ```
 
-**Bash accuracy: ~50%** (1 false positive, 1 missed violation)
+**Bash accuracy: ~50%** (3 false positives, 1 critical miss - function parameters)
 
 **Python/AST approach (CORRECT):**
 

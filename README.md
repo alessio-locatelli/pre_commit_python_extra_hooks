@@ -32,13 +32,13 @@ Prevents use of meaningless variable names like `data` and `result`.
 This hook uses Python's AST parser for 100% accuracy instead of simple pattern matching:
 
 ```python
-# grep would create false positives:
+# grep creates false positives:
 obj.data = 1        # ❌ grep matches (but this is an attribute, not a variable)
-user_data = 1       # ❌ grep matches (different variable name)
 "data = 1"          # ❌ grep matches (inside a string)
+# data = 1          # ❌ grep matches (inside a comment)
 
-# grep would miss real violations:
-def foo(data):      # ❌ grep misses function parameters
+# grep misses critical violations:
+def foo(data):      # ❌ grep misses function parameters!
     pass
 
 # AST correctly handles all cases with zero false positives
