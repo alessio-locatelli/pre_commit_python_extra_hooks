@@ -12,6 +12,106 @@ Custom pre-commit hooks for code quality enforcement.
 
 Prevents use of meaningless variable names like `data` and `result`.
 
+---
+
+### fix-misplaced-comments
+
+**STYLE-001**: Automatically fixes trailing comments on closing brackets by moving them to the expression line.
+
+**Why?** When auto-formatters move closing brackets to new lines, comments on those lines become orphaned and lose context.
+
+**Example:**
+
+```python
+# Bad - comment is on bracket line:
+result = func(
+    arg
+)  # Comment about the function call
+
+# Fixed - comment moves to expression:
+result = func(
+    arg
+)  # Comment about the function call
+```
+
+**Features:**
+
+- Automatically moves comments from closing bracket lines to expression lines
+- Places comments inline if they fit within 88 characters
+- Otherwise places them as preceding comments on their own line
+- Preserves file encoding and line endings
+- Gracefully handles syntax errors in source files
+
+---
+
+### fix-excessive-blank-lines
+
+**STYLE-002**: Collapses multiple consecutive blank lines after module headers (copyright, docstrings, or comments) to a single blank line.
+
+**Why?** Excessive blank lines after module headers create visual clutter and violate PEP 8 conventions.
+
+**Example:**
+
+```python
+"""Module docstring."""
+
+
+
+import os  # Bad - 3 blank lines
+
+# Fixed:
+"""Module docstring."""
+
+import os  # Good - 1 blank line
+```
+
+**Features:**
+
+- Detects 2+ blank lines after module header
+- Preserves copyright comment spacing (1 blank line after copyright)
+- Only affects module-level blank lines, preserves function/class spacing
+- Maintains file encoding and handles different line ending styles
+
+---
+
+### check-redundant-super-init
+
+**MAINTAINABILITY-006**: Detects when a class forwards `**kwargs` to a parent `__init__` that accepts no arguments.
+
+**Why?** Forwarding kwargs to parents that don't accept them is a logic error that creates misleading inheritance patterns.
+
+**Example:**
+
+```python
+# Bad - redundant kwargs forwarding:
+class Base:
+    def __init__(self):
+        pass
+
+class Child(Base):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)  # VIOLATION: Base doesn't accept kwargs
+
+# Fixed - matching signatures:
+class Child(Base):
+    def __init__(self):
+        super().__init__()
+```
+
+**Features:**
+
+- Detects redundant `**kwargs` forwarding using AST analysis
+- Analyzes class hierarchies and method signatures
+- Limited to same-file parent classes (safe, zero false positives)
+- Handles multiple inheritance correctly
+- Gracefully skips unresolvable parent classes (imports, stdlib)
+
+---
+
+### forbid-vars (Original)
+
+Prevents use of meaningless variable names like `data` and `result`.
+
 **Why?** Meaningless variable names reduce code clarity and maintainability. See [Peter Hilton's article on meaningless variable names](https://hilton.org.uk/blog/meaningless-variable-names) for more context.
 
 **Default forbidden names:**

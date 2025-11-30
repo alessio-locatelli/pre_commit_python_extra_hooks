@@ -4,3 +4,26 @@
   entry: forbid-vars
   language: python
   types: [python]
+
+- id: fix-misplaced-comments
+  name: Fix misplaced comments
+  description: Move trailing comments on closing brackets to expression lines
+  entry: python -m pre_commit_hooks.fix_misplaced_comments
+  language: python
+  types: [python]
+  args: [--fix]
+
+- id: fix-excessive-blank-lines
+  name: Fix excessive blank lines
+  description: Collapse multiple blank lines after module headers to one
+  entry: python -m pre_commit_hooks.fix_excessive_blank_lines
+  language: python
+  types: [python]
+  args: [--fix]
+
+- id: check-redundant-super-init
+  name: Check redundant super init kwargs
+  description: Detect redundant **kwargs forwarding to parent __init__()
+  entry: python -m pre_commit_hooks.check_redundant_super_init
+  language: python
+  types: [python]
