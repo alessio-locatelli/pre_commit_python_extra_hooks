@@ -82,6 +82,6 @@ def test_handles_syntax_errors_gracefully(tmp_path):
     """Test graceful handling of syntax errors."""
     test_file = tmp_path / "test.py"
     test_file.write_text(
-        "class Broken(\n    def __init__(self, **kwargs):\n        super().__init__(**kwargs)\n"
+        "class Broken(\n    def __init__(self, **kwargs):\n        super().__init__(**kwargs)\n"  # noqa: E501
     )
     # Hook should skip gracefully

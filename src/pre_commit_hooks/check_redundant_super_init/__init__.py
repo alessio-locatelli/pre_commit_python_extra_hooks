@@ -54,7 +54,9 @@ class SuperInitChecker(ast.NodeVisitor):
         # Continue visiting child nodes
         self.generic_visit(node)
 
-    def _check_init_method(self, class_node: ast.ClassDef, init_node: ast.FunctionDef) -> None:
+    def _check_init_method(
+        self, class_node: ast.ClassDef, init_node: ast.FunctionDef
+    ) -> None:
         """Check if __init__ forwards kwargs to parent that doesn't accept them.
 
         Args:
@@ -187,7 +189,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 if no violations, 1 if violations found)
     """
-    parser = argparse.ArgumentParser(description="Check for redundant super init kwargs forwarding")
+    parser = argparse.ArgumentParser(
+        description="Check for redundant super init kwargs forwarding"
+    )
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
 
     args = parser.parse_args(argv)
@@ -196,7 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     for filename in args.filenames:
         violations = check_file(filename)
         for line_num, message in violations:
-            print(f"{filename}:{line_num}: MAINTAINABILITY-006: {message}", file=sys.stderr)
+            print(
+                f"{filename}:{line_num}: MAINTAINABILITY-006: {message}",
+                file=sys.stderr,
+            )
             exit_code = 1
 
     return exit_code

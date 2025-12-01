@@ -134,16 +134,24 @@ def fix_file(filename: str) -> None:
                             potential_inline = f"{prev_line}  {comment_text}"
                             if len(potential_inline) <= 88:
                                 # Place inline on previous line
-                                new_lines[prev_line_idx] = prev_line + f"  {comment_text}\n"
+                                new_lines[prev_line_idx] = (
+                                    prev_line + f"  {comment_text}\n"
+                                )
                             else:
                                 # Place as preceding comment
                                 new_lines[prev_line_idx] = (
-                                    " " * indent + f"{comment_text}\n" + prev_line + "\n"
+                                    " " * indent
+                                    + f"{comment_text}\n"
+                                    + prev_line
+                                    + "\n"
                                 )
 
                             # Remove comment from bracket line
                             new_lines[bracket_line_idx] = (
-                                new_lines[bracket_line_idx][: next_token.start[1]].rstrip() + "\n"
+                                new_lines[bracket_line_idx][
+                                    : next_token.start[1]
+                                ].rstrip()
+                                + "\n"
                             )
                     break
 
@@ -164,9 +172,13 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 if no violations, 1 if violations found/fixed)
     """
-    parser = argparse.ArgumentParser(description="Fix comments misplaced on closing brackets")
+    parser = argparse.ArgumentParser(
+        description="Fix comments misplaced on closing brackets"
+    )
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
-    parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
+    parser.add_argument(
+        "--fix", action="store_true", help="Automatically fix violations"
+    )
 
     args = parser.parse_args(argv)
 
@@ -179,7 +191,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Fixed: {filename}", file=sys.stderr)
             else:
                 for line_num, message in violations:
-                    print(f"{filename}:{line_num}: STYLE-001: {message}", file=sys.stderr)
+                    print(
+                        f"{filename}:{line_num}: STYLE-001: {message}", file=sys.stderr
+                    )
             exit_code = 1
 
     return exit_code

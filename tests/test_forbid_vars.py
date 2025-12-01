@@ -36,7 +36,9 @@ def test_success_case():
 
 
 def test_failure_case():
-    """Test that files with forbidden variable names fail (exit 1) with error messages."""
+    """
+    Test that files with forbidden variable names fail (exit 1) with error messages.
+    """
     invalid_file = FIXTURES_DIR / "invalid_code.py"
     returncode, stdout, stderr = run_hook([invalid_file])
 
@@ -59,7 +61,9 @@ def test_ignore_comment():
 def test_custom_blacklist():
     """Test that --names argument allows custom forbidden variable names."""
     valid_file = FIXTURES_DIR / "valid_code.py"
-    returncode, stdout, stderr = run_hook([valid_file], ["--names=invoice_items,total_amount"])
+    returncode, stdout, stderr = run_hook(
+        [valid_file], ["--names=invoice_items,total_amount"]
+    )
 
     assert returncode == 1, "Hook should fail with custom blacklist"
     assert "invoice_items" in stdout or "total_amount" in stdout
@@ -161,7 +165,9 @@ def test_error_message_includes_link():
 
     assert returncode == 1
     assert "hilton.org.uk" in stdout, "Error message should include link to article"
-    assert "meaningless-variable-name" in stdout, "Error message should mention ignore pattern"
+    assert "meaningless-variable-name" in stdout, (
+        "Error message should mention ignore pattern"
+    )
 
 
 def test_case_sensitivity():

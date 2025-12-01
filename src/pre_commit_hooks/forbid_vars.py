@@ -6,8 +6,9 @@ import io
 import re
 import sys
 import tokenize
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 try:
     import tomllib
@@ -165,7 +166,11 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         return best_match
 
     def _check_name(
-        self, name: str, lineno: int, col_offset: int, match: dict[str, Any] | None = None
+        self,
+        name: str,
+        lineno: int,
+        col_offset: int,
+        match: dict[str, Any] | None = None,
     ) -> None:
         """Check if a variable name is forbidden and record violation."""
         if name in self.forbidden_names:
@@ -211,7 +216,9 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             else:
                 match = None
 
-            self._check_name(node.target.id, node.target.lineno, node.target.col_offset, match)
+            self._check_name(
+                node.target.id, node.target.lineno, node.target.col_offset, match
+            )
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -224,7 +231,9 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self._check_function_args(node)
         self.generic_visit(node)
 
-    def _check_function_args(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def _check_function_args(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
         """Check all function arguments for forbidden names."""
         for arg in node.args.args:
             self._check_name(arg.arg, arg.lineno, arg.col_offset)
@@ -287,7 +296,9 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
             replacements[v["name"]] = v["suggestion"]
 
     for old_name, new_name in replacements.items():
-        source_to_modify = re.sub(r"\b" + re.escape(old_name) + r"\b", new_name, source_to_modify)
+        source_to_modify = re.sub(
+            r"\b" + re.escape(old_name) + r"\b", new_name, source_to_modify
+        )
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(source_to_modify)
@@ -346,7 +357,9 @@ def check_file(
     return violations
 
 
-def report_violation(filepath: str, line: int, name: str, suggestion: str | None = None) -> None:
+def report_violation(
+    filepath: str, line: int, name: str, suggestion: str | None = None
+) -> None:
     """
 
 
@@ -558,7 +571,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     report_fix(filepath, v["line"], v["name"], v["suggestion"])
 
                 else:
-                    report_violation(filepath, v["line"], v["name"], v.get("suggestion"))
+                    report_violation(
+                        filepath, v["line"], v["name"], v.get("suggestion")
+                    )
 
     return 1 if failed else 0
 

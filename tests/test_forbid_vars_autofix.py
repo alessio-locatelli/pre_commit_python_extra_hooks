@@ -74,7 +74,9 @@ def test_fix_mode_http(tmp_path):
 def test_suggest_mode_file_open(tmp_path):
     """Test suggestions for file open."""
     bad_file_content = (AUTOFIXABLE_DIR / "bad" / "file_open.py").read_text()
-    setup_test_env(tmp_path, PYPROJECT_TOML_FILE_ENABLED, {"file_open.py": bad_file_content})
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_FILE_ENABLED, {"file_open.py": bad_file_content}
+    )
 
     returncode, stdout, stderr = run_hook(tmp_path, ["file_open.py"])
 
@@ -87,7 +89,9 @@ def test_fix_mode_file_open(tmp_path):
     """Test that --fix flag corrects file open violations."""
     bad_file_content = (AUTOFIXABLE_DIR / "bad" / "file_open.py").read_text()
     good_file_content = (AUTOFIXABLE_DIR / "good" / "file_open.py").read_text()
-    setup_test_env(tmp_path, PYPROJECT_TOML_FILE_ENABLED, {"file_open.py": bad_file_content})
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_FILE_ENABLED, {"file_open.py": bad_file_content}
+    )
 
     returncode, stdout, stderr = run_hook(tmp_path, ["file_open.py"], ["--fix"])
 
@@ -154,7 +158,9 @@ enabled = ["file"]
 def test_disabled_category(tmp_path):
     """Test that disabled categories are not autofixed."""
     bad_file_content = (AUTOFIXABLE_DIR / "bad" / "http.py").read_text()
-    setup_test_env(tmp_path, PYPROJECT_TOML_HTTP_DISABLED, {"http.py": bad_file_content})
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_HTTP_DISABLED, {"http.py": bad_file_content}
+    )
 
     returncode, stdout, stderr = run_hook(tmp_path, ["http.py"], ["--fix"])
 
@@ -185,7 +191,9 @@ def test_custom_pattern(tmp_path):
     """Test that custom patterns are correctly applied."""
     bad_file_content = (AUTOFIXABLE_DIR / "bad" / "custom.py").read_text()
     good_file_content = (AUTOFIXABLE_DIR / "good" / "custom.py").read_text()
-    setup_test_env(tmp_path, PYPROJECT_TOML_CUSTOM_PATTERN, {"custom.py": bad_file_content})
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_CUSTOM_PATTERN, {"custom.py": bad_file_content}
+    )
 
     returncode, stdout, stderr = run_hook(tmp_path, ["custom.py"], ["--fix"])
 

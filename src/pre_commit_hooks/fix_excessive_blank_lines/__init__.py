@@ -105,7 +105,8 @@ def check_file(filename: str) -> list[tuple[int, str]]:
                 violations.append(
                     (
                         start_blank + 1,
-                        f"Excessive blank lines ({blank_count}) should be collapsed to 1",
+                        f"Excessive blank lines ({blank_count}) "
+                        + "should be collapsed to 1",
                     )
                 )
             blank_count = 0
@@ -165,9 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 if no violations, 1 if violations found/fixed)
     """
-    parser = argparse.ArgumentParser(description="Fix excessive blank lines after module headers")
+    parser = argparse.ArgumentParser(
+        description="Fix excessive blank lines after module headers"
+    )
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
-    parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
+    parser.add_argument(
+        "--fix", action="store_true", help="Automatically fix violations"
+    )
 
     args = parser.parse_args(argv)
 
@@ -180,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Fixed: {filename}", file=sys.stderr)
             else:
                 for line_num, message in violations:
-                    print(f"{filename}:{line_num}: STYLE-002: {message}", file=sys.stderr)
+                    print(
+                        f"{filename}:{line_num}: STYLE-002: {message}", file=sys.stderr
+                    )
             exit_code = 1
 
     return exit_code

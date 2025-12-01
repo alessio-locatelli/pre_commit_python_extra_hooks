@@ -45,5 +45,7 @@ def test_handles_files_without_module_header(tmp_path):
 def test_preserves_blank_lines_in_code_body(tmp_path):
     """Test that blank lines in code body are preserved."""
     test_file = tmp_path / "test.py"
-    test_file.write_text('"""Module docstring."""\n\nimport os\n\n\ndef function():\n    pass\n')
+    test_file.write_text(
+        '"""Module docstring."""\n\nimport os\n\n\ndef function():\n    pass\n'
+    )
     # Hook should only fix module-level blank lines
