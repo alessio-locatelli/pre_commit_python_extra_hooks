@@ -115,26 +115,58 @@ Developers using functions with semantic names (like `get_user()`, `find_order()
 
 ### Functional Requirements
 
-- **FR-001**: System MUST analyze the right-hand side (RHS) of assignment expressions to determine if an auto-fix pattern applies
-- **FR-002**: System MUST support pattern matching for HTTP/network libraries (requests, httpx, aiohttp, urllib)
-- **FR-003**: System MUST support pattern matching for file I/O operations (open(), Path.read_text(), json.load())
-- **FR-004**: System MUST support pattern matching for database operations (cursor.execute(), .fetchall(), ORM methods)
-- **FR-005**: System MUST support pattern matching for data science libraries (pandas, numpy, regex)
-- **FR-006**: System MUST support semantic pattern extraction from function names (get_X, find_X, create_X patterns)
-- **FR-007**: System MUST respect existing inline ignore comments and not suggest fixes for suppressed violations
-- **FR-008**: System MUST support configurable fix application mode: default behavior reports suggested changes without modifying files, with optional command-line flag (e.g., `--fix`) to enable automatic application of fixes
-- **FR-009**: System MUST handle cases where multiple patterns could apply by selecting the most specific match (longest or most detailed pattern), ranking patterns by their specificity level
-- **FR-010**: System MUST validate that suggested replacements do not create new violations or conflicts
-- **FR-011**: System MUST provide clear feedback to users about what was changed (if auto-applying) or what should change (if suggesting)
-- **FR-012**: System MUST gracefully handle files with syntax errors by skipping auto-fix analysis (consistent with current hook behavior)
-- **FR-013**: System MUST preserve code formatting and indentation when applying fixes
-- **FR-014**: System MUST only analyze assignment contexts where forbidden names are found (do not scan files without violations)
-- **FR-015**: Users MUST be able to configure which auto-fix patterns are enabled
-- **FR-016**: Users MUST be able to add custom auto-fix patterns without modifying core hook code
+- **FR-001**: System MUST analyze the right-hand side (RHS) of assignment expressions to determine if an auto-fix pattern applies. This analysis will be based on a regular expression match against the source code of the RHS AST node.
+- **FR-002**: System MUST support pattern matching for HTTP/network libraries (requests, httpx, aiohttp, urllib).
+  - Example Patterns:
+    - `requests.get(...)` → `response`
+    - `requests.post(...)` → `response`
+    - `response.json()` → `payload` or `data` (if not forbidden)
+- **FR-003**: System MUST support pattern matching for file I/O operations.
+  - Example Patterns:
+    - `open(...)` → `file_handle`
+    - `Path(...).read_text()` → `file_content`
+    - `json.load(...)` → `parsed_data`
+    - `file.read()` → `content`
+- **FR-004**: System MUST support pattern matching for database operations.
+  - Example Patterns:
+    - `cursor.execute(...)` → `cursor`
+    - `cursor.fetchall()` → `rows`
+    - `Model.objects.filter(...)` → `queryset`
+    - `Model.objects.get(...)` → `instance`
+- **FR-005**: System MUST support pattern matching for data science libraries.
+  - Example Patterns:
+    - `pd.read_csv(...)` → `df`
+    - `np.array(...)` → `arr`
+    - `re.search(...)` → `match`
+    - `re.findall(...)` → `matches`
+- **FR-006**: System MUST support semantic pattern extraction from function names. The extraction algorithm should identify verbs like `get_`, `find_`, `create_` and extract the subsequent noun phrase (e.g., `get_user_profile` → `user_profile`).
+- **FR-007**: System MUST respect existing inline ignore comments (e.g., `# noqa: F841`) and not suggest fixes for suppressed violations.
+- **FR-008**: System MUST support a configurable fix application mode. The default mode will only report suggested changes. A `--fix` command-line flag MUST be provided to enable automatic application of fixes.
+- **FR-009**: System MUST handle cases where multiple patterns could apply by selecting the most specific match. Specificity is ranked in order: regex match length (longer is better), and then by explicit priority defined in the pattern configuration.
+- **FR-010**: System MUST validate that suggested replacements do not create new violations (e.g., suggesting a forbidden name) or introduce name collisions within the current scope. In case of a collision, the system should attempt to create a unique variable name (e.g., `response_2`).
+- **FR-011**: System MUST provide clear, structured feedback. In suggest mode, output should be `filename:line_number:original_name:suggested_name:pattern_name`. In `--fix` mode, it should report `Applied fix for 'original_name' -> 'suggested_name' in filename:line_number`.
+- **FR-012**: System MUST gracefully handle files with syntax errors by skipping auto-fix analysis for that file, consistent with current hook behavior.
+- **FR-013**: System MUST preserve code formatting and indentation when applying fixes. This should be achieved by using AST-based rewriting tools like `libcaster` if possible.
+- **FR-014**: System MUST only analyze assignment contexts where forbidden names are found.
+- **FR-015**: Users MUST be able to enable or disable auto-fix pattern categories via a `[tool.forbid-vars.autofix]` section in `pyproject.toml`.
+- **FR-016**: Users MUST be able to add custom auto-fix patterns in `pyproject.toml`. The schema for a custom pattern MUST include a regex, a replacement string, a category, and an optional priority. The system MUST validate custom patterns against this schema.
+- **FR-017**: The hook's exit code MUST be `1` if it suggests or applies fixes, and `0` otherwise. This ensures `pre-commit` framework correctly reports success or failure.
+- **FR-018**: System MUST handle method chaining (e.g., `requests.get(...).json()`) by matching the pattern against the entire chain.
+- **FR-019**: System MUST support multi-line assignments.
+- **FR-020**: System must not make suggestions for assignments inside comprehensions to avoid complexity and potential errors.
+- **FR-021**: For potential false positives, users MUST be able to disable specific patterns via configuration.
+- **FR-022**: In `--fix` mode, if a fix cannot be applied safely (e.g., name collision that can't be resolved, or would break code), the hook MUST report an error for that specific violation and not attempt to apply the fix.
+- **FR-023**: When a file contains mixed violations (some fixable, some not), the hook MUST apply fixes for the ones it can and report suggestions for the others.
+
+### Non-Functional Requirements
+
+- **NFR-001**: The hook must maintain backward compatibility with existing `forbid-vars` configurations.
+- **NFR-002**: Memory usage should not increase significantly when autofix is enabled.
+- **NFR-003**: The pattern matching logic should be designed to be performant, avoiding excessive backtracking in regexes.
 
 ### Key Entities
 
-- **Auto-Fix Pattern**: Represents a rule that maps a code pattern (RHS expression) to a suggested variable name, including: trigger regex (what to match on RHS), suggested replacement name, confidence level, and category (HTTP, File I/O, Database, etc.)
+- **Auto-Fix Pattern**: Represents a rule that maps a code pattern (RHS expression) to a suggested variable name, including: trigger regex (what to match on RHS), suggested replacement name, confidence level (initially a placeholder, could be based on pattern specificity), and category (HTTP, File I/O, Database, etc.)
 - **Violation**: A detected use of a forbidden variable name, including: variable name, line number, file path, and (new) applicable auto-fix pattern if one matches
 - **Fix Suggestion**: A proposed change to resolve a violation, including: original name, suggested name, line number, rationale (which pattern matched), and confidence level
 
@@ -142,12 +174,12 @@ Developers using functions with semantic names (like `get_user()`, `find_order()
 
 ### Measurable Outcomes
 
-- **SC-001**: Developers can resolve at least 70% of HTTP-related forbid-vars violations without manual variable renaming
-- **SC-002**: The hook correctly identifies auto-fix opportunities for the five major categories (HTTP, File I/O, Database, Data Science, Semantic) with 90%+ accuracy (no incorrect suggestions)
-- **SC-003**: Developers can enable or disable specific auto-fix pattern categories through configuration
-- **SC-004**: Processing time for files with violations increases by less than 50% when auto-fix analysis is enabled
-- **SC-005**: Zero false positive auto-fix suggestions are applied (suggested name is always semantically appropriate for the context)
-- **SC-006**: Developers can add custom auto-fix patterns without requiring code changes to the hook (configuration-based extensibility)
+- **SC-001**: Developers can resolve at least 70% of HTTP-related forbid-vars violations without manual variable renaming, as measured against a representative internal codebase.
+- **SC-002**: The hook correctly identifies auto-fix opportunities for the five major categories with 90%+ accuracy. A suggestion is "correct" if it is semantically appropriate and does not introduce new bugs or style issues.
+- **SC-003**: Developers can enable or disable specific auto-fix pattern categories through configuration. Verification: A test will confirm that disabling the 'http' category prevents suggestions for `requests.get()`.
+- **SC-004**: Processing time for files with violations increases by less than 50% when auto-fix analysis is enabled, compared to the baseline of running the hook without this feature.
+- **SC-005**: The system aims for zero false positive auto-fix applications. Any applied fix that is semantically incorrect is considered a high-priority bug.
+- **SC-006**: Developers can add custom auto-fix patterns without requiring code changes to the hook (configuration-based extensibility).
 
 ## Assumptions
 
@@ -160,5 +192,5 @@ Developers using functions with semantic names (like `get_user()`, `find_order()
 
 ## Dependencies
 
-- Existing forbid-vars hook must be functional and capable of detecting forbidden variable names
-- Hook must support analyzing both variable names and their assigned values to enable pattern matching
+- The existing `forbid-vars` hook's AST parsing logic is used to identify assignment statements with forbidden variable names.
+- The auto-fix feature will be built on top of this, accessing the RHS of the assignment node (`ast.Assign.value`).

@@ -104,9 +104,9 @@ class Child(Base):
 
 ---
 
-### forbid-vars (Original)
+### forbid-vars
 
-Prevents use of meaningless variable names like `data` and `result`.
+Prevents use of meaningless variable names like `data` and `result`. Now with autofix!
 
 **Why?** Meaningless variable names reduce code clarity and maintainability. See [Peter Hilton's article on meaningless variable names](https://hilton.org.uk/blog/meaningless-variable-names) for more context.
 
@@ -118,31 +118,72 @@ Prevents use of meaningless variable names like `data` and `result`.
 **Features:**
 
 - Detects forbidden names in assignments, function parameters, and async functions
+- **Autofixing**: Suggests and optionally applies meaningful names based on context (`--fix`).
 - Supports custom blacklist via `--names` argument
 - Inline suppression with `# maintainability: ignore[meaningless-variable-name]`
 - Clear error messages with line numbers and helpful links
 - Works independently (no git/pre-commit required for testing)
 
-**Why AST instead of grep?**
+#### Autofixing Violations
 
-This hook uses Python's AST parser for 100% accuracy instead of simple pattern matching:
+The `forbid-vars` hook can now automatically suggest and apply fixes for common violation patterns.
 
-```python
-# grep creates false positives:
-obj.data = 1        # ❌ grep matches (but this is an attribute, not a variable)
-"data = 1"          # ❌ grep matches (inside a string)
-# data = 1          # ❌ grep matches (inside a comment)
+**Suggest Mode (default):**
 
-# grep misses critical violations:
-def foo(data):      # ❌ grep misses function parameters!
-    pass
+By default, the hook runs in "suggest mode". It will report forbidden names and suggest a better name if a known pattern is matched.
 
-# AST correctly handles all cases with zero false positives
+```
+src/process.py:42: Forbidden variable name 'data' found. Consider renaming to 'user_records'. Or add ...
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md#choosing-between-bash-and-python) for when to use bash vs. Python for hooks.
+**Fix Mode (`--fix`):**
 
-## Installation
+To automatically apply the suggested fixes, you can use the `--fix` argument in your `.pre-commit-config.yaml`:
+
+```yaml
+- repo: https://github.com/YOUR_USERNAME/pre-commit-extra-hooks
+  rev: v1.0.0
+  hooks:
+    - id: forbid-vars
+      args: ["--fix"]
+```
+When a fix is applied, the hook will report the change:
+```
+Applied fix for 'data' -> 'user_records' in src/process.py:42
+```
+
+#### Autofix Configuration (`pyproject.toml`)
+
+You can configure the autofix behavior in your `pyproject.toml` file.
+
+**Enabling/Disabling Categories:**
+
+The autofix patterns are grouped into categories (`http`, `file`, `database`, `data-science`, `semantic`). By default, only the `http` category is enabled. You can enable more categories like this:
+
+```toml
+[tool.forbid-vars.autofix]
+enabled = ["http", "file", "database"]
+```
+
+**Custom Patterns:**
+
+You can also add your own custom patterns. This is useful for project-specific conventions.
+
+```toml
+[tool.forbid-vars.autofix]
+enabled = ["custom"]
+
+[[tool.forbid-vars.autofix.patterns]]
+category = "custom"
+regex = "get_user_profile"
+name = "user_profile"
+```
+
+**Limitation:** The autofix feature performs a file-wide search and replace for the variable name. This works well in most cases, but it can lead to incorrect changes if the same forbidden variable name (e.g., `data`) is used for different things in the same file. It is recommended to avoid reusing generic names for different purposes within the same file.
+
+---
+
+### fix-misplaced-comments
 
 ### Using pre-commit
 

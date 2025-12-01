@@ -10,19 +10,18 @@ version = "1.0.0"
 description = "Custom pre-commit hooks for code quality enforcement"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
-authors = [
-    {name = "Sam", email = "sam@example.com"}
-]
+license = { text = "MIT" }
+authors = [{ name = "Sam", email = "sam@example.com" }]
+dependencies = ["toml; python_version < '3.11'"]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
 ]
 
 # Entry points define the CLI commands
@@ -32,11 +31,7 @@ forbid-vars = "pre_commit_hooks.forbid_vars:main"
 
 # Development dependencies
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "ruff>=0.1.0",
-    "pre-commit>=3.0",
-]
+dev = ["pytest>=7.0", "ruff>=0.1.0", "pre-commit>=3.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -46,21 +41,19 @@ include = ["pre_commit_hooks*"]
 [tool.ruff]
 line-length = 100
 target-version = "py38"
-exclude = [
-    "tests/fixtures/**",
-]
+exclude = ["tests/fixtures/**"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "SIM", # flake8-simplify
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "SIM", # flake8-simplify
 ]
 
 [tool.pytest.ini_options]
@@ -70,7 +63,4 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 
 [dependency-groups]
-dev = [
-    "pytest>=8.3.5",
-    "ruff>=0.14.7",
-]
+dev = ["pytest>=8.3.5", "ruff>=0.14.7"]
