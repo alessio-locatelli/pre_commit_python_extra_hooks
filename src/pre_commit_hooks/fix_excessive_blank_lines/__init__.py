@@ -13,6 +13,7 @@ Example:
 
           import os
 """
+
 import argparse
 import sys
 
@@ -164,9 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 if no violations, 1 if violations found/fixed)
     """
-    parser = argparse.ArgumentParser(
-        description="Fix excessive blank lines after module headers"
-    )
+    parser = argparse.ArgumentParser(description="Fix excessive blank lines after module headers")
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
     parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
 
@@ -181,9 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Fixed: {filename}", file=sys.stderr)
             else:
                 for line_num, message in violations:
-                    print(
-                        f"{filename}:{line_num}: STYLE-002: {message}", file=sys.stderr
-                    )
+                    print(f"{filename}:{line_num}: STYLE-002: {message}", file=sys.stderr)
             exit_code = 1
 
     return exit_code

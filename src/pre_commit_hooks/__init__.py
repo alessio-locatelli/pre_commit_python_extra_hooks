@@ -1,1 +1,3 @@
-"""Pre-commit hooks for style and maintainability checking."""
+"""Custom pre-commit hooks for code quality enforcement."""
+
+__version__ = "1.0.0"

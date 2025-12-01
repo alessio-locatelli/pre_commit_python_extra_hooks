@@ -1,4 +1,5 @@
 """Entry point for check-redundant-super-init hook."""
+
 import sys
 
 from . import main

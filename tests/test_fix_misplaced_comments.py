@@ -4,11 +4,7 @@
 def test_detects_trailing_comment_on_closing_paren(tmp_path):
     """Test detection of comment on closing parenthesis line."""
     test_file = tmp_path / "test.py"
-    test_file.write_text(
-        "result = func(\n"
-        "    arg\n"
-        ")  # Comment here\n"
-    )
+    test_file.write_text("result = func(\n    arg\n)  # Comment here\n")
     # Import will be done when hook is implemented
     # This test validates the fixture structure
 
@@ -16,11 +12,7 @@ def test_detects_trailing_comment_on_closing_paren(tmp_path):
 def test_fixes_trailing_comment_inline_placement(tmp_path):
     """Test fixing comment with inline placement when line fits 88 chars."""
     test_file = tmp_path / "test.py"
-    test_file.write_text(
-        "result = x(\n"
-        "    arg\n"
-        ")  # Short comment\n"
-    )
+    test_file.write_text("result = x(\n    arg\n)  # Short comment\n")
     # Hook implementation will verify comment moves to arg line
 
 
@@ -39,22 +31,14 @@ def test_fixes_trailing_comment_preceding_placement(tmp_path):
 def test_no_violation_for_correct_code(tmp_path):
     """Test that correctly placed comments are not flagged."""
     test_file = tmp_path / "test.py"
-    test_file.write_text(
-        "result = func(\n"
-        "    arg  # Comment inline on expression\n"
-        ")\n"
-    )
+    test_file.write_text("result = func(\n    arg  # Comment inline on expression\n)\n")
     # Hook should return 0 exit code for this file
 
 
 def test_handles_syntax_errors_gracefully(tmp_path):
     """Test handling of files with syntax errors."""
     test_file = tmp_path / "test.py"
-    test_file.write_text(
-        "def broken(\n"
-        "    arg\n"
-        "  # Missing closing paren\n"
-    )
+    test_file.write_text("def broken(\n    arg\n  # Missing closing paren\n")
     # Hook should skip file gracefully, not crash
 
 
@@ -63,10 +47,7 @@ def test_preserves_file_encoding_and_line_endings(tmp_path):
     test_file = tmp_path / "test.py"
     # Write with UTF-8 BOM
     test_file.write_text(
-        "# -*- coding: utf-8 -*-\n"
-        "result = func(\n"
-        "    arg\n"
-        ")  # Comment\n",
+        "# -*- coding: utf-8 -*-\nresult = func(\n    arg\n)  # Comment\n",
         encoding="utf-8",
     )
     # Hook should preserve encoding marker

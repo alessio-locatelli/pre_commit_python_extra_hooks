@@ -1,4 +1,5 @@
 """Entry point for fix-excessive-blank-lines hook."""
+
 import sys
 
 from . import main

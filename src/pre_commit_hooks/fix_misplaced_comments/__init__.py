@@ -9,6 +9,7 @@ Example:
     or:   # Comment before expression
           result = func(arg)
 """
+
 import argparse
 import sys
 import tokenize
@@ -133,9 +134,7 @@ def fix_file(filename: str) -> None:
                             potential_inline = f"{prev_line}  {comment_text}"
                             if len(potential_inline) <= 88:
                                 # Place inline on previous line
-                                new_lines[prev_line_idx] = (
-                                    prev_line + f"  {comment_text}\n"
-                                )
+                                new_lines[prev_line_idx] = prev_line + f"  {comment_text}\n"
                             else:
                                 # Place as preceding comment
                                 new_lines[prev_line_idx] = (
@@ -144,8 +143,7 @@ def fix_file(filename: str) -> None:
 
                             # Remove comment from bracket line
                             new_lines[bracket_line_idx] = (
-                                new_lines[bracket_line_idx][: next_token.start[1]].rstrip()
-                                + "\n"
+                                new_lines[bracket_line_idx][: next_token.start[1]].rstrip() + "\n"
                             )
                     break
 
@@ -166,9 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code (0 if no violations, 1 if violations found/fixed)
     """
-    parser = argparse.ArgumentParser(
-        description="Fix comments misplaced on closing brackets"
-    )
+    parser = argparse.ArgumentParser(description="Fix comments misplaced on closing brackets")
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
     parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
 

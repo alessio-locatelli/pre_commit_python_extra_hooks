@@ -1,4 +1,5 @@
 """Entry point for fix-misplaced-comments hook."""
+
 import sys
 
 from . import main
