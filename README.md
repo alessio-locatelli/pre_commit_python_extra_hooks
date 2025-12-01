@@ -8,10 +8,6 @@ Custom pre-commit hooks for code quality enforcement.
 
 ## Available Hooks
 
-### forbid-vars
-
-Prevents use of meaningless variable names like `data` and `result`.
-
 ---
 
 ### fix-misplaced-comments
@@ -28,10 +24,10 @@ result = func(
     arg
 )  # Comment about the function call
 
-# Fixed - comment moves to expression:
+# Fixed - comment moves to expression line:
 result = func(
-    arg
-)  # Comment about the function call
+    arg  # Comment about the function call
+)
 ```
 
 **Features:**
