@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,9 @@ import pytest
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
-def run_hook(filenames, args=None):
+def run_hook(
+    filenames: Sequence[str], args: Sequence[str] | None = None
+) -> tuple[int, str, str]:
     """
     Run the forbid-vars hook on the given files.
 
@@ -26,21 +29,21 @@ def run_hook(filenames, args=None):
     return result.returncode, result.stdout, result.stderr
 
 
-def test_success_case():
+def test_success_case() -> None:
     """Test that files with only allowed variable names pass (exit 0)."""
     valid_file = FIXTURES_DIR / "valid_code.py"
-    returncode, stdout, stderr = run_hook([valid_file])
+    returncode, stdout, stderr = run_hook([str(valid_file)])
 
     assert returncode == 0, "Hook should pass on files with descriptive variable names"
     assert stdout == "", "No output expected for passing files"
 
 
-def test_failure_case():
+def test_failure_case() -> None:
     """
     Test that files with forbidden variable names fail (exit 1) with error messages.
     """
     invalid_file = FIXTURES_DIR / "invalid_code.py"
-    returncode, stdout, stderr = run_hook([invalid_file])
+    returncode, stdout, stderr = run_hook([str(invalid_file)])
 
     assert returncode == 1, "Hook should fail on files with forbidden variable names"
     assert "data" in stdout, "Error message should mention 'data'"
@@ -49,27 +52,27 @@ def test_failure_case():
     assert ":" in stdout, "Error message should include line number separator"
 
 
-def test_ignore_comment():
+def test_ignore_comment() -> None:
     """Test that violations with inline ignore comments are suppressed (exit 0)."""
     ignored_file = FIXTURES_DIR / "ignored_code.py"
-    returncode, stdout, stderr = run_hook([ignored_file])
+    returncode, stdout, stderr = run_hook([str(ignored_file)])
 
     assert returncode == 0, "Hook should pass when violations are suppressed"
     assert stdout == "", "No output expected when all violations are ignored"
 
 
-def test_custom_blacklist():
+def test_custom_blacklist() -> None:
     """Test that --names argument allows custom forbidden variable names."""
     valid_file = FIXTURES_DIR / "valid_code.py"
     returncode, stdout, stderr = run_hook(
-        [valid_file], ["--names=invoice_items,total_amount"]
+        [str(valid_file)], ["--names=invoice_items,total_amount"]
     )
 
     assert returncode == 1, "Hook should fail with custom blacklist"
     assert "invoice_items" in stdout or "total_amount" in stdout
 
 
-def test_empty_file():
+def test_empty_file() -> None:
     """Test that empty files pass (exit 0)."""
     import tempfile
 
@@ -85,7 +88,7 @@ def test_empty_file():
         os.unlink(empty_file)
 
 
-def test_syntax_error():
+def test_syntax_error() -> None:
     """Test graceful handling of files with syntax errors."""
     import tempfile
 
@@ -103,10 +106,10 @@ def test_syntax_error():
         os.unlink(syntax_error_file)
 
 
-def test_function_parameters():
+def test_function_parameters() -> None:
     """Test that forbidden names in function parameters are detected."""
     invalid_file = FIXTURES_DIR / "invalid_code.py"
-    returncode, stdout, stderr = run_hook([invalid_file])
+    returncode, stdout, stderr = run_hook([str(invalid_file)])
 
     assert returncode == 1, "Hook should detect forbidden names in function parameters"
     # The invalid_code.py has multiple functions with 'data' and 'result' as parameters
@@ -114,10 +117,10 @@ def test_function_parameters():
     assert "result" in stdout
 
 
-def test_multiple_violations():
+def test_multiple_violations() -> None:
     """Test that all violations in a file are reported."""
     invalid_file = FIXTURES_DIR / "invalid_code.py"
-    returncode, stdout, stderr = run_hook([invalid_file])
+    returncode, stdout, stderr = run_hook([str(invalid_file)])
 
     assert returncode == 1, "Hook should fail on files with violations"
     # Count occurrences of 'data' and 'result' in output
@@ -129,7 +132,7 @@ def test_multiple_violations():
     assert result_count >= 2, "Should report multiple 'result' violations"
 
 
-def test_no_files():
+def test_no_files() -> None:
     """Test that hook exits 0 when no files are provided."""
     returncode, stdout, stderr = run_hook([])
 
@@ -137,10 +140,10 @@ def test_no_files():
     assert stdout == "", "No output expected when no files provided"
 
 
-def test_error_message_format():
+def test_error_message_format() -> None:
     """Test that error messages follow the standard linter format."""
     invalid_file = FIXTURES_DIR / "invalid_code.py"
-    returncode, stdout, stderr = run_hook([invalid_file])
+    returncode, stdout, stderr = run_hook([str(invalid_file)])
 
     assert returncode == 1
     # Error format should be: filepath:line: message
@@ -158,10 +161,10 @@ def test_error_message_format():
             pytest.fail(f"Line number should be numeric in: {line}")
 
 
-def test_error_message_includes_link():
+def test_error_message_includes_link() -> None:
     """Test that error messages include link to meaningless variable names article."""
     invalid_file = FIXTURES_DIR / "invalid_code.py"
-    returncode, stdout, stderr = run_hook([invalid_file])
+    returncode, stdout, stderr = run_hook([str(invalid_file)])
 
     assert returncode == 1
     assert "hilton.org.uk" in stdout, "Error message should include link to article"
@@ -170,7 +173,7 @@ def test_error_message_includes_link():
     )
 
 
-def test_case_sensitivity():
+def test_case_sensitivity() -> None:
     """Test that forbidden names are case-sensitive."""
     import tempfile
 
@@ -187,7 +190,7 @@ def test_case_sensitivity():
         os.unlink(case_file)
 
 
-def test_attribute_access_not_flagged():
+def test_attribute_access_not_flagged() -> None:
     """Test that attribute access like obj.data is not flagged."""
     import tempfile
 

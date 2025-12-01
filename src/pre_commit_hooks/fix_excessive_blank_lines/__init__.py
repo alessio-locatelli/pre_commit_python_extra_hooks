@@ -101,7 +101,7 @@ def check_file(filename: str) -> list[tuple[int, str]]:
             blank_count += 1
         else:
             # Non-blank line found
-            if blank_count >= 2:
+            if blank_count >= 2 and start_blank is not None:
                 violations.append(
                     (
                         start_blank + 1,

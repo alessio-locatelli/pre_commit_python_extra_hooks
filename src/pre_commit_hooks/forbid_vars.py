@@ -6,15 +6,10 @@ import io
 import re
 import sys
 import tokenize
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
-
-try:
-    import tomllib
-except ImportError:
-    # Python < 3.11
-    import toml as tomllib
 
 # Regex pattern for inline ignore comments (case-insensitive)
 IGNORE_PATTERN = re.compile(

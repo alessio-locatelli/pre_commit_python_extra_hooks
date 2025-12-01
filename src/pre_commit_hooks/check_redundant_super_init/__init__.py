@@ -29,8 +29,8 @@ class SuperInitChecker(ast.NodeVisitor):
             filename: Name of file being checked
         """
         self.filename = filename
-        self.violations = []
-        self.classes = {}  # Track class definitions
+        self.violations: list[tuple[int, str]] = []
+        self.classes: dict[str, ast.ClassDef] = {}  # Track class definitions
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit a class definition.
