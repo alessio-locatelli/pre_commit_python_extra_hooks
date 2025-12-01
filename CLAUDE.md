@@ -77,9 +77,13 @@ These commands must be run in sequence:
 - After resolving merge conflicts
 - When tests fail due to style issues
 
-## Git Commit Guidelines
+## Git
 
-### Conventional Commits Standard
+Never use `git commit --amend`, `git commit --no-verify`, `git add --all`, `git add .`, or `git add -A`.
+
+### Git Commit Guidelines
+
+#### Conventional Commits Standard
 
 **ALWAYS** use the [Conventional Commits](https://www.conventionalcommits.org/) standard for commit messages.
 
