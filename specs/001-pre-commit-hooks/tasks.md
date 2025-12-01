@@ -16,6 +16,7 @@
 ## Path Conventions
 
 Single project structure:
+
 - `pre_commit_hooks/` - Hook implementation scripts
 - `tests/` - Test suite
 - Repository root - Configuration files
@@ -26,11 +27,11 @@ Single project structure:
 
 **Purpose**: Project initialization and basic structure
 
-- [X] T001 Create project directory structure (pre_commit_hooks/, tests/, tests/fixtures/)
-- [X] T002 Create pyproject.toml with Python 3.8+ configuration and entry points
-- [X] T003 [P] Create LICENSE file (MIT license)
-- [X] T004 [P] Create .gitignore for Python projects
-- [X] T005 [P] Create pre_commit_hooks/__init__.py module file
+- [x] T001 Create project directory structure (pre_commit_hooks/, tests/, tests/fixtures/)
+- [x] T002 Create pyproject.toml with Python 3.8+ configuration and entry points
+- [x] T003 [P] Create LICENSE file (MIT license)
+- [x] T004 [P] Create .gitignore for Python projects
+- [x] T005 [P] Create pre_commit_hooks/**init**.py module file
 
 ---
 
@@ -40,10 +41,10 @@ Single project structure:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T006 Configure ruff linting in pyproject.toml per Constitution II
-- [X] T007 [P] Configure pytest in pyproject.toml for test execution
-- [X] T008 [P] Create .pre-commit-config.yaml for self-dogfooding (ruff + prettier)
-- [X] T009 Create tests/__init__.py module file
+- [x] T006 Configure ruff linting in pyproject.toml per Constitution II
+- [x] T007 [P] Configure pytest in pyproject.toml for test execution
+- [x] T008 [P] Create .pre-commit-config.yaml for self-dogfooding (ruff + prettier)
+- [x] T009 Create tests/**init**.py module file
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -59,34 +60,34 @@ Single project structure:
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [X] T010 [P] [US1] Create tests/fixtures/valid_code.py with code using descriptive variable names
-- [X] T011 [P] [US1] Create tests/fixtures/invalid_code.py with code using 'data' and 'result' variables
-- [X] T012 [P] [US1] Create tests/fixtures/ignored_code.py with forbidden names + ignore comments
-- [X] T013 [US1] Write test_forbid_vars.py: test_success_case (exit 0 for valid code) in tests/test_forbid_vars.py
-- [X] T014 [US1] Write test_forbid_vars.py: test_failure_case (exit 1, error messages for invalid code) in tests/test_forbid_vars.py
-- [X] T015 [US1] Write test_forbid_vars.py: test_ignore_comment (exit 0 when inline ignore used) in tests/test_forbid_vars.py
-- [X] T016 [US1] Write test_forbid_vars.py: test_custom_blacklist (--names argument works) in tests/test_forbid_vars.py
-- [X] T017 [US1] Write test_forbid_vars.py: test_empty_file (exit 0 for empty file) in tests/test_forbid_vars.py
-- [X] T018 [US1] Write test_forbid_vars.py: test_syntax_error (graceful handling of invalid Python) in tests/test_forbid_vars.py
-- [X] T019 [US1] Write test_forbid_vars.py: test_function_parameters (detects forbidden names in function params) in tests/test_forbid_vars.py
-- [X] T020 [US1] Write test_forbid_vars.py: test_multiple_violations (reports all violations in file) in tests/test_forbid_vars.py
+- [x] T010 [P] [US1] Create tests/fixtures/valid_code.py with code using descriptive variable names
+- [x] T011 [P] [US1] Create tests/fixtures/invalid_code.py with code using 'data' and 'result' variables
+- [x] T012 [P] [US1] Create tests/fixtures/ignored_code.py with forbidden names + ignore comments
+- [x] T013 [US1] Write test_forbid_vars.py: test_success_case (exit 0 for valid code) in tests/test_forbid_vars.py
+- [x] T014 [US1] Write test_forbid_vars.py: test_failure_case (exit 1, error messages for invalid code) in tests/test_forbid_vars.py
+- [x] T015 [US1] Write test_forbid_vars.py: test_ignore_comment (exit 0 when inline ignore used) in tests/test_forbid_vars.py
+- [x] T016 [US1] Write test_forbid_vars.py: test_custom_blacklist (--names argument works) in tests/test_forbid_vars.py
+- [x] T017 [US1] Write test_forbid_vars.py: test_empty_file (exit 0 for empty file) in tests/test_forbid_vars.py
+- [x] T018 [US1] Write test_forbid_vars.py: test_syntax_error (graceful handling of invalid Python) in tests/test_forbid_vars.py
+- [x] T019 [US1] Write test_forbid_vars.py: test_function_parameters (detects forbidden names in function params) in tests/test_forbid_vars.py
+- [x] T020 [US1] Write test_forbid_vars.py: test_multiple_violations (reports all violations in file) in tests/test_forbid_vars.py
 
 ### Implementation for User Story 1
 
-- [X] T021 [US1] Implement ForbiddenNameVisitor class (ast.NodeVisitor) in pre_commit_hooks/forbid_vars.py
-- [X] T022 [US1] Implement visit_Assign method (detect regular assignments) in pre_commit_hooks/forbid_vars.py
-- [X] T023 [US1] Implement visit_AnnAssign method (detect annotated assignments) in pre_commit_hooks/forbid_vars.py
-- [X] T024 [US1] Implement visit_FunctionDef method (detect function parameters) in pre_commit_hooks/forbid_vars.py
-- [X] T025 [US1] Implement visit_AsyncFunctionDef method (detect async function parameters) in pre_commit_hooks/forbid_vars.py
-- [X] T026 [US1] Implement get_ignored_lines function (tokenize-based comment parsing) in pre_commit_hooks/forbid_vars.py
-- [X] T027 [US1] Implement check_file function (AST parsing, violation filtering) in pre_commit_hooks/forbid_vars.py
-- [X] T028 [US1] Implement main CLI function (argparse, file processing, exit codes) in pre_commit_hooks/forbid_vars.py
-- [X] T029 [US1] Add error message formatting per contract (file:line: message + link) in pre_commit_hooks/forbid_vars.py
-- [X] T030 [US1] Configure forbid-vars entry point in pyproject.toml [project.scripts]
-- [X] T031 [US1] Create .pre-commit-hooks.yaml with forbid-vars hook metadata at repository root
-- [X] T032 [US1] Run all tests and verify they pass with pytest
-- [X] T032b [US1] Validate FR-006: run forbid-vars hook script directly (not via pre-commit) with file paths to prove independence
-- [X] T033 [US1] Run ruff linter and fix any issues in pre_commit_hooks/forbid_vars.py
+- [x] T021 [US1] Implement ForbiddenNameVisitor class (ast.NodeVisitor) in pre_commit_hooks/forbid_vars.py
+- [x] T022 [US1] Implement visit_Assign method (detect regular assignments) in pre_commit_hooks/forbid_vars.py
+- [x] T023 [US1] Implement visit_AnnAssign method (detect annotated assignments) in pre_commit_hooks/forbid_vars.py
+- [x] T024 [US1] Implement visit_FunctionDef method (detect function parameters) in pre_commit_hooks/forbid_vars.py
+- [x] T025 [US1] Implement visit_AsyncFunctionDef method (detect async function parameters) in pre_commit_hooks/forbid_vars.py
+- [x] T026 [US1] Implement get_ignored_lines function (tokenize-based comment parsing) in pre_commit_hooks/forbid_vars.py
+- [x] T027 [US1] Implement check_file function (AST parsing, violation filtering) in pre_commit_hooks/forbid_vars.py
+- [x] T028 [US1] Implement main CLI function (argparse, file processing, exit codes) in pre_commit_hooks/forbid_vars.py
+- [x] T029 [US1] Add error message formatting per contract (file:line: message + link) in pre_commit_hooks/forbid_vars.py
+- [x] T030 [US1] Configure forbid-vars entry point in pyproject.toml [project.scripts]
+- [x] T031 [US1] Create .pre-commit-hooks.yaml with forbid-vars hook metadata at repository root
+- [x] T032 [US1] Run all tests and verify they pass with pytest
+- [x] T032b [US1] Validate FR-006: run forbid-vars hook script directly (not via pre-commit) with file paths to prove independence
+- [x] T033 [US1] Run ruff linter and fix any issues in pre_commit_hooks/forbid_vars.py
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - the forbid-vars hook works end-to-end
 
@@ -100,15 +101,15 @@ Single project structure:
 
 ### Implementation for User Story 2
 
-- [X] T034 [P] [US2] Create README.md with repository overview and hook listing at repository root
-- [X] T035 [US2] Document forbid-vars hook: purpose, usage, configuration in README.md
-- [X] T036 [US2] Add "Adding New Hooks" section to README.md with step-by-step guide
-- [X] T037 [US2] Add .pre-commit-config.yaml usage examples to README.md per FR-007
-- [X] T038 [US2] Document project structure and conventions in README.md
-- [X] T039 [US2] Add "Testing Hooks" section explaining how to test independently per FR-006
-- [X] T040 [US2] Add "Configuration Options" section for hook arguments in README.md
-- [X] T041 [P] [US2] Create inline .pre-commit-config.yaml example snippet in README.md showing forbid-vars usage
-- [X] T041b [P] [US2] Create .pre-commit-config.yaml.example file at repository root with complete configuration examples per FR-007
+- [x] T034 [P] [US2] Create README.md with repository overview and hook listing at repository root
+- [x] T035 [US2] Document forbid-vars hook: purpose, usage, configuration in README.md
+- [x] T036 [US2] Add "Adding New Hooks" section to README.md with step-by-step guide
+- [x] T037 [US2] Add .pre-commit-config.yaml usage examples to README.md per FR-007
+- [x] T038 [US2] Document project structure and conventions in README.md
+- [x] T039 [US2] Add "Testing Hooks" section explaining how to test independently per FR-006
+- [x] T040 [US2] Add "Configuration Options" section for hook arguments in README.md
+- [x] T041 [P] [US2] Create inline .pre-commit-config.yaml example snippet in README.md showing forbid-vars usage
+- [x] T041b [P] [US2] Create .pre-commit-config.yaml.example file at repository root with complete configuration examples per FR-007
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - hook works and documentation enables adding more hooks
 
@@ -122,15 +123,15 @@ Single project structure:
 
 ### Implementation for User Story 3
 
-- [X] T042 [P] [US3] Add CONTRIBUTING.md with guidelines for hook updates at repository root
-- [X] T043 [US3] Document semantic versioning strategy in CONTRIBUTING.md per FR-011
-- [X] T043b [US3] Add to README.md: how users should reference tags in .pre-commit-config.yaml (rev: v1.0.0 syntax) to enable autoupdate
-- [X] T044 [US3] Add backward compatibility guidelines to CONTRIBUTING.md
-- [X] T045 [US3] Add performance testing section to CONTRIBUTING.md (SC-002 requirement)
-- [X] T046 [US3] Document release process (tagging, changelog) in CONTRIBUTING.md
-- [X] T047 [US3] Add troubleshooting section to README.md (common issues, solutions)
-- [X] T048 [US3] Create initial git tag v1.0.0 for first release
-- [X] T049 [US3] Add CI/CD configuration recommendations to CONTRIBUTING.md
+- [x] T042 [P] [US3] Add CONTRIBUTING.md with guidelines for hook updates at repository root
+- [x] T043 [US3] Document semantic versioning strategy in CONTRIBUTING.md per FR-011
+- [x] T043b [US3] Add to README.md: how users should reference tags in .pre-commit-config.yaml (rev: v1.0.0 syntax) to enable autoupdate
+- [x] T044 [US3] Add backward compatibility guidelines to CONTRIBUTING.md
+- [x] T045 [US3] Add performance testing section to CONTRIBUTING.md (SC-002 requirement)
+- [x] T046 [US3] Document release process (tagging, changelog) in CONTRIBUTING.md
+- [x] T047 [US3] Add troubleshooting section to README.md (common issues, solutions)
+- [x] T048 [US3] Create initial git tag v1.0.0 for first release
+- [x] T049 [US3] Add CI/CD configuration recommendations to CONTRIBUTING.md
 
 **Checkpoint**: All user stories should now be independently functional with full lifecycle support
 
@@ -140,17 +141,17 @@ Single project structure:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [X] T050 [P] Add inline code comments explaining AST visitor logic in pre_commit_hooks/forbid_vars.py
-- [X] T051 [P] Add docstrings to all functions and classes in pre_commit_hooks/forbid_vars.py
-- [X] T052 [P] Verify error messages meet SC-003 (include what/where/how per spec)
-- [X] T052b [P] Manual validation: test error messages with fresh eyes (simulate new user, verify fix-ability without docs)
-- [X] T053 Run prettier on .pre-commit-hooks.yaml and README.md
-- [X] T054 Verify hook processes <1000 files in <5 seconds (SC-002 performance check)
-- [X] T055 Test hook on Linux, macOS, Windows environments per SC-006
-- [X] T056 [P] Add badge links to README.md (pre-commit compatible, Python version)
-- [X] T057 Validate quickstart.md scenarios manually (install, use, configure)
-- [X] T058 Run full test suite with pytest and ensure 100% pass rate
-- [X] T059 Final constitutional compliance check (all 5 principles met)
+- [x] T050 [P] Add inline code comments explaining AST visitor logic in pre_commit_hooks/forbid_vars.py
+- [x] T051 [P] Add docstrings to all functions and classes in pre_commit_hooks/forbid_vars.py
+- [x] T052 [P] Verify error messages meet SC-003 (include what/where/how per spec)
+- [x] T052b [P] Manual validation: test error messages with fresh eyes (simulate new user, verify fix-ability without docs)
+- [x] T053 Run prettier on .pre-commit-hooks.yaml and README.md
+- [x] T054 Verify hook processes <1000 files in <5 seconds (SC-002 performance check)
+- [x] T055 Test hook on Linux, macOS, Windows environments per SC-006
+- [x] T056 [P] Add badge links to README.md (pre-commit compatible, Python version)
+- [x] T057 Validate quickstart.md scenarios manually (install, use, configure)
+- [x] T058 Run full test suite with pytest and ensure 100% pass rate
+- [x] T059 Final constitutional compliance check (all 5 principles met)
 
 ---
 
@@ -191,23 +192,29 @@ Single project structure:
 ### Parallel Opportunities
 
 Within Setup (Phase 1):
+
 - T003, T004, T005 can run in parallel
 
 Within Foundational (Phase 2):
+
 - T007, T008, T009 can run in parallel after T006
 
 Within User Story 1:
+
 - Test fixtures (T010, T011, T012) can run in parallel
 - Test writing (T013-T020) can run in parallel after fixtures
 - AST visitor implementation (T022-T025) can overlap (different methods)
 
 Within User Story 2:
+
 - Most README sections (T034, T035, T036, T037, T038, T039, T040) can be written in parallel
 
 Within User Story 3:
+
 - CONTRIBUTING.md sections (T042, T043, T044, T045, T046) can be written in parallel
 
 Within Polish (Phase 6):
+
 - T050, T051, T052, T056 can run in parallel
 
 ---

@@ -89,11 +89,13 @@ After reviewing resources from [Python AST documentation](https://docs.python.or
 #### Option A: Regex-based Detection
 
 **Pros:**
+
 - Simple to implement
 - Works with syntactically invalid code
 - No dependencies
 
 **Cons:**
+
 - High false positive rate (matches strings, comments, attributes)
 - Cannot reliably distinguish `data = 1` from `obj.data = 1` or `"data"` in strings
 - Difficult to handle all assignment forms (destructuring, type hints, etc.)
@@ -102,6 +104,7 @@ After reviewing resources from [Python AST documentation](https://docs.python.or
 #### Option B: AST-based Detection
 
 **Pros:**
+
 - Zero false positives (only actual variables detected)
 - Handles all assignment types correctly:
   - `ast.Assign`: Regular assignments (`data = 1`)
@@ -112,6 +115,7 @@ After reviewing resources from [Python AST documentation](https://docs.python.or
 - Distinguishes variables from attributes/strings/comments automatically
 
 **Cons:**
+
 - Requires syntactically valid Python
 - Slightly more complex implementation
 - Requires AST knowledge
@@ -121,17 +125,20 @@ After reviewing resources from [Python AST documentation](https://docs.python.or
 Based on [Python AST examples](https://www.programcreek.com/python/example/4638/ast.Assign):
 
 1. **`ast.Assign`**: Regular assignments
+
    ```python
    data = 42  # node.targets[0].id == 'data'
    x, data = (1, 2)  # Multiple targets
    ```
 
 2. **`ast.AnnAssign`**: Type-annotated assignments
+
    ```python
    data: int = 42  # node.target.id == 'data'
    ```
 
 3. **`ast.FunctionDef` / `ast.AsyncFunctionDef`**: Function definitions
+
    ```python
    def foo(data):  # node.args.args[0].arg == 'data'
        pass
@@ -237,6 +244,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 Surveyed inline comment patterns from major Python linters based on [Python Lint and Format guide](https://copdips.com/2021/01/python-lint-and-format.html) and [flake8 documentation](https://flake8.pycqa.org/en/3.1.1/user/ignoring-errors.html):
 
 #### Flake8 Pattern
+
 - Format: `# noqa: E501` or `# noqa` (blanket ignore)
 - Regex from source: `r"# noqa(?::[\s]?(?P<codes>([A-Z][0-9]+(?:[,\s]+)?)+))?"`
 - Case-insensitive
@@ -244,16 +252,19 @@ Surveyed inline comment patterns from major Python linters based on [Python Lint
 - Important: Requires colon for specific codes
 
 #### Pylint Pattern
+
 - Format: `# pylint: disable=rule-name`
 - Example: `# pylint: disable=line-too-long,invalid-name`
 - Only recognizes its own annotations
 
 #### Mypy Pattern
+
 - Format: `# type: ignore[code]`
 - Example: `# type: ignore[attr-defined]`
 - Specific codes strongly recommended over blanket `# type: ignore`
 
 #### Ruff Pattern
+
 - Inherits flake8's noqa system
 - Format: `# noqa: RULE123` or `# ruff: noqa`
 - Also respects `# flake8: noqa`
@@ -324,6 +335,7 @@ def get_ignored_lines(source: str) -> set[int]:
    if '# maintainability: ignore[meaningless-variable-name]' in line:
        # ignore this line
    ```
+
    - Pro: Very simple
    - Con: False positive if comment appears in string
    - Rejected: tokenize is more accurate
@@ -357,16 +369,19 @@ Based on [Stefanie Molin's hook creation guide](https://stefaniemolin.com/articl
 #### Error Message Structure from Existing Tools
 
 **Flake8 format:**
+
 ```
 path/to/file.py:42:5: E501 line too long (82 > 79 characters)
 ```
 
 **Pylint format:**
+
 ```
 path/to/file.py:42:5: C0301: Line too long (82/79) (line-too-long)
 ```
 
 **Pattern:**
+
 ```
 {filepath}:{line}:{column}: {code} {message}
 ```
@@ -386,6 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 ```
 
 **Key points:**
+
 - Return `0` on success (all files pass)
 - Return `1` on failure (any file fails)
 - Process all files before returning (don't exit early)
@@ -435,6 +451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 ```
 
 **Example output (per user requirement):**
+
 ```
 src/process.py:42: Forbidden variable name 'data' found. Use a more descriptive name or add '# maintainability: ignore[meaningless-variable-name]' to suppress. See https://hilton.org.uk/blog/meaningless-variable-names
 src/process.py:51: Forbidden variable name 'result' found. Use a more descriptive name or add '# maintainability: ignore[meaningless-variable-name]' to suppress. See https://hilton.org.uk/blog/meaningless-variable-names
@@ -502,6 +519,7 @@ pre_commit_extra_hooks/
 ### Configuration
 
 **`.pre-commit-hooks.yaml`:**
+
 ```yaml
 - id: forbid-vars
   name: forbid meaningless variable names
@@ -512,13 +530,14 @@ pre_commit_extra_hooks/
 ```
 
 **Usage in `.pre-commit-config.yaml`:**
+
 ```yaml
 - repo: https://github.com/user/pre-commit-extra-hooks
   rev: v1.0.0
   hooks:
     - id: forbid-vars
       # Optional: override default blacklist
-      args: ['--names=data,result,info,temp']
+      args: ["--names=data,result,info,temp"]
 ```
 
 ---

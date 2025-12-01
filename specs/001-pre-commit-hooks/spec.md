@@ -15,7 +15,7 @@
 - Q: How should Python hook dependencies be managed? → A: No external dependencies (stdlib only)
 - Q: What should the first hook's purpose be? → A: Forbid specific variable names
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Using Custom Hooks in a Project (Priority: P1)
 
@@ -79,7 +79,7 @@ As the repository evolves, existing hooks may need bug fixes, performance improv
 - What happens when multiple hooks conflict in their file modifications (should have clear execution order and conflict resolution)?
 - How does the forbid-vars hook handle partial matches (e.g., should "myVar" be flagged if "Var" is forbidden, or only exact matches)? **RESOLVED**: The hook uses case-sensitive exact matching only. "Var" will not match "myVar" or "var". This ensures predictable behavior and avoids false positives.
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -104,7 +104,7 @@ As the repository evolves, existing hooks may need bug fixes, performance improv
 - **Repository Configuration**: Files that define the overall repository structure and make it discoverable by pre-commit. Includes `.pre-commit-hooks.yaml` and version management information.
 - **Documentation**: User-facing descriptions of each hook's functionality in README.md. Includes usage examples, configuration options, and troubleshooting guidance.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 
@@ -112,7 +112,7 @@ As the repository evolves, existing hooks may need bug fixes, performance improv
 - **SC-002**: Each hook processes files and reports results in under 5 seconds when checking fewer than 1000 files passed by pre-commit. **Measurement**: This applies to files matching the hook's filter pattern (e.g., Python files for forbid-vars), not all repository files. Measured as wall-clock time from hook invocation to exit.
 - **SC-003**: Hook error messages are clear enough that issues can be resolved without consulting external documentation. **Validation**: Error messages must include (1) what failed, (2) where it failed (file:line), and (3) how to fix it or link to guidance. Measured qualitatively through manual review during testing phases and user feedback in initial releases.
 - **SC-004**: New hooks can be added to the repository and become functional in under 30 minutes of development time
-- **SC-005**: The repository supports at least 5 different custom hooks addressing distinct code quality concerns. **MVP Exception**: Initial delivery (v1.0.0) includes 1 hook to prove the concept and framework compatibility. Subsequent releases (v1.1.0+) will add 4+ additional hooks to reach the 5-hook target. This criterion is satisfied when the repository demonstrates the *capability* to scale to multiple hooks through clear documentation and extensibility patterns (User Story 2).
+- **SC-005**: The repository supports at least 5 different custom hooks addressing distinct code quality concerns. **MVP Exception**: Initial delivery (v1.0.0) includes 1 hook to prove the concept and framework compatibility. Subsequent releases (v1.1.0+) will add 4+ additional hooks to reach the 5-hook target. This criterion is satisfied when the repository demonstrates the _capability_ to scale to multiple hooks through clear documentation and extensibility patterns (User Story 2).
 - **SC-006**: Hooks work correctly across different operating systems (Linux, macOS, Windows) without modification
 
 ### Assumptions

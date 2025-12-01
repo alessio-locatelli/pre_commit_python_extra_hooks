@@ -7,9 +7,10 @@
 ## Overview
 
 This guide walks through implementing three Python pre-commit hooks:
+
 1. **fix-misplaced-comments** (STYLE-001): Auto-fix trailing comments on closing brackets
 2. **fix-excessive-blank-lines** (STYLE-002): Auto-fix excessive blank lines after module headers
-3. **check-redundant-super-init** (MAINTAINABILITY-006): Detect redundant **kwargs forwarding
+3. **check-redundant-super-init** (MAINTAINABILITY-006): Detect redundant \*\*kwargs forwarding
 
 ## Prerequisites
 
@@ -46,6 +47,7 @@ touch tests/test_check_redundant_super_init.py
 **Key Components**:
 
 1. **Import required modules**:
+
    ```python
    import argparse
    import sys
@@ -66,6 +68,7 @@ touch tests/test_check_redundant_super_init.py
    - Write back to file with preserved encoding
 
 4. **CLI interface**:
+
    ```python
    def main():
        parser = argparse.ArgumentParser()
@@ -140,6 +143,7 @@ def test_no_violation_for_correct_code(tmp_path):
 **Key Components**:
 
 1. **Module header detection**:
+
    ```python
    def find_module_header_end(lines):
        """Find line number where module header ends."""
@@ -166,6 +170,7 @@ def test_no_violation_for_correct_code(tmp_path):
    ```
 
 2. **Blank line detection and fixing**:
+
    ```python
    def fix_blank_lines(lines, header_end):
        """Collapse 2+ consecutive blank lines after header to 1."""
@@ -221,6 +226,7 @@ def test_preserves_copyright_spacing(tmp_path):
 **Key Components**:
 
 1. **AST visitor**:
+
    ```python
    import ast
 
@@ -366,7 +372,7 @@ Detects when a class forwards `**kwargs` to a parent `__init__` that accepts no 
 **Problem**: Forwarding kwargs to parents that don't accept them creates misleading
 inheritance patterns.
 
-**Solution**: Reports violations with suggestions to remove unnecessary **kwargs.
+**Solution**: Reports violations with suggestions to remove unnecessary \*\*kwargs.
 ```
 
 ### Phase 7: Testing and Validation

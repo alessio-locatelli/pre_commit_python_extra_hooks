@@ -11,22 +11,26 @@ The forbid-vars hook operates on Python source code files, analyzing their Abstr
 Represents a single instance of a forbidden variable name found in source code.
 
 **Fields:**
+
 - `name` (string): The forbidden variable name that was detected (e.g., "data", "result")
 - `line` (integer): Line number in the source file where the violation occurred
 - `filepath` (string): Path to the file containing the violation (used for reporting)
 
 **Lifecycle:**
+
 - Created when AST visitor detects a forbidden name
 - Filtered against ignored lines
 - Reported to user via stderr
 - Discarded after reporting (no persistence)
 
 **Validation Rules:**
+
 - `name` must be non-empty string
 - `line` must be positive integer (1-indexed)
 - `filepath` must be valid file path
 
 **Example:**
+
 ```python
 {
     'name': 'data',
@@ -40,18 +44,22 @@ Represents a single instance of a forbidden variable name found in source code.
 Represents the configured set of variable names that are not allowed.
 
 **Fields:**
+
 - `names` (set of strings): Forbidden variable names to check for
 
 **Source:**
+
 - Default: `{'data', 'result'}` (per user requirement)
 - Override: Parsed from `--names` CLI argument (comma-separated list)
 
 **Validation Rules:**
+
 - Must contain at least one name
 - Names must be valid Python identifiers
 - Names are case-sensitive (Python convention)
 
 **Example:**
+
 ```python
 # Default
 {'data', 'result'}
@@ -65,19 +73,23 @@ Represents the configured set of variable names that are not allowed.
 Represents a line in the source code with an inline ignore comment.
 
 **Fields:**
+
 - `line` (integer): Line number where the ignore comment appears
 
 **Source:**
+
 - Parsed from Python file comments using `tokenize` module
 - Pattern: `# maintainability: ignore[meaningless-variable-name]` (case-insensitive)
 
 **Lifecycle:**
+
 - Extracted during file processing
 - Stored in set of line numbers
 - Used to filter violations before reporting
 - Discarded after file processing completes
 
 **Example:**
+
 ```python
 # Set of ignored line numbers
 {15, 23, 42}
@@ -100,6 +112,7 @@ Final Violations (reported to user)
 ```
 
 **Flow:**
+
 1. `ForbiddenNameSet` is configured from defaults or CLI args
 2. `IgnoreDirective` set is extracted from file comments
 3. AST Visitor processes file, creating `Violation` instances

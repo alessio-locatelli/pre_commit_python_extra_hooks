@@ -5,7 +5,7 @@
 **Status**: Draft
 **Input**: User description: "Three pre-commit hooks for Python code quality: STYLE-001 (misplaced comments), STYLE-002 (excessive blank lines), and MAINTAINABILITY-006 (redundant super init kwargs)"
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Detect and Fix Misplaced Comments (Priority: P1)
 
@@ -67,7 +67,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - How does the hook detect parent class signatures for super init checking when inheritance is complex (multiple inheritance, mixin patterns)?
 - What happens when the parent class is imported from another module?
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -96,7 +96,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - **Comment Placement Rule**: Encodes the logic for determining correct comment placement (inline vs preceding)
 - **Parent Signature**: Represents the `__init__` signature of parent classes for inheritance analysis
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 
@@ -107,7 +107,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - **SC-005**: False positive rate is below 5% (fewer than 1 in 20 reported violations are incorrect)
 - **SC-006**: Hooks can analyze files with complex Python syntax including decorators, async/await, type hints, and f-strings without errors
 
-## Assumptions *(mandatory)*
+## Assumptions _(mandatory)_
 
 - Developers are using Python 3.8+ (minimum version supported by pre-commit framework)
 - Code follows basic Python syntax rules (hooks may skip or error on files with syntax errors)
@@ -118,7 +118,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - The hooks will be run in a CI/CD environment where they should fail the build on violations
 - Files use consistent encoding (UTF-8 is standard Python default)
 
-## Constraints *(mandatory)*
+## Constraints _(mandatory)_
 
 - Must not introduce dependencies beyond Python standard library
 - Must work with Python 3.8+ (cannot use Python 3.9+ only features)
@@ -128,7 +128,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - Must handle edge cases gracefully without crashing (e.g., syntax errors, unusual formatting)
 - For MAINTAINABILITY-006, limited to analyzing parent classes defined in the same file or standard library (cannot analyze all possible imports)
 
-## Dependencies *(optional)*
+## Dependencies _(optional)_
 
 - **Python 3.8+**: Minimum runtime environment
 - **pre-commit framework**: Hooks must be compatible with pre-commit's hook execution model and configuration format
@@ -136,7 +136,7 @@ As a Python developer, I want to detect when I'm forwarding `**kwargs` to a pare
 - **Python tokenize module**: For preserving comments and analyzing tokens
 - **Python inspect module**: For analyzing parent class signatures (where accessible)
 
-## Non-Goals *(optional)*
+## Non-Goals _(optional)_
 
 - This feature does NOT aim to replace comprehensive linters like Pylint or Flake8
 - This feature does NOT aim to enforce all possible Python style guidelines (only the three specific rules)

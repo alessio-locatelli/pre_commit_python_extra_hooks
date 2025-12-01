@@ -38,6 +38,7 @@
 **Purpose**: These hooks have no shared infrastructure - each is completely independent
 
 **Note**: This project has no foundational phase because:
+
 - Each hook uses only Python stdlib (no shared dependencies to set up)
 - Hooks are independent (no shared code between them)
 - No database, authentication, or API infrastructure needed
@@ -123,21 +124,21 @@
 
 ## Phase 5: User Story 3 - Detect Redundant Super Init Kwargs (Priority: P3)
 
-**Goal**: Implement hook that detects when a class forwards **kwargs to a parent __init__ that accepts no arguments (detection-only, no auto-fix)
+**Goal**: Implement hook that detects when a class forwards \*\*kwargs to a parent **init** that accepts no arguments (detection-only, no auto-fix)
 
-**Independent Test**: Run `python -m pre_commit_hooks.check_redundant_super_init` on a Python file with redundant **kwargs forwarding and verify violation is detected
+**Independent Test**: Run `python -m pre_commit_hooks.check_redundant_super_init` on a Python file with redundant \*\*kwargs forwarding and verify violation is detected
 
 ### Tests for User Story 3
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
 - [ ] T044 [P] [US3] Create good fixture: `tests/fixtures/redundant_super_init/good/matching_signatures.py` with proper signature matching
-- [ ] T045 [P] [US3] Create good fixture: `tests/fixtures/redundant_super_init/good/parent_accepts_kwargs.py` with parent that accepts **kwargs
+- [ ] T045 [P] [US3] Create good fixture: `tests/fixtures/redundant_super_init/good/parent_accepts_kwargs.py` with parent that accepts \*\*kwargs
 - [ ] T046 [P] [US3] Create bad fixture: `tests/fixtures/redundant_super_init/bad/redundant_kwargs_forwarding.py` with child forwarding to parent()
 - [ ] T047 [P] [US3] Create bad fixture: `tests/fixtures/redundant_super_init/bad/multiple_inheritance_violation.py` with multiple parents, one violates
 - [ ] T048 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_detects_redundant_kwargs_forwarding (violation case)
 - [ ] T049 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_no_violation_when_parent_accepts_kwargs (good case)
-- [ ] T050 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_no_violation_when_no_kwargs (child has no **kwargs)
+- [ ] T050 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_no_violation_when_no_kwargs (child has no \*\*kwargs)
 - [ ] T051 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_skips_unresolvable_parents (parent from import)
 - [ ] T052 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_handles_multiple_inheritance (complex case)
 - [ ] T053 [P] [US3] Write test in `tests/test_check_redundant_super_init.py`: test_handles_syntax_errors_gracefully (edge case)
@@ -147,11 +148,11 @@
 - [ ] T054 [US3] Implement CLI argument parsing in `src/pre_commit_hooks/check_redundant_super_init.py`: argparse with filenames (no --fix flag)
 - [ ] T055 [US3] Implement AST parsing in `src/pre_commit_hooks/check_redundant_super_init.py`: use ast.parse() to build AST from source
 - [ ] T056 [US3] Implement SuperInitChecker visitor class in `src/pre_commit_hooks/check_redundant_super_init.py`: extend ast.NodeVisitor
-- [ ] T057 [US3] Implement visit_ClassDef in `src/pre_commit_hooks/check_redundant_super_init.py`: collect class definitions and analyze __init__
-- [ ] T058 [US3] Implement __init__ signature analysis in `src/pre_commit_hooks/check_redundant_super_init.py`: check for **kwargs parameter
-- [ ] T059 [US3] Implement super().__init__() call detection in `src/pre_commit_hooks/check_redundant_super_init.py`: find Call nodes with super().__init__
+- [ ] T057 [US3] Implement visit_ClassDef in `src/pre_commit_hooks/check_redundant_super_init.py`: collect class definitions and analyze **init**
+- [ ] T058 [US3] Implement **init** signature analysis in `src/pre_commit_hooks/check_redundant_super_init.py`: check for \*\*kwargs parameter
+- [ ] T059 [US3] Implement super().**init**() call detection in `src/pre_commit_hooks/check_redundant_super_init.py`: find Call nodes with super().**init**
 - [ ] T060 [US3] Implement **kwargs forwarding detection in `src/pre_commit_hooks/check_redundant_super_init.py`: check if **kwargs passed to super()
-- [ ] T061 [US3] Implement parent signature resolution in `src/pre_commit_hooks/check_redundant_super_init.py`: resolve parent __init__ from same file
+- [ ] T061 [US3] Implement parent signature resolution in `src/pre_commit_hooks/check_redundant_super_init.py`: resolve parent **init** from same file
 - [ ] T062 [US3] Implement violation detection logic in `src/pre_commit_hooks/check_redundant_super_init.py`: compare child/parent signatures
 - [ ] T063 [US3] Implement main() entry point in `src/pre_commit_hooks/check_redundant_super_init.py`: process multiple files, report violations
 - [ ] T064 [US3] Add error handling for syntax errors in `src/pre_commit_hooks/check_redundant_super_init.py`: catch ast.SyntaxError
@@ -196,6 +197,7 @@
 - **User Story 3 (P3)**: Can start after Setup - No dependencies on other stories
 
 **Key Insight**: All three hooks are completely independent. They:
+
 - Use different Python stdlib modules (tokenize vs line processing vs AST)
 - Operate on different files (no file conflicts)
 - Have no shared code or dependencies
@@ -302,6 +304,7 @@ With multiple developers:
 **Total Tasks**: 75
 
 **By Phase**:
+
 - Phase 1 (Setup): 4 tasks
 - Phase 2 (Foundational): 0 tasks (no blocking prerequisites)
 - Phase 3 (US1): 20 tasks (11 tests + 9 implementation)
@@ -310,6 +313,7 @@ With multiple developers:
 - Phase 6 (Polish): 10 tasks
 
 **By Type**:
+
 - Setup/Infrastructure: 4 tasks
 - Test Fixtures: 15 tasks (5 per hook)
 - Test Code: 16 tasks (5-6 per hook)
@@ -317,6 +321,7 @@ With multiple developers:
 - Documentation/Polish: 10 tasks
 
 **Parallel Opportunities**:
+
 - Setup phase: 3 tasks can run in parallel
 - All 3 user stories can run in parallel (completely independent)
 - Within each story: 5-6 test fixture tasks can run in parallel
@@ -326,6 +331,7 @@ With multiple developers:
 **MVP Scope**: Phase 1 + Phase 3 = 24 tasks (fix-misplaced-comments hook only)
 
 **Independent Test Criteria**:
+
 - **US1**: Run `pytest tests/test_fix_misplaced_comments.py && python -m pre_commit_hooks.fix_misplaced_comments --fix tests/fixtures/misplaced_comments/bad/*.py`
 - **US2**: Run `pytest tests/test_fix_excessive_blank_lines.py && python -m pre_commit_hooks.fix_excessive_blank_lines --fix tests/fixtures/excessive_blank_lines/bad/*.py`
 - **US3**: Run `pytest tests/test_check_redundant_super_init.py && python -m pre_commit_hooks.check_redundant_super_init tests/fixtures/redundant_super_init/bad/*.py`

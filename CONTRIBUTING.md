@@ -82,7 +82,7 @@ Before writing code:
 
 #### Choosing Between Bash and Python
 
-**Constitution I (KISS Principle)** states: *"Prefer Bash + Git commands; fall back to Python only when necessary."*
+**Constitution I (KISS Principle)** states: _"Prefer Bash + Git commands; fall back to Python only when necessary."_
 
 Use this decision tree to choose the right tool:
 
@@ -113,6 +113,7 @@ done
 ```
 
 **Characteristics of bash-appropriate checks:**
+
 - Simple string/regex matching
 - No need to understand syntax context
 - Pattern means the same thing everywhere
@@ -145,6 +146,7 @@ The check requires **syntax awareness** or **semantic understanding**:
 ```
 
 **Characteristics of Python-appropriate checks:**
+
 - Requires parsing language syntax
 - Context-dependent (same text means different things)
 - Risk of false positives with simple grep
@@ -187,15 +189,15 @@ def process(data):              # ❌ MISSED (function parameter not detected!)
 
 ##### Decision Criteria Summary
 
-| Question | Bash | Python |
-|----------|------|--------|
-| Simple string pattern? | ✓ | |
-| Works in any context (strings, comments, code)? | ✓ | |
-| Need to understand language syntax? | | ✓ |
-| Need to distinguish variables vs attributes? | | ✓ |
-| Need inline suppression logic? | | ✓ |
-| Risk of false positives with grep? | | ✓ |
-| Checking Python/JS/Go code structure? | | ✓ |
+| Question                                        | Bash | Python |
+| ----------------------------------------------- | ---- | ------ |
+| Simple string pattern?                          | ✓    |        |
+| Works in any context (strings, comments, code)? | ✓    |        |
+| Need to understand language syntax?             |      | ✓      |
+| Need to distinguish variables vs attributes?    |      | ✓      |
+| Need inline suppression logic?                  |      | ✓      |
+| Risk of false positives with grep?              |      | ✓      |
+| Checking Python/JS/Go code structure?           |      | ✓      |
 
 **When in doubt:** Start with bash. If you find false positives or missed violations in testing, switch to Python with proper parsing.
 
@@ -380,7 +382,7 @@ Brief description of what the hook does.
 
 #### In "Configuration Options" section:
 
-```markdown
+````markdown
 ### your-hook
 
 **Arguments:**
@@ -393,7 +395,9 @@ Brief description of what the hook does.
 - id: your-hook
   args: ["--option=value"]
 ```
-```
+````
+
+````
 
 ### 8. Test and Validate
 
@@ -409,7 +413,7 @@ ruff check pre_commit_hooks/your_hook.py
 
 # Run all pre-commit hooks
 pre-commit run --all-files
-```
+````
 
 ## Updating Existing Hooks
 

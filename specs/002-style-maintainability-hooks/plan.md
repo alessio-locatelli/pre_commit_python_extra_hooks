@@ -7,7 +7,7 @@
 
 ## Summary
 
-Implement three Python-based pre-commit hooks that detect and fix code quality issues: STYLE-001 (misplaced comments on closing brackets), STYLE-002 (excessive blank lines after module headers), and MAINTAINABILITY-006 (redundant super().__init__(**kwargs) forwarding). These hooks extend the existing pre-commit hooks repository to enforce style and maintainability standards using Python's AST and tokenize modules from the standard library.
+Implement three Python-based pre-commit hooks that detect and fix code quality issues: STYLE-001 (misplaced comments on closing brackets), STYLE-002 (excessive blank lines after module headers), and MAINTAINABILITY-006 (redundant super().**init**(\*\*kwargs) forwarding). These hooks extend the existing pre-commit hooks repository to enforce style and maintainability standards using Python's AST and tokenize modules from the standard library.
 
 ## Technical Context
 
@@ -23,13 +23,14 @@ Implement three Python-based pre-commit hooks that detect and fix code quality i
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 ### I. KISS Principle - Implementation Strategy
 
 **Status**: ⚠️ **EXCEPTION REQUIRED** - Using Python instead of Bash
 
 **Justification**:
+
 - These hooks require AST parsing and token-level analysis of Python source code
 - Bash cannot parse Python AST or reliably manipulate source code while preserving semantics
 - The tasks (comment placement, blank line detection, class hierarchy analysis) are inherently Python-specific and require Python's ast/tokenize modules
@@ -116,6 +117,6 @@ README.md                              # Documentation (updated with hook descri
 
 ## Complexity Tracking
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
+| Violation              | Why Needed                                                               | Simpler Alternative Rejected Because                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Python instead of Bash | Hooks require AST parsing and token-level analysis of Python source code | Bash cannot parse Python AST; regex-based approaches would be fragile and unable to handle nested syntax, multi-line statements, or comments in strings |

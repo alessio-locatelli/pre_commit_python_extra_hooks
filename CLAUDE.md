@@ -3,6 +3,7 @@
 Auto-generated from all feature plans. Last updated: 2025-11-28
 
 ## Active Technologies
+
 - Python 3.8+ (minimum version - pre-commit framework supports 3.8+) + Python standard library only (ast, tokenize, inspect, argparse, sys, pathlib) (002-style-maintainability-hooks)
 - N/A (hooks process files in-place, no persistent storage needed) (002-style-maintainability-hooks)
 
@@ -24,6 +25,7 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.8+ (minimum version compatible with most development environments; pre-commit supports Python 3.8+): Follow standard conventions
 
 ## Recent Changes
+
 - 002-style-maintainability-hooks: Added Python 3.8+ (minimum version - pre-commit framework supports 3.8+) + Python standard library only (ast, tokenize, inspect, argparse, sys, pathlib)
 
 - 001-pre-commit-hooks: Added Python 3.8+ (minimum version compatible with most development environments; pre-commit supports Python 3.8+) + None (Python standard library only per FR-012 and Constitution I - KISS principle)
@@ -37,6 +39,7 @@ Python 3.8+ (minimum version compatible with most development environments; pre-
 **ALWAYS** use `uv run` to execute Python commands. **NEVER** directly call executables from `.venv/bin/`.
 
 **Correct:**
+
 ```bash
 uv run pytest
 uv run pytest -v
@@ -45,6 +48,7 @@ uv run ruff check .
 ```
 
 **Incorrect:**
+
 ```bash
 .venv/bin/pytest -v          # ❌ NEVER do this
 pytest                        # ❌ May not work without uv run
@@ -58,13 +62,16 @@ python -m pytest             # ❌ Use uv run instead
 ```bash
 uv run ruff format .
 uv run ruff check --fix .
+npx prettier . --write --cache
 ```
 
 These commands must be run in sequence:
+
 1. `ruff format` - Formats all Python files according to project style
 2. `ruff check --fix` - Runs linter and automatically fixes issues
 
 **When to run:**
+
 - After writing or modifying Python code
 - Before creating commits
 - After resolving merge conflicts
@@ -77,6 +84,7 @@ These commands must be run in sequence:
 **ALWAYS** use the [Conventional Commits](https://www.conventionalcommits.org/) standard for commit messages.
 
 **Format:**
+
 ```
 <type>[optional scope]: <description>
 
@@ -86,6 +94,7 @@ These commands must be run in sequence:
 ```
 
 **Types:**
+
 - `feat`: A new feature
 - `fix`: A bug fix
 - `docs`: Documentation only changes
@@ -97,6 +106,7 @@ These commands must be run in sequence:
 - `ci`: CI/CD configuration changes
 
 **Examples:**
+
 ```bash
 git commit -m "feat: add forbid-vars hook to detect meaningless variable names"
 git commit -m "fix: handle syntax errors gracefully in AST parsing"
@@ -107,6 +117,7 @@ git commit -m "chore: update dependencies to latest versions"
 ```
 
 **Rules:**
+
 - Use lowercase for type and description
 - Keep description under 72 characters
 - Use imperative mood ("add" not "added" or "adds")

@@ -11,6 +11,7 @@
 **Decision**: Use Python's `tokenize` module to preserve comments while analyzing code structure
 
 **Rationale**:
+
 - Python's AST module strips comments during parsing, so we need tokenize to access comment tokens
 - The tokenize module provides line-by-line tokens including COMMENT, NL (newline), NEWLINE, INDENT, DEDENT
 - We can identify closing brackets (OP tokens with values ')', ']', '}') and check if a COMMENT token follows on the same line
@@ -18,17 +19,20 @@
 - This preserves all other formatting, indentation, and handles edge cases like comments in strings
 
 **Alternatives Considered**:
+
 - **Regex-based approach**: Rejected - Cannot reliably handle nested brackets, multi-line expressions, or comments within string literals
 - **Line-by-line text processing**: Rejected - Would lose semantic understanding of what's a closing bracket vs string content
 - **AST + manual comment extraction**: Rejected - More complex than using tokenize, which is designed for this use case
 
 **Best Practices**:
+
 - Use `tokenize.open()` to handle file encoding automatically
 - Preserve exact indentation and whitespace (tokenize maintains this)
 - For line length determination (inline vs preceding comment), use simple string length check against 88 characters
 - Handle edge case: multiple comments on same line (keep them together)
 
 **Implementation Strategy**:
+
 1. Tokenize the file using `tokenize.generate_tokens()`
 2. Build a list of (token_type, token_string, start, end, line) tuples
 3. Scan for OP tokens with ')' ']' '}' followed by COMMENT on same line
@@ -43,24 +47,28 @@
 **Decision**: Use line-by-line text processing with module header detection logic
 
 **Rationale**:
+
 - This is primarily a whitespace issue, not a syntax issue, so tokenize/AST are overkill
 - We need to detect "module-level comments/docstrings" which appear before first import/class/function
 - Simple state machine: track if we've seen first code element, count consecutive blank lines, collapse when needed
 - Must preserve copyright comment spacing (one blank line after copyright)
 
 **Alternatives Considered**:
+
 - **Tokenize module**: Rejected - Overkill for blank line counting; adds complexity without benefit
 - **AST analysis**: Rejected - AST doesn't preserve blank line information
 - **Regex replacement**: Rejected - Hard to distinguish module-level blanks from function-level blanks
 
 **Best Practices**:
+
 - Detect copyright comments with pattern: `# Copyright` or `# (c)` or `# ©`
-- Consider shebang (#!) and encoding declarations (# -*- coding: utf-8 -*-) as module headers
+- Consider shebang (#!) and encoding declarations (# -_- coding: utf-8 -_-) as module headers
 - Module docstrings are triple-quoted strings appearing before any import/class/function/assignment
 - After detecting end of module header area, collapse 2+ consecutive blank lines to 1
 - Preserve blank lines elsewhere in file (not module-level)
 
 **Implementation Strategy**:
+
 1. Read file line by line
 2. Track state: IN_MODULE_HEADER, AFTER_MODULE_HEADER, IN_CODE
 3. Detect end of module header: first import, class, def, or assignment
@@ -69,43 +77,47 @@
 6. Special case: after copyright comment, preserve exactly 1 blank line
 7. Write modified lines back to file
 
-### 3. How to detect redundant super().__init__(**kwargs) patterns?
+### 3. How to detect redundant super().**init**(\*\*kwargs) patterns?
 
-**Decision**: Use Python AST to analyze class hierarchies and __init__ signatures
+**Decision**: Use Python AST to analyze class hierarchies and **init** signatures
 
 **Rationale**:
+
 - Requires understanding class inheritance and method signatures - AST is designed for this
 - `ast.ClassDef` nodes contain bases (parent classes) and body (methods)
-- Can traverse AST to find __init__ methods that accept **kwargs
-- Need to inspect parent class __init__ to determine if it accepts arguments
+- Can traverse AST to find **init** methods that accept \*\*kwargs
+- Need to inspect parent class **init** to determine if it accepts arguments
 - Limited to same-file parent classes and standard library (cannot analyze arbitrary imports)
 
 **Alternatives Considered**:
+
 - **Runtime inspection with inspect module**: Rejected - Would require importing user code, which is unsafe and complex
 - **Regex for super() calls**: Rejected - Cannot determine parent class signature from regex
 - **Static analysis only**: Chosen - Safer, faster, and sufficient for most cases
 
 **Best Practices**:
+
 - Use `ast.parse()` to build AST from source file
 - Use `ast.NodeVisitor` to traverse and find ClassDef nodes
-- For each class with __init__, check if it has **kwargs parameter
-- If yes, find super().__init__() call and check if **kwargs is forwarded
+- For each class with **init**, check if it has \*\*kwargs parameter
+- If yes, find super().**init**() call and check if \*\*kwargs is forwarded
 - Attempt to resolve parent class from bases (limited to same-file or stdlib)
-- If parent __init__ accepts no arguments, report violation
+- If parent **init** accepts no arguments, report violation
 - If parent cannot be resolved, skip (too complex for static analysis)
 
 **Implementation Strategy**:
+
 1. Parse file with `ast.parse(source, filename)`
 2. Create visitor class extending `ast.NodeVisitor`
 3. Override `visit_ClassDef` to analyze each class
-4. Within class, find FunctionDef named '__init__'
-5. Check if args.kwarg is not None (has **kwargs)
-6. Find Call nodes where func is Attribute(value=Name('super'), attr='__init__')
-7. Check if keywords contains **kwargs (Starred node in keywords)
+4. Within class, find FunctionDef named '**init**'
+5. Check if args.kwarg is not None (has \*\*kwargs)
+6. Find Call nodes where func is Attribute(value=Name('super'), attr='**init**')
+7. Check if keywords contains \*\*kwargs (Starred node in keywords)
 8. Attempt to resolve parent class:
    - If base is Name, look up in same file's class definitions
-   - If base is Attribute and module is known stdlib, can skip (stdlib rarely has zero-arg __init__)
-9. If parent __init__ in same file and has no args beyond self, report violation
+   - If base is Attribute and module is known stdlib, can skip (stdlib rarely has zero-arg **init**)
+9. If parent **init** in same file and has no args beyond self, report violation
 10. Produce error message with file:line:message format
 
 ### 4. Command-line interface design for pre-commit hooks
@@ -113,12 +125,14 @@
 **Decision**: Use argparse with file paths as positional arguments, optional --fix flag
 
 **Rationale**:
+
 - Pre-commit framework passes file paths as positional arguments
 - Standard pattern: hooks accept files, process them, return exit code
 - --fix flag enables auto-fix mode (some hooks detection-only by default)
 - Exit code 0 = no violations, 1 = violations found/fixed
 
 **Best Practices**:
+
 - Accept multiple file paths: `parser.add_argument('filenames', nargs='*')`
 - Add --fix flag: `parser.add_argument('--fix', action='store_true')`
 - Process each file independently; aggregate exit codes (if any file fails, return non-zero)
@@ -127,6 +141,7 @@
 - Handle exceptions gracefully: catch syntax errors, continue to next file
 
 **Implementation Pattern**:
+
 ```python
 def main():
     parser = argparse.ArgumentParser()
@@ -159,12 +174,14 @@ def main():
 **Decision**: Use pytest with fixture files for good/bad examples
 
 **Rationale**:
+
 - pytest is the standard Python testing framework
 - Fixture files allow testing realistic code examples
 - Can test both detection and auto-fix modes
 - Easy to validate error messages and exit codes
 
 **Best Practices**:
+
 - Create fixtures/ directory with subdirectories per hook
 - Each subdirectory has good/ and bad/ subdirs with Python files
 - Tests use `tmp_path` fixture to create temporary files
@@ -174,6 +191,7 @@ def main():
 - Test edge cases: empty files, syntax errors, complex nested structures
 
 **Test Organization**:
+
 ```
 tests/
 ├── fixtures/

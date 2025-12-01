@@ -19,21 +19,23 @@ Create a custom pre-commit hooks repository with an initial hook ("forbid-vars")
 **Project Type**: Single project (Python-based pre-commit hook scripts with configuration metadata)
 **Performance Goals**: <5 seconds for repositories with <1000 files (per SC-002); O(n) complexity where n = number of files checked
 **Constraints**:
+
 - Must use only Python stdlib (no external dependencies - constitution I, FR-012)
 - Must return exit code 0 for success, non-zero for failure (FR-003, Constitution III)
 - Must accept file paths as CLI arguments (pre-commit framework requirement - FR-009, Constitution III)
 - Must provide actionable error messages (FR-004, Constitution III)
-**Scale/Scope**: MVP: 1 hook (forbid-vars), scales to 5+ hooks in subsequent phases (SC-005)
+  **Scale/Scope**: MVP: 1 hook (forbid-vars), scales to 5+ hooks in subsequent phases (SC-005)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 ### Constitution I: KISS Principle - Implementation Strategy ✅ PASS
 
 **Rule**: Prefer Bash + Git commands; fall back to Python only when necessary.
 
 **Assessment**:
+
 - The forbid-vars hook requires pattern matching across source code files for variable name detection
 - Implementing this in bash would require complex regex patterns and text processing that is error-prone and hard to maintain
 - Python provides clearer, more maintainable pattern matching with the `re` module (stdlib)
@@ -46,6 +48,7 @@ Create a custom pre-commit hooks repository with an initial hook ("forbid-vars")
 **Rule**: All code must pass appropriate linters (shellcheck for bash, ruff for Python, prettier for markdown/yaml).
 
 **Assessment**:
+
 - Will use ruff for Python hook scripts (PEP 8 compliance)
 - Will use prettier for .pre-commit-hooks.yaml and README.md
 - Will enforce linting via pre-commit hooks on this repository itself
@@ -58,6 +61,7 @@ Create a custom pre-commit hooks repository with an initial hook ("forbid-vars")
 **Rule**: Hooks must follow pre-commit conventions (.pre-commit-hooks.yaml schema, file path args, exit codes, stderr messages, idempotent).
 
 **Assessment**:
+
 - Will create `.pre-commit-hooks.yaml` following official schema
 - Hooks will accept file paths as CLI arguments (FR-009)
 - Exit code 0 for success, non-zero for failure (FR-003)
@@ -71,6 +75,7 @@ Create a custom pre-commit hooks repository with an initial hook ("forbid-vars")
 **Rule**: Every hook must include automated tests for success cases, failure cases, edge cases, and independence.
 
 **Assessment**:
+
 - Will use pytest for automated testing (specified in Technical Context)
 - Test plan includes:
   - Success: files without forbidden vars → exit 0
@@ -86,6 +91,7 @@ Create a custom pre-commit hooks repository with an initial hook ("forbid-vars")
 **Rule**: Hooks must be simple, single-purpose, readable, well-commented, independently understandable.
 
 **Assessment**:
+
 - forbid-vars has single purpose: detect forbidden variable names
 - Logic will be straightforward: read files, regex match, report violations
 - Will include comments explaining regex patterns and ignore logic
@@ -149,11 +155,12 @@ No violations. All constitutional gates passed (see Constitution Check section a
 
 ## Post-Design Constitution Re-evaluation
 
-*Phase 1 complete. Re-checking constitutional compliance after design artifacts.*
+_Phase 1 complete. Re-checking constitutional compliance after design artifacts._
 
 ### Constitution I: KISS Principle ✅ PASS (CONFIRMED)
 
 **Post-design assessment:**
+
 - Research confirmed AST-based approach is simpler and more accurate than regex
 - No external dependencies in final design (stdlib only)
 - Data model is minimal (3 entities, all ephemeral)
@@ -164,6 +171,7 @@ No violations. All constitutional gates passed (see Constitution Check section a
 ### Constitution II: Code Quality - Mandatory Linting ✅ PASS (CONFIRMED)
 
 **Post-design assessment:**
+
 - Contracts define linting strategy (ruff for Python, prettier for YAML/markdown)
 - pyproject.toml.example includes ruff configuration
 - Self-dogfooding planned (.pre-commit-config.yaml to run own hooks + linters)
@@ -173,6 +181,7 @@ No violations. All constitutional gates passed (see Constitution Check section a
 ### Constitution III: Pre-commit Framework Compatibility ✅ PASS (CONFIRMED)
 
 **Post-design assessment:**
+
 - hook-schema.yaml defines complete pre-commit contract
 - CLI interface follows standard pattern (argparse, file paths, exit codes)
 - .pre-commit-hooks.yaml.example shows proper hook metadata
@@ -183,6 +192,7 @@ No violations. All constitutional gates passed (see Constitution Check section a
 ### Constitution IV: Testing Requirements ✅ PASS (CONFIRMED)
 
 **Post-design assessment:**
+
 - hook-schema.yaml defines comprehensive test categories:
   - Success cases (empty files, valid names)
   - Failure cases (forbidden names in assignments, parameters)
@@ -197,6 +207,7 @@ No violations. All constitutional gates passed (see Constitution Check section a
 ### Constitution V: Simplicity and Maintainability ✅ PASS (CONFIRMED)
 
 **Post-design assessment:**
+
 - Data model is minimal (3 entities, no persistence)
 - Single-purpose design (only detects forbidden variable names)
 - Clear separation of concerns:
@@ -213,6 +224,7 @@ No violations. All constitutional gates passed (see Constitution Check section a
 **Overall Status**: ✅ ALL GATES PASSED (RE-CONFIRMED)
 
 After completing Phase 0 (research) and Phase 1 (design), all constitutional principles remain satisfied:
+
 - AST-based implementation justified and documented
 - Linting strategy fully defined
 - Pre-commit compatibility ensured via contracts
@@ -226,9 +238,11 @@ After completing Phase 0 (research) and Phase 1 (design), all constitutional pri
 ## Phase 0 & 1 Artifacts Generated
 
 ### Phase 0: Research
+
 - ✅ `research.md` - Comprehensive research on AST patterns, ignore comments, error messages, pre-commit schema
 
 ### Phase 1: Design
+
 - ✅ `data-model.md` - Entity definitions, state transitions, data structures
 - ✅ `contracts/hook-schema.yaml` - Complete API contract (CLI, exit codes, output format, compatibility)
 - ✅ `contracts/pre-commit-hooks.yaml.example` - Example hook metadata file

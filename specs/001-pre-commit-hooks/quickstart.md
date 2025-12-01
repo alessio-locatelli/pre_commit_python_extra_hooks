@@ -30,7 +30,7 @@ Create or update `.pre-commit-config.yaml` in your repository root:
 ```yaml
 repos:
   - repo: https://github.com/<user>/pre-commit-extra-hooks
-    rev: v1.0.0  # Use the latest version
+    rev: v1.0.0 # Use the latest version
     hooks:
       - id: forbid-vars
 ```
@@ -55,6 +55,7 @@ git commit -m "Add new feature"
 ```
 
 **If violations are found:**
+
 ```
 forbid meaningless variable names...............................Failed
 - hook id: forbid-vars
@@ -64,6 +65,7 @@ src/process.py:42: Forbidden variable name 'data' found. Use a more descriptive 
 ```
 
 **If no violations:**
+
 ```
 forbid meaningless variable names...............................Passed
 ```
@@ -100,7 +102,7 @@ repos:
     rev: v1.0.0
     hooks:
       - id: forbid-vars
-        args: ['--names=data,result,info,temp,obj,value']
+        args: ["--names=data,result,info,temp,obj,value"]
 ```
 
 ### Inline Suppression
@@ -122,6 +124,7 @@ data = load_from_database()  # maintainability: ignore[meaningless-variable-name
 ### Example 1: Default Configuration
 
 **`.pre-commit-config.yaml`:**
+
 ```yaml
 repos:
   - repo: https://github.com/<user>/pre-commit-extra-hooks
@@ -131,6 +134,7 @@ repos:
 ```
 
 **Code that passes:**
+
 ```python
 def calculate_total(invoice_items):
     """Calculate total from invoice items"""
@@ -141,6 +145,7 @@ def calculate_total(invoice_items):
 ```
 
 **Code that fails:**
+
 ```python
 def process():
     """Process data"""
@@ -150,6 +155,7 @@ def process():
 ```
 
 **Error output:**
+
 ```
 src/process.py:3: Forbidden variable name 'data' found. Use a more descriptive name or add '# maintainability: ignore[meaningless-variable-name]' to suppress. See https://hilton.org.uk/blog/meaningless-variable-names
 src/process.py:4: Forbidden variable name 'result' found. Use a more descriptive name or add '# maintainability: ignore[meaningless-variable-name]' to suppress. See https://hilton.org.uk/blog/meaningless-variable-names
@@ -158,16 +164,18 @@ src/process.py:4: Forbidden variable name 'result' found. Use a more descriptive
 ### Example 2: Custom Forbidden Names
 
 **`.pre-commit-config.yaml`:**
+
 ```yaml
 repos:
   - repo: https://github.com/<user>/pre-commit-extra-hooks
     rev: v1.0.0
     hooks:
       - id: forbid-vars
-        args: ['--names=data,result,info,temp,obj,value']
+        args: ["--names=data,result,info,temp,obj,value"]
 ```
 
 **Code that now also fails:**
+
 ```python
 def get_user():
     temp = fetch_user()  # ❌ Violation: 'temp' now forbidden
@@ -178,6 +186,7 @@ def get_user():
 ### Example 3: Using Inline Suppression
 
 **Code with suppressions:**
+
 ```python
 def legacy_code():
     """Legacy code with necessary suppressions"""
@@ -196,6 +205,7 @@ def legacy_code():
 ### Example 4: Function Parameters
 
 **Code that fails:**
+
 ```python
 def process(data):  # ❌ Violation: parameter 'data'
     """Process data"""
@@ -207,6 +217,7 @@ def transform(*, result=None):  # ❌ Violation: parameter 'result'
 ```
 
 **Fixed version:**
+
 ```python
 def process(user_records):  # ✅ Descriptive parameter name
     """Process user records"""
@@ -224,6 +235,7 @@ def transform(*, transformed_output=None):  # ✅ Descriptive parameter name
 **Problem:** Hook doesn't run on commit.
 
 **Solution:** Make sure you've installed the git hooks:
+
 ```bash
 pre-commit install
 ```
@@ -233,6 +245,7 @@ pre-commit install
 **Problem:** Code with `data` variable passes the hook.
 
 **Solution:** Check if:
+
 1. File is a Python file (hook only runs on `*.py` files)
 2. Inline ignore comment is present
 3. The variable is actually being assigned (not an attribute like `obj.data`)
@@ -242,6 +255,7 @@ pre-commit install
 **Problem:** Hook exits with error on syntactically invalid Python.
 
 **Solution:** The hook requires valid Python syntax to parse the AST. Fix syntax errors first:
+
 ```bash
 # Check syntax
 python -m py_compile src/file.py
@@ -252,6 +266,7 @@ python -m py_compile src/file.py
 **Problem:** Hook catches too many legitimate uses.
 
 **Solution:** Use inline suppression for legitimate cases:
+
 ```python
 # Legitimate use in test fixtures
 def test_parser():
@@ -278,7 +293,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit hooks
@@ -340,6 +355,7 @@ The default blacklist (`data`, `result`) catches the most common offenders. Only
 ### 2. Use inline suppression sparingly
 
 Every suppression is a code smell. Before adding `# maintainability: ignore`:
+
 - Ask: Can I use a more descriptive name?
 - Document why the suppression is necessary
 - Consider refactoring if suppressions accumulate
@@ -347,6 +363,7 @@ Every suppression is a code smell. Before adding `# maintainability: ignore`:
 ### 3. Run hooks before committing
 
 Get immediate feedback:
+
 ```bash
 # Stage changes
 git add .
@@ -361,6 +378,7 @@ git commit -m "Your message"
 ### 4. Keep hooks updated
 
 Review and update hook versions quarterly:
+
 ```bash
 pre-commit autoupdate
 ```
@@ -368,6 +386,7 @@ pre-commit autoupdate
 ### 5. Educate your team
 
 Share the reasoning behind forbidden names:
+
 - Link: https://hilton.org.uk/blog/meaningless-variable-names
 - Discuss in code reviews
 - Add to project documentation
@@ -388,11 +407,13 @@ Share the reasoning behind forbidden names:
 ## Summary
 
 **Quick setup:**
+
 1. Add to `.pre-commit-config.yaml`
 2. Run `pre-commit install`
 3. Commit as usual
 
 **Key features:**
+
 - Forbids `data` and `result` by default
 - Customizable via `--names` argument
 - Inline suppression with `# maintainability: ignore[meaningless-variable-name]`
