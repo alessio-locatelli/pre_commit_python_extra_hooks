@@ -23,7 +23,14 @@ classifiers = [
 forbid-vars = "pre_commit_hooks.forbid_vars:main"
 
 [dependency-groups]
-dev = ["pytest>=9.0.1", "ruff>=0.14.7", "pre-commit>=4.5.0", "mypy>=1.19.0"]
+dev = [
+  "pytest>=9.0.1",
+  "ruff>=0.14.7",
+  "pre-commit>=4.5.0",
+  "mypy>=1.19.0",
+  "types-toml>=0.10.8.20240310",
+  "types-requests>=2.32.4.20250913",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
