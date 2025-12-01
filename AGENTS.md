@@ -64,7 +64,7 @@ flowchart TD
   D --> G
 ```
 
-### **MUST NOT** Rules
+## **MUST NOT** Rules
 
 - Do not implement before clarifying the missing information and understanding existing patterns.
 - Never use `git commit --amend`, `git commit --no-verify`, `git add --all`, `git add .`, or `git add -A`.
