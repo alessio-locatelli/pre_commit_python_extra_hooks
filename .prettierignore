@@ -1,0 +1,3 @@
+# Exclude specification/contract documentation files
+# These use non-standard YAML syntax for documentation purposes
+specs/
