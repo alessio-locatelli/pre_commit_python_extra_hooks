@@ -3,7 +3,7 @@
 Custom pre-commit hooks for code quality enforcement.
 
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Available Hooks
@@ -147,7 +147,9 @@ To automatically apply the suggested fixes, you can use the `--fix` argument in 
     - id: forbid-vars
       args: ["--fix"]
 ```
+
 When a fix is applied, the hook will report the change:
+
 ```
 Applied fix for 'data' -> 'user_records' in src/process.py:42
 ```
