@@ -1,7 +1,5 @@
-# Minimal Python project configuration for pre-commit hooks repository
-
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,17 +7,12 @@ name = "pre-commit-extra-hooks"
 version = "1.0.0"
 description = "Custom pre-commit hooks for code quality enforcement"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 authors = [{ name = "Sam", email = "sam@example.com" }]
-dependencies = ["toml; python_version < '3.11'"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
@@ -29,9 +22,8 @@ classifiers = [
 [project.scripts]
 forbid-vars = "pre_commit_hooks.forbid_vars:main"
 
-# Development dependencies
-[project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.1.0", "pre-commit>=3.0"]
+[dependency-groups]
+dev = ["pytest>=9.0.1", "ruff>=0.14.7", "pre-commit>=4.5.0", "mypy>=1.19.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -39,8 +31,7 @@ include = ["pre_commit_hooks*"]
 
 # Ruff configuration (linting and formatting)
 [tool.ruff]
-line-length = 100
-target-version = "py38"
+target-version = "py313"
 exclude = ["tests/fixtures/**"]
 
 [tool.ruff.lint]
@@ -61,6 +52,3 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-
-[dependency-groups]
-dev = ["pytest>=8.3.5", "ruff>=0.14.7"]
