@@ -85,7 +85,7 @@ class SuperInitChecker(ast.NodeVisitor):
             for base in class_node.bases:
                 if isinstance(base, ast.Name):
                     parent = self.classes.get(base.id)
-                    if parent and not self._parent_accepts_args(parent):
+                    if parent and not self._parent_accepts_args(parent, self.classes):
                         self.violations.append(
                             (
                                 init_node.lineno,
@@ -132,11 +132,17 @@ class SuperInitChecker(ast.NodeVisitor):
         return any(keyword.arg is None for keyword in node.keywords)
 
     @staticmethod
-    def _parent_accepts_args(class_node: ast.ClassDef) -> bool:
+    def _parent_accepts_args(
+        class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]
+    ) -> bool:
         """Check if parent's __init__ accepts any arguments.
+
+        This method recursively traverses the inheritance chain to determine
+        if any ancestor class accepts arguments through its __init__ method.
 
         Args:
             class_node: The parent class definition
+            classes: Dictionary mapping class names to their AST nodes
 
         Returns:
             True if __init__ accepts arguments beyond self
@@ -151,7 +157,17 @@ class SuperInitChecker(ast.NodeVisitor):
                 # Check for *args or **kwargs
                 return bool(args.vararg or args.kwarg)
 
-        # No __init__ defined, assume it doesn't accept args
+        # No __init__ defined, recursively check parent classes
+        for base in class_node.bases:
+            if isinstance(base, ast.Name):
+                # For built-in or imported types, we can't check further
+                # but Exception and its subclasses accept **kwargs through BaseException
+                if base.id in ("Exception", "BaseException"):
+                    return True
+                # Recursively check user-defined parent classes
+                parent = classes.get(base.id)
+                if parent and SuperInitChecker._parent_accepts_args(parent, classes):
+                    return True
         return False
 
 
