@@ -48,6 +48,8 @@ taplo fmt pyproject.toml
 
 ## Git
 
+Commit your changes after completing the task.
+
 ### Git Commit Guidelines
 
 **ALWAYS** use the [Conventional Commits](https://www.conventionalcommits.org/) standard for commit messages.
