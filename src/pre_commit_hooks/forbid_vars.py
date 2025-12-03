@@ -137,6 +137,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 
         # FIX BUG 1: Return immediately if no conflict
         if suggestion not in self.scope_names:
+            # Track this suggestion to avoid duplicate suggestions
+            self.scope_names.add(suggestion)
             return suggestion
 
         # Only add suffix if there's a conflict
@@ -145,6 +147,9 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         while new_name in self.scope_names:
             new_name = f"{suggestion}_{counter}"
             counter += 1
+
+        # Track this suggestion to avoid duplicate suggestions
+        self.scope_names.add(new_name)
         return new_name
 
     def _find_best_match(self, rhs_source: str) -> dict[str, Any] | None:
@@ -346,21 +351,42 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
 
     lines = source.splitlines(keepends=True)
 
-    # Build a set of (old_name, new_name) replacements we need to apply
-    replacements = {}
+    # Build position-specific replacements and group by old_name
+    position_replacements: dict[tuple[int, int], tuple[str, str]] = {}
+    violations_by_name: dict[str, list[dict[str, Any]]] = {}
+
     for v in violations:
         if v.get("suggestion"):
+            position_replacements[(v["line"], v["col"])] = (
+                v["name"],
+                v["suggestion"],
+            )
             old_name = v["name"]
-            new_name = v["suggestion"]
-            # Map from old name to new name for bulk replacement
-            if old_name not in replacements:
-                replacements[old_name] = new_name
+            if old_name not in violations_by_name:
+                violations_by_name[old_name] = []
+            violations_by_name[old_name].append(v)
 
-    if not replacements:
+    if not position_replacements:
         return
 
+    # Determine which names can be bulk-replaced (single violation per name)
+    # vs position-specific (multiple violations of same name)
+    bulk_replacements: dict[str, str] = {}
+    position_only_names: set[str] = set()
+
+    for old_name, violation_list in violations_by_name.items():
+        if len(violation_list) == 1:
+            # Single violation: safe to do bulk replacement
+            bulk_replacements[old_name] = violation_list[0]["suggestion"]
+        else:
+            # Multiple violations: position-specific only
+            position_only_names.add(old_name)
+
+    # Get all old names we need to check
+    old_names = set(violations_by_name.keys())
+
     # Collect Name nodes to replace (avoiding parameters, keywords, attributes, strings)
-    nodes_to_replace = set()
+    nodes_to_replace: set[tuple[int, int]] = set()
 
     class NameCollector(ast.NodeVisitor):
         """Collect Name nodes that should be replaced."""
@@ -415,13 +441,38 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
                     nodes_to_replace.add(pos)
             self.generic_visit(node)
 
-    collector = NameCollector(set(replacements.keys()))
+    collector = NameCollector(old_names)
     collector.visit(tree)
 
-    # Sort replacements in reverse order to avoid position shifts
-    sorted_positions = sorted(
-        nodes_to_replace, key=lambda p: (p[0], p[1]), reverse=True
-    )
+    # Separate nodes for bulk vs position-specific replacement
+    bulk_nodes: set[tuple[int, int]] = set()
+    position_specific_nodes: set[tuple[int, int]] = set()
+
+    for pos in nodes_to_replace:
+        # Check which old_name this position refers to
+        line_idx = pos[0] - 1
+        col = pos[1]
+        if line_idx >= len(lines):
+            continue
+        line = lines[line_idx]
+
+        # Find matching old_name at this position
+        for old_name in old_names:
+            name_len = len(old_name)
+            if (
+                col < len(line)
+                and col + name_len <= len(line)
+                and line[col : col + name_len] == old_name
+            ):
+                if old_name in bulk_replacements:
+                    bulk_nodes.add(pos)
+                elif old_name in position_only_names and pos in position_replacements:
+                    position_specific_nodes.add(pos)
+                break
+
+    # Sort all nodes in reverse order to avoid position shifts
+    all_nodes = bulk_nodes | position_specific_nodes
+    sorted_positions = sorted(all_nodes, key=lambda p: (p[0], p[1]), reverse=True)
 
     for line_num, col in sorted_positions:
         line_idx = line_num - 1
@@ -429,26 +480,49 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
             continue
 
         line = lines[line_idx]
+        pos = (line_num, col)
 
-        # Find which name this position corresponds to
-        for old_name, new_name in replacements.items():
-            name_len = len(old_name)
-            # Check word boundary before and after
-            before_ok = col == 0 or not (
-                line[col - 1].isalnum() or line[col - 1] == "_"
-            )
-            after_ok = col + name_len >= len(line) or not (
-                line[col + name_len].isalnum() or line[col + name_len] == "_"
-            )
+        # Determine old_name and new_name
+        old_name = None
+        new_name = None
+
+        # Check if it's a bulk replacement
+        for name in bulk_replacements:
+            name_len = len(name)
             if (
                 col < len(line)
-                and line[col : col + name_len] == old_name
-                and before_ok
-                and after_ok
+                and col + name_len <= len(line)
+                and line[col : col + name_len] == name
             ):
-                # Replace this occurrence
-                lines[line_idx] = line[:col] + new_name + line[col + name_len :]
+                old_name = name
+                new_name = bulk_replacements[name]
                 break
+
+        # Check if it's a position-specific replacement
+        if old_name is None and pos in position_replacements:
+            old_name, new_name = position_replacements[pos]
+
+        if old_name is None or new_name is None:
+            continue
+
+        name_len = len(old_name)
+
+        # Bounds check
+        if col >= len(line) or col + name_len > len(line):
+            continue
+
+        # Verify the name matches
+        if line[col : col + name_len] != old_name:
+            continue
+
+        # Check word boundaries
+        before_ok = col == 0 or not (line[col - 1].isalnum() or line[col - 1] == "_")
+        after_ok = col + name_len >= len(line) or not (
+            line[col + name_len].isalnum() or line[col + name_len] == "_"
+        )
+
+        if before_ok and after_ok:
+            lines[line_idx] = line[:col] + new_name + line[col + name_len :]
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.writelines(lines)
