@@ -90,13 +90,54 @@ def load_autofix_config() -> dict[str, Any]:
 
 
 class ScopeVisitor(ast.NodeVisitor):
-    """A visitor that collects all names in a scope."""
+    """A visitor that collects all names in a scope (not nested scopes)."""
 
-    def __init__(self) -> None:
+    def __init__(self, target_scope: ast.AST | None = None) -> None:
         self.names: set[str] = set()
+        self.target_scope = target_scope
+        self.in_target_scope = target_scope is None  # Module level = True
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Don't descend into nested function definitions."""
+        if node is self.target_scope:
+            # This is the target scope - enter it
+            self.in_target_scope = True
+            self.generic_visit(node)
+            self.in_target_scope = False
+        elif self.in_target_scope:
+            # Nested function - don't descend (separate scope)
+            pass
+        else:
+            # Different scope - don't descend
+            pass
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Don't descend into nested async function definitions."""
+        if node is self.target_scope:
+            # This is the target scope - enter it
+            self.in_target_scope = True
+            self.generic_visit(node)
+            self.in_target_scope = False
+        elif self.in_target_scope:
+            # Nested function - don't descend (separate scope)
+            pass
+        else:
+            # Different scope - don't descend
+            pass
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        """Don't descend into class definitions (separate scope)."""
+        if self.in_target_scope:
+            # Class inside function - don't descend
+            pass
+        else:
+            # Continue visiting if we're looking for module-level names
+            self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        self.names.add(node.id)
+        """Collect name if we're in the target scope."""
+        if self.in_target_scope:
+            self.names.add(node.id)
         self.generic_visit(node)
 
 
@@ -129,28 +170,69 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self.autofix_config = autofix_config
         self.scope_names = scope_names
         self.violations: list[dict[str, Any]] = []
+        # Scope tracking for scope-aware name generation and replacement
+        self.current_scope: list[ast.AST] = []
+        self.tree: ast.Module | None = None
+        self.scope_used_suggestions: dict[int | None, set[str]] = {}
+
+    def _get_scope_names(self, scope_node: ast.AST | None) -> set[str]:
+        """
+        Collect all names defined in a specific scope only.
+
+        Args:
+            scope_node: The AST node representing the scope (function/class/module).
+                       None means module-level scope.
+
+        Returns:
+            Set of all variable names defined in that scope.
+        """
+        visitor = ScopeVisitor(target_scope=scope_node)
+        if scope_node:
+            visitor.visit(scope_node)
+        elif self.tree:
+            visitor.visit(self.tree)
+        return visitor.names
 
     def _generate_unique_name(self, suggestion: str) -> str:
-        """Generate a unique variable name if the suggestion already exists."""
+        """
+        Generate a unique variable name considering only the current scope.
+
+        This ensures that variables with the same name in different functions
+        don't get unnecessary suffixes (e.g., response_2, response_3).
+        """
         if suggestion in self.forbidden_names:
             suggestion = "var"  # Fallback
 
-        # FIX BUG 1: Return immediately if no conflict
-        if suggestion not in self.scope_names:
-            # Track this suggestion to avoid duplicate suggestions
-            self.scope_names.add(suggestion)
+        # Get current scope
+        scope_node = self.current_scope[-1] if self.current_scope else None
+        scope_id = id(scope_node) if scope_node else None
+
+        # Get names in THIS scope only (not file-wide!)
+        scope_names = self._get_scope_names(scope_node)
+
+        # Track used suggestions in this scope
+        if scope_id not in self.scope_used_suggestions:
+            self.scope_used_suggestions[scope_id] = set()
+
+        # Check conflicts - only add suffix if there's a conflict in THIS scope
+        if (
+            suggestion not in scope_names
+            and suggestion not in self.scope_used_suggestions[scope_id]
+        ):
+            self.scope_used_suggestions[scope_id].add(suggestion)
             return suggestion
 
-        # Only add suffix if there's a conflict
-        new_name = suggestion
+        # Generate with suffix (only if needed in this scope!)
         counter = 2
-        while new_name in self.scope_names:
-            new_name = f"{suggestion}_{counter}"
+        while (
+            f"{suggestion}_{counter}" in scope_names
+            or f"{suggestion}_{counter}" in self.scope_used_suggestions[scope_id]
+        ):
             counter += 1
 
-        # Track this suggestion to avoid duplicate suggestions
-        self.scope_names.add(new_name)
-        return new_name
+        unique = f"{suggestion}_{counter}"
+        self.scope_used_suggestions[scope_id].add(unique)
+        return unique
 
     def _find_best_match(self, rhs_source: str) -> dict[str, Any] | None:
         """Find the best autofix pattern for a given RHS source."""
@@ -179,11 +261,16 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
     ) -> None:
         """Check if a variable name is forbidden and record violation."""
         if name in self.forbidden_names:
+            # Get current scope for scope-aware processing
+            scope_node = self.current_scope[-1] if self.current_scope else None
+
             violation = {
                 "name": name,
                 "line": lineno,
                 "col": col_offset,
                 "suggestion": None,
+                "scope_id": id(scope_node) if scope_node else None,
+                "scope_node": scope_node,
             }
             if match:
                 suggested_name = match["name"]
@@ -229,12 +316,20 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Visit function definition nodes: def foo(data):."""
         self._check_function_args(node)
+        # Push scope before visiting function body
+        self.current_scope.append(node)
         self.generic_visit(node)
+        # Pop scope after visiting function body
+        self.current_scope.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         """Visit async function definition nodes: async def foo(data):."""
         self._check_function_args(node)
+        # Push scope before visiting function body
+        self.current_scope.append(node)
         self.generic_visit(node)
+        # Pop scope after visiting function body
+        self.current_scope.pop()
 
     def _check_function_args(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
@@ -336,13 +431,13 @@ def _get_restricted_positions(source: str) -> set[tuple[int, int]]:
 
 
 def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -> None:
-    """Apply autofixes by replacing forbidden variable assignments and their uses.
+    """
+    Apply autofixes by replacing forbidden variable assignments and their uses.
 
-    Uses AST-aware filtering to avoid replacing:
-    - Function parameter names
-    - Keyword argument names
-    - Attribute names
-    - String content
+    This implementation is scope-aware: it groups violations by scope and replaces
+    ALL uses of a variable within that scope, not just the assignment position.
+    This ensures that when 'data' is renamed to 'response', all references to
+    'data' in that function are also updated.
     """
     try:
         tree = ast.parse(source, filename=filepath)
@@ -351,167 +446,145 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
 
     lines = source.splitlines(keepends=True)
 
-    # Build position-specific replacements and group by old_name
-    position_replacements: dict[tuple[int, int], tuple[str, str]] = {}
-    violations_by_name: dict[str, list[dict[str, Any]]] = {}
-
+    # Step 1: Group violations by scope
+    violations_by_scope: dict[int | None, list[dict[str, Any]]] = {}
     for v in violations:
         if v.get("suggestion"):
-            position_replacements[(v["line"], v["col"])] = (
-                v["name"],
-                v["suggestion"],
-            )
-            old_name = v["name"]
-            if old_name not in violations_by_name:
-                violations_by_name[old_name] = []
-            violations_by_name[old_name].append(v)
+            scope_id = v.get("scope_id")
+            if scope_id not in violations_by_scope:
+                violations_by_scope[scope_id] = []
+            violations_by_scope[scope_id].append(v)
 
-    if not position_replacements:
+    if not violations_by_scope:
         return
 
-    # Determine which names can be bulk-replaced (single violation per name)
-    # vs position-specific (multiple violations of same name)
-    bulk_replacements: dict[str, str] = {}
-    position_only_names: set[str] = set()
+    # Step 2: Build scope-specific replacement mappings
+    scope_replacements: dict[int | None, dict[str, str]] = {}
+    for scope_id, scope_violations in violations_by_scope.items():
+        replacements: dict[str, str] = {}
+        for v in scope_violations:
+            old_name = v["name"]
+            new_name = v["suggestion"]
+            if old_name not in replacements:
+                # First violation of this name in this scope wins
+                replacements[old_name] = new_name
+        scope_replacements[scope_id] = replacements
 
-    for old_name, violation_list in violations_by_name.items():
-        if len(violation_list) == 1:
-            # Single violation: safe to do bulk replacement
-            bulk_replacements[old_name] = violation_list[0]["suggestion"]
-        else:
-            # Multiple violations: position-specific only
-            position_only_names.add(old_name)
+    # Step 3: Create ScopedNameCollector class
+    class ScopedNameCollector(ast.NodeVisitor):
+        """Collect Name nodes within a specific scope only (not nested scopes)."""
 
-    # Get all old names we need to check
-    old_names = set(violations_by_name.keys())
-
-    # Collect Name nodes to replace (avoiding parameters, keywords, attributes, strings)
-    nodes_to_replace: set[tuple[int, int]] = set()
-
-    class NameCollector(ast.NodeVisitor):
-        """Collect Name nodes that should be replaced."""
-
-        def __init__(self, replace_names: set[str]) -> None:
-            self.replace_names = replace_names
+        def __init__(
+            self, scope_node: ast.AST | None, replace_names: dict[str, str]
+        ) -> None:
+            self.scope_node = scope_node
+            self.replace_names = replace_names  # {old_name: new_name}
+            self.nodes_to_replace: list[tuple[int, int, str, str]] = []
+            self.in_target_scope = scope_node is None  # Module-level = True
             self.param_positions: set[tuple[int, int]] = set()
-            self.attr_positions: set[tuple[int, int]] = set()
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            # Mark function parameter positions
-            all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
-            for arg in all_args:
-                if arg.arg in self.replace_names:
-                    self.param_positions.add((arg.lineno, arg.col_offset))
-            if node.args.vararg and node.args.vararg.arg in self.replace_names:
-                pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
-                self.param_positions.add(pos)
-            if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
-                pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
-                self.param_positions.add(pos)
-            self.generic_visit(node)
+            """Handle function definitions - enter target scope, skip nested."""
+            if node is self.scope_node:
+                # Enter target scope
+                self.in_target_scope = True
+                # Mark parameters as restricted (don't replace parameter names)
+                all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
+                for arg in all_args:
+                    if arg.arg in self.replace_names:
+                        self.param_positions.add((arg.lineno, arg.col_offset))
+                if node.args.vararg and node.args.vararg.arg in self.replace_names:
+                    pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
+                    self.param_positions.add(pos)
+                if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
+                    pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
+                    self.param_positions.add(pos)
+                self.generic_visit(node)
+                self.in_target_scope = False
+            elif self.in_target_scope:
+                # Nested function - don't descend (separate scope)
+                pass
+            else:
+                # Different scope - don't descend
+                pass
 
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            # Mark function parameter positions
-            all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
-            for arg in all_args:
-                if arg.arg in self.replace_names:
-                    self.param_positions.add((arg.lineno, arg.col_offset))
-            if node.args.vararg and node.args.vararg.arg in self.replace_names:
-                pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
-                self.param_positions.add(pos)
-            if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
-                pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
-                self.param_positions.add(pos)
-            self.generic_visit(node)
+            """Handle async function definitions - same logic as visit_FunctionDef."""
+            if node is self.scope_node:
+                self.in_target_scope = True
+                all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
+                for arg in all_args:
+                    if arg.arg in self.replace_names:
+                        self.param_positions.add((arg.lineno, arg.col_offset))
+                if node.args.vararg and node.args.vararg.arg in self.replace_names:
+                    pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
+                    self.param_positions.add(pos)
+                if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
+                    pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
+                    self.param_positions.add(pos)
+                self.generic_visit(node)
+                self.in_target_scope = False
+            elif self.in_target_scope:
+                pass
+            else:
+                pass
 
-        def visit_Attribute(self, node: ast.Attribute) -> None:
-            # Mark attribute name positions
-            # (attr field is a string, but we track node position)
-            if node.attr in self.replace_names:
-                # The attribute name is after the dot
-                self.attr_positions.add((node.lineno, node.col_offset))
-            self.generic_visit(node)
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            """Don't descend into class definitions (separate scope)."""
+            if self.in_target_scope:
+                # Class inside function - don't descend
+                pass
+            else:
+                # Continue visiting if we're looking for module-level names
+                self.generic_visit(node)
 
         def visit_Name(self, node: ast.Name) -> None:
-            # Collect Name nodes that should be replaced
-            if node.id in self.replace_names:
+            """Collect Name node if we're in the target scope."""
+            if self.in_target_scope and node.id in self.replace_names:
                 pos = (node.lineno, node.col_offset)
-                # Don't replace if it's a function parameter or attribute
-                if pos not in self.param_positions and pos not in self.attr_positions:
-                    nodes_to_replace.add(pos)
+                if pos not in self.param_positions:
+                    replacement = (
+                        node.lineno,
+                        node.col_offset,
+                        node.id,
+                        self.replace_names[node.id],
+                    )
+                    self.nodes_to_replace.append(replacement)
             self.generic_visit(node)
 
-    collector = NameCollector(old_names)
-    collector.visit(tree)
+    # Step 4: Collect replacements for each scope
+    all_replacements: list[tuple[int, int, str, str]] = []
+    for scope_id, replacements in scope_replacements.items():
+        # Find scope node from first violation
+        scope_node = None
+        for v in violations_by_scope[scope_id]:
+            scope_node = v.get("scope_node")
+            break
 
-    # Separate nodes for bulk vs position-specific replacement
-    bulk_nodes: set[tuple[int, int]] = set()
-    position_specific_nodes: set[tuple[int, int]] = set()
+        # Collect Name nodes in this scope
+        collector = ScopedNameCollector(scope_node, replacements)
+        if scope_node:
+            collector.visit(scope_node)
+        else:
+            collector.visit(tree)
+        all_replacements.extend(collector.nodes_to_replace)
 
-    for pos in nodes_to_replace:
-        # Check which old_name this position refers to
-        line_idx = pos[0] - 1
-        col = pos[1]
-        if line_idx >= len(lines):
-            continue
-        line = lines[line_idx]
+    # Step 5: Sort reverse and apply replacements
+    all_replacements.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
-        # Find matching old_name at this position
-        for old_name in old_names:
-            name_len = len(old_name)
-            if (
-                col < len(line)
-                and col + name_len <= len(line)
-                and line[col : col + name_len] == old_name
-            ):
-                if old_name in bulk_replacements:
-                    bulk_nodes.add(pos)
-                elif old_name in position_only_names and pos in position_replacements:
-                    position_specific_nodes.add(pos)
-                break
-
-    # Sort all nodes in reverse order to avoid position shifts
-    all_nodes = bulk_nodes | position_specific_nodes
-    sorted_positions = sorted(all_nodes, key=lambda p: (p[0], p[1]), reverse=True)
-
-    for line_num, col in sorted_positions:
+    for line_num, col, old_name, new_name in all_replacements:
         line_idx = line_num - 1
         if line_idx >= len(lines):
             continue
 
         line = lines[line_idx]
-        pos = (line_num, col)
-
-        # Determine old_name and new_name
-        old_name = None
-        new_name = None
-
-        # Check if it's a bulk replacement
-        for name in bulk_replacements:
-            name_len = len(name)
-            if (
-                col < len(line)
-                and col + name_len <= len(line)
-                and line[col : col + name_len] == name
-            ):
-                old_name = name
-                new_name = bulk_replacements[name]
-                break
-
-        # Check if it's a position-specific replacement
-        if old_name is None and pos in position_replacements:
-            old_name, new_name = position_replacements[pos]
-
-        if old_name is None or new_name is None:
-            continue
-
         name_len = len(old_name)
 
         # Bounds check
         if col >= len(line) or col + name_len > len(line):
             continue
 
-        # Verify the name matches
+        # Verify the name matches at this position
         if line[col : col + name_len] != old_name:
             continue
 
@@ -566,6 +639,7 @@ def check_file(
     scope_names = scope_visitor.names
 
     visitor = ForbiddenNameVisitor(forbidden_names, source, autofix_config, scope_names)
+    visitor.tree = tree  # Store tree for scope-aware name generation
     visitor.visit(tree)
 
     violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
