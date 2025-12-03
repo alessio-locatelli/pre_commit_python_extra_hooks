@@ -90,10 +90,18 @@ def check_file(filename: str) -> list[tuple[int, str]]:
     violations = []
     header_end = find_module_header_end(lines)
 
+    # Find the last non-blank line in the header region
+    last_header_line = 0
+    for i in range(header_end - 1, -1, -1):
+        if lines[i].strip():
+            last_header_line = i + 1
+            break
+
     blank_count = 0
     start_blank = None
+    found_first_code_line = False
 
-    for i in range(header_end, len(lines)):
+    for i in range(last_header_line, len(lines)):
         line = lines[i]
         if line.strip() == "":
             if blank_count == 0:
@@ -101,7 +109,12 @@ def check_file(filename: str) -> list[tuple[int, str]]:
             blank_count += 1
         else:
             # Non-blank line found
-            if blank_count >= 2 and start_blank is not None:
+            # Only report violations before the first code line
+            if (
+                not found_first_code_line
+                and blank_count >= 2
+                and start_blank is not None
+            ):
                 violations.append(
                     (
                         start_blank + 1,
@@ -111,6 +124,7 @@ def check_file(filename: str) -> list[tuple[int, str]]:
                 )
             blank_count = 0
             start_blank = None
+            found_first_code_line = True
 
     return violations
 
@@ -132,21 +146,39 @@ def fix_file(filename: str) -> None:
         return
 
     header_end = find_module_header_end(lines)
-    new_lines = lines[:header_end]
 
+    # Find the last non-blank line in the header region
+    last_header_line = 0
+    for i in range(header_end - 1, -1, -1):
+        if lines[i].strip():
+            last_header_line = i + 1
+            break
+
+    # Copy header lines (excluding trailing blank lines)
+    new_lines = lines[:last_header_line]
+
+    # Only collapse blank lines between header and first code line
+    # After first code line, preserve all blank lines
     blank_count = 0
-    for i in range(header_end, len(lines)):
+    found_first_code_line = False
+
+    for i in range(last_header_line, len(lines)):
         line = lines[i]
         is_blank = line.strip() == ""
 
         if is_blank:
             blank_count += 1
-            if blank_count == 1:
-                # Keep first blank line after header
+            if not found_first_code_line:
+                # Before first code line: collapse consecutive blank lines to 1
+                if blank_count == 1:
+                    new_lines.append(line)
+            else:
+                # After first code line: preserve all blank lines
                 new_lines.append(line)
         else:
             # Non-blank line
             blank_count = 0
+            found_first_code_line = True
             new_lines.append(line)
 
     # Write back

@@ -11,10 +11,75 @@ Example:
 """
 
 import argparse
+import re
 import sys
 import tokenize
 from io import StringIO
 from typing import NamedTuple
+
+# Linter pragma patterns that should NEVER be moved
+LINTER_PRAGMA_PATTERNS = [
+    r"#\s*noqa",  # flake8, ruff
+    r"#\s*type:\s*ignore",  # mypy, pyright
+    r"#\s*pragma:",  # coverage, general pragma
+    r"#\s*pylint:",  # pylint
+    r"#\s*pyright:",  # pyright
+    r"#\s*mypy:",  # mypy
+    r"#\s*flake8:",  # flake8
+    r"#\s*ruff:",  # ruff
+    r"#\s*bandit:",  # bandit
+    r"#\s*nosec",  # bandit
+    r"#\s*isort:",  # isort
+]
+
+
+def is_linter_pragma(comment_text: str) -> bool:
+    """Check if a comment contains a linter pragma directive.
+
+    Args:
+        comment_text: The comment text (including # character)
+
+    Returns:
+        True if the comment matches any linter pragma pattern
+    """
+    return any(re.search(pattern, comment_text) for pattern in LINTER_PRAGMA_PATTERNS)
+
+
+def is_bracket_only_line(
+    tokens: list[tokenize.TokenInfo], bracket_token_idx: int
+) -> bool:
+    """Check if the line containing the bracket has only brackets/whitespace.
+
+    Args:
+        tokens: List of all tokens in the file
+        bracket_token_idx: Index of the bracket token to check
+
+    Returns:
+        True if the line contains only closing brackets (and whitespace)
+    """
+    bracket_token = tokens[bracket_token_idx]
+    line_num = bracket_token.start[0]
+
+    # Find all tokens on this line
+    line_tokens = [t for t in tokens if t.start[0] == line_num]
+
+    # Filter out NEWLINE, NL, INDENT, DEDENT, COMMENT, ENCODING
+    code_tokens = [
+        t
+        for t in line_tokens
+        if t.type
+        not in (
+            tokenize.NEWLINE,
+            tokenize.NL,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+            tokenize.COMMENT,
+            tokenize.ENCODING,
+        )
+    ]
+
+    # Check if all code tokens are closing brackets
+    return all(t.type == tokenize.OP and t.string in ")}]" for t in code_tokens)
 
 
 class MisplacedComment(NamedTuple):
@@ -47,7 +112,6 @@ def check_file(filename: str) -> list[tuple[int, str]]:
         return []
 
     violations = []
-    lines = source.splitlines(keepends=True)
 
     # Scan tokens for closing brackets followed by comments on same line
     for i, token in enumerate(tokens):
@@ -63,12 +127,12 @@ def check_file(filename: str) -> list[tuple[int, str]]:
 
                 # Found a comment on same line as closing bracket
                 if next_token.type == tokenize.COMMENT:
-                    # Check if closing bracket is alone on its line
-                    # (only whitespace before it on that line)
-                    line_content = lines[token.start[0] - 1]
-                    before_bracket = line_content[: token.start[1]].strip()
+                    # Skip linter pragma comments - they should NEVER be moved
+                    if is_linter_pragma(next_token.string):
+                        break
 
-                    if not before_bracket or before_bracket.endswith(("(", "[", "{")):
+                    # Check if this is a bracket-only line using token analysis
+                    if is_bracket_only_line(tokens, i):
                         violations.append(
                             (
                                 token.start[0],
@@ -103,6 +167,9 @@ def fix_file(filename: str) -> None:
     lines = source.splitlines(keepends=True)
     new_lines = lines[:]
 
+    # Track which bracket lines have already been processed (to avoid duplicates)
+    processed_lines: set[int] = set()
+
     # Track which comments to move
     for i, token in enumerate(tokens):
         if token.type == tokenize.OP and token.string in ")}]":
@@ -114,12 +181,21 @@ def fix_file(filename: str) -> None:
                     break
 
                 if next_token.type == tokenize.COMMENT:
-                    line_content = lines[token.start[0] - 1]
-                    before_bracket = line_content[: token.start[1]].strip()
+                    # Skip linter pragma comments - they should NEVER be moved
+                    if is_linter_pragma(next_token.string):
+                        break
 
-                    if not before_bracket or before_bracket.endswith(("(", "[", "{")):
+                    # Check if this is a bracket-only line using token analysis
+                    if is_bracket_only_line(tokens, i):
+                        bracket_line_num = token.start[0]
+
+                        # Skip if already processed (multiple brackets)
+                        if bracket_line_num in processed_lines:
+                            break
+
+                        processed_lines.add(bracket_line_num)
                         comment_text = next_token.string
-                        bracket_line_idx = token.start[0] - 1
+                        bracket_line_idx = bracket_line_num - 1
                         prev_line_idx = bracket_line_idx - 1
 
                         if prev_line_idx >= 0:
