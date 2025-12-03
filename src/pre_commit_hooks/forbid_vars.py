@@ -174,6 +174,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self.current_scope: list[ast.AST] = []
         self.tree: ast.Module | None = None
         self.scope_used_suggestions: dict[int | None, set[str]] = {}
+        # Maps (scope_id, forbidden_var_name) to the generated suggestion
+        self.scope_var_suggestions: dict[tuple[int | None, str], str] = {}
 
     def _get_scope_names(self, scope_node: ast.AST | None) -> set[str]:
         """
@@ -193,12 +195,19 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             visitor.visit(self.tree)
         return visitor.names
 
-    def _generate_unique_name(self, suggestion: str) -> str:
+    def _generate_unique_name(self, suggestion: str, forbidden_var_name: str) -> str:
         """
         Generate a unique variable name considering only the current scope.
 
         This ensures that variables with the same name in different functions
         don't get unnecessary suffixes (e.g., response_2, response_3).
+
+        Args:
+            suggestion: The suggested replacement name
+            forbidden_var_name: The original forbidden variable name
+
+        Returns:
+            A unique name suitable for this scope
         """
         if suggestion in self.forbidden_names:
             suggestion = "var"  # Fallback
@@ -206,6 +215,11 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         # Get current scope
         scope_node = self.current_scope[-1] if self.current_scope else None
         scope_id = id(scope_node) if scope_node else None
+
+        # Check if we already generated a suggestion for this variable in this scope
+        cache_key = (scope_id, forbidden_var_name)
+        if cache_key in self.scope_var_suggestions:
+            return self.scope_var_suggestions[cache_key]
 
         # Get names in THIS scope only (not file-wide!)
         scope_names = self._get_scope_names(scope_node)
@@ -220,6 +234,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             and suggestion not in self.scope_used_suggestions[scope_id]
         ):
             self.scope_used_suggestions[scope_id].add(suggestion)
+            self.scope_var_suggestions[cache_key] = suggestion
             return suggestion
 
         # Generate with suffix (only if needed in this scope!)
@@ -232,6 +247,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 
         unique = f"{suggestion}_{counter}"
         self.scope_used_suggestions[scope_id].add(unique)
+        self.scope_var_suggestions[cache_key] = unique
         return unique
 
     def _find_best_match(self, rhs_source: str) -> dict[str, Any] | None:
@@ -281,7 +297,9 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
                     if regex_match:
                         suggested_name = regex_match.expand(suggested_name)
 
-                violation["suggestion"] = self._generate_unique_name(suggested_name)
+                violation["suggestion"] = self._generate_unique_name(
+                    suggested_name, name
+                )
             self.violations.append(violation)
 
     def visit_Assign(self, node: ast.Assign) -> None:
