@@ -207,3 +207,132 @@ def test_custom_pattern(tmp_path: Path) -> None:
     assert returncode == 1
     fixed_content = (tmp_path / "custom.py").read_text()
     assert fixed_content == good_file_content
+
+
+def test_bug1_no_redundant_suffix(tmp_path: Path) -> None:
+    """Test Bug 1 fix: no redundant suffix when no conflict exists."""
+    bad_path = AUTOFIXABLE_DIR / "bad" / "bug1_redundant_suffix.py"
+    good_path = AUTOFIXABLE_DIR / "good" / "bug1_redundant_suffix.py"
+    bad_file_content = bad_path.read_text()
+    good_file_content = good_path.read_text()
+
+    setup_test_env(
+        tmp_path,
+        PYPROJECT_TOML_HTTP_ENABLED,
+        {"bug1_redundant_suffix.py": bad_file_content},
+    )
+
+    returncode, stdout, stderr = run_hook(
+        tmp_path, ["bug1_redundant_suffix.py"], ["--fix"]
+    )
+
+    # Hook should return 1 (violations found and fixed)
+    assert returncode == 1
+
+    # Verify the fix
+    fixed_content = (tmp_path / "bug1_redundant_suffix.py").read_text()
+    assert fixed_content == good_file_content
+
+    # Ensure no redundant suffix was added in the code (not in docstrings)
+    lines = fixed_content.split("\n")
+    # Find the line with the assignment and check it doesn't have _2
+    assignment_lines = [line for line in lines if "= request.get()" in line]
+    assert len(assignment_lines) == 1
+    assert "response_2" not in assignment_lines[0]
+    assert "response = request.get()" in fixed_content
+
+
+def test_bug2_no_function_param_rename(tmp_path: Path) -> None:
+    """Test Bug 2: Function parameters should not be renamed."""
+    bad_path = AUTOFIXABLE_DIR / "bad" / "bug2_function_param.py"
+    good_path = AUTOFIXABLE_DIR / "good" / "bug2_function_param.py"
+    bad_file_content = bad_path.read_text()
+    good_file_content = good_path.read_text()
+
+    setup_test_env(
+        tmp_path,
+        PYPROJECT_TOML_HTTP_ENABLED,
+        {"bug2_function_param.py": bad_file_content},
+    )
+
+    returncode, stdout, stderr = run_hook(
+        tmp_path, ["bug2_function_param.py"], ["--fix"]
+    )
+
+    # Violation should be detected but NOT fixed (function params)
+    assert returncode == 1
+
+    # File should be unchanged
+    fixed_content = (tmp_path / "bug2_function_param.py").read_text()
+    assert fixed_content == good_file_content
+    assert "def delay_received(data: bytes)" in fixed_content
+
+
+def test_bug2_no_keyword_arg_rename(tmp_path: Path) -> None:
+    """Test Bug 2: Keyword argument names should not be renamed."""
+    bad_file_content = (AUTOFIXABLE_DIR / "bad" / "bug2_keyword_arg.py").read_text()
+    good_file_content = (AUTOFIXABLE_DIR / "good" / "bug2_keyword_arg.py").read_text()
+
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_HTTP_ENABLED, {"bug2_keyword_arg.py": bad_file_content}
+    )
+
+    returncode, stdout, stderr = run_hook(tmp_path, ["bug2_keyword_arg.py"], ["--fix"])
+
+    assert returncode == 1
+
+    fixed_content = (tmp_path / "bug2_keyword_arg.py").read_text()
+    assert fixed_content == good_file_content
+    # Keyword arg name should NOT change
+    assert "data=" in fixed_content
+    # Variable is not fixed because no autofix pattern matches
+    assert 'data = "compressed"' in fixed_content
+
+
+def test_bug2_no_attribute_rename(tmp_path: Path) -> None:
+    """Test Bug 2: Object attributes should not be renamed."""
+    bad_file_content = (AUTOFIXABLE_DIR / "bad" / "bug2_attribute.py").read_text()
+    good_file_content = (AUTOFIXABLE_DIR / "good" / "bug2_attribute.py").read_text()
+
+    setup_test_env(
+        tmp_path, PYPROJECT_TOML_HTTP_ENABLED, {"bug2_attribute.py": bad_file_content}
+    )
+
+    returncode, stdout, stderr = run_hook(tmp_path, ["bug2_attribute.py"], ["--fix"])
+
+    assert returncode == 1
+
+    fixed_content = (tmp_path / "bug2_attribute.py").read_text()
+    assert fixed_content == good_file_content
+    # Attribute access should NOT change
+    assert "msg.result" in fixed_content
+    # Variable should be renamed
+    assert "response = api.get()" in fixed_content
+
+
+def test_bug2_no_string_literal_rename(tmp_path: Path) -> None:
+    """Test Bug 2: String literal content should not be modified."""
+    bad_path = AUTOFIXABLE_DIR / "bad" / "bug2_string_literal.py"
+    good_path = AUTOFIXABLE_DIR / "good" / "bug2_string_literal.py"
+    bad_file_content = bad_path.read_text()
+    good_file_content = good_path.read_text()
+
+    setup_test_env(
+        tmp_path,
+        PYPROJECT_TOML_HTTP_ENABLED,
+        {"bug2_string_literal.py": bad_file_content},
+    )
+
+    returncode, stdout, stderr = run_hook(
+        tmp_path, ["bug2_string_literal.py"], ["--fix"]
+    )
+
+    assert returncode == 1
+
+    fixed_content = (tmp_path / "bug2_string_literal.py").read_text()
+    assert fixed_content == good_file_content
+    # String content should NOT change
+    assert '"some data here"' in fixed_content
+    assert '"data is important"' in fixed_content
+    # Variable is not fixed because no autofix pattern matches
+    assert 'data = "test"' in fixed_content

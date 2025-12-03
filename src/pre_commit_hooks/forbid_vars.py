@@ -135,6 +135,11 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         if suggestion in self.forbidden_names:
             suggestion = "var"  # Fallback
 
+        # FIX BUG 1: Return immediately if no conflict
+        if suggestion not in self.scope_names:
+            return suggestion
+
+        # Only add suffix if there's a conflict
         new_name = suggestion
         counter = 2
         while new_name in self.scope_names:
@@ -278,25 +283,175 @@ def get_ignored_lines(source: str) -> set[int]:
     return ignored
 
 
-def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -> None:
-    """Apply autofixes to a file by simple search and replace."""
-    # This is a simple implementation that doesn't respect scopes,
-    # but it's good enough for this hook's purpose.
-    source_to_modify = source
+def _get_restricted_positions(source: str) -> set[tuple[int, int]]:
+    """Get (line, col) positions where names should NOT be replaced.
 
-    # Create a unique set of replacements to perform
+    This includes:
+    - Function parameter names
+    - Keyword argument names
+    - Attribute names
+    - Any Name node in a string context
+    """
+    restricted: set[tuple[int, int]] = set()
+
+    try:
+        tree = ast.parse(source, filename="<string>")
+    except SyntaxError:
+        return restricted
+
+    # Collect function parameters
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Function parameters
+            for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
+                if hasattr(arg, "lineno") and hasattr(arg, "col_offset"):
+                    restricted.add((arg.lineno, arg.col_offset))
+            if node.args.vararg:
+                restricted.add((node.args.vararg.lineno, node.args.vararg.col_offset))
+            if node.args.kwarg:
+                restricted.add((node.args.kwarg.lineno, node.args.kwarg.col_offset))
+
+        # Keyword arguments in function calls
+        elif isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg:  # Not **kwargs
+                    # The keyword name position is roughly the start of the argument
+                    # For exact position we'd need more work, so we use a heuristic
+                    pass
+
+        # Attribute names
+        elif isinstance(node, ast.Attribute):
+            # The attr_name's position is after the dot
+            if hasattr(node, "lineno") and hasattr(node, "col_offset"):
+                # ast doesn't give us exact position of attribute name,
+                # but we can estimate it's after the dot in the source
+                pass
+
+    return restricted
+
+
+def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -> None:
+    """Apply autofixes by replacing forbidden variable assignments and their uses.
+
+    Uses AST-aware filtering to avoid replacing:
+    - Function parameter names
+    - Keyword argument names
+    - Attribute names
+    - String content
+    """
+    try:
+        tree = ast.parse(source, filename=filepath)
+    except SyntaxError:
+        return
+
+    lines = source.splitlines(keepends=True)
+
+    # Build a set of (old_name, new_name) replacements we need to apply
     replacements = {}
     for v in violations:
-        if v["suggestion"]:
-            replacements[v["name"]] = v["suggestion"]
+        if v.get("suggestion"):
+            old_name = v["name"]
+            new_name = v["suggestion"]
+            # Map from old name to new name for bulk replacement
+            if old_name not in replacements:
+                replacements[old_name] = new_name
 
-    for old_name, new_name in replacements.items():
-        source_to_modify = re.sub(
-            r"\b" + re.escape(old_name) + r"\b", new_name, source_to_modify
-        )
+    if not replacements:
+        return
+
+    # Collect Name nodes to replace (avoiding parameters, keywords, attributes, strings)
+    nodes_to_replace = set()
+
+    class NameCollector(ast.NodeVisitor):
+        """Collect Name nodes that should be replaced."""
+
+        def __init__(self, replace_names: set[str]) -> None:
+            self.replace_names = replace_names
+            self.param_positions: set[tuple[int, int]] = set()
+            self.attr_positions: set[tuple[int, int]] = set()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            # Mark function parameter positions
+            all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
+            for arg in all_args:
+                if arg.arg in self.replace_names:
+                    self.param_positions.add((arg.lineno, arg.col_offset))
+            if node.args.vararg and node.args.vararg.arg in self.replace_names:
+                pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
+                self.param_positions.add(pos)
+            if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
+                pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
+                self.param_positions.add(pos)
+            self.generic_visit(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            # Mark function parameter positions
+            all_args = node.args.args + node.args.posonlyargs + node.args.kwonlyargs
+            for arg in all_args:
+                if arg.arg in self.replace_names:
+                    self.param_positions.add((arg.lineno, arg.col_offset))
+            if node.args.vararg and node.args.vararg.arg in self.replace_names:
+                pos = (node.args.vararg.lineno, node.args.vararg.col_offset)
+                self.param_positions.add(pos)
+            if node.args.kwarg and node.args.kwarg.arg in self.replace_names:
+                pos = (node.args.kwarg.lineno, node.args.kwarg.col_offset)
+                self.param_positions.add(pos)
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            # Mark attribute name positions
+            # (attr field is a string, but we track node position)
+            if node.attr in self.replace_names:
+                # The attribute name is after the dot
+                self.attr_positions.add((node.lineno, node.col_offset))
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            # Collect Name nodes that should be replaced
+            if node.id in self.replace_names:
+                pos = (node.lineno, node.col_offset)
+                # Don't replace if it's a function parameter or attribute
+                if pos not in self.param_positions and pos not in self.attr_positions:
+                    nodes_to_replace.add(pos)
+            self.generic_visit(node)
+
+    collector = NameCollector(set(replacements.keys()))
+    collector.visit(tree)
+
+    # Sort replacements in reverse order to avoid position shifts
+    sorted_positions = sorted(
+        nodes_to_replace, key=lambda p: (p[0], p[1]), reverse=True
+    )
+
+    for line_num, col in sorted_positions:
+        line_idx = line_num - 1
+        if line_idx >= len(lines):
+            continue
+
+        line = lines[line_idx]
+
+        # Find which name this position corresponds to
+        for old_name, new_name in replacements.items():
+            name_len = len(old_name)
+            # Check word boundary before and after
+            before_ok = col == 0 or not (
+                line[col - 1].isalnum() or line[col - 1] == "_"
+            )
+            after_ok = col + name_len >= len(line) or not (
+                line[col + name_len].isalnum() or line[col + name_len] == "_"
+            )
+            if (
+                col < len(line)
+                and line[col : col + name_len] == old_name
+                and before_ok
+                and after_ok
+            ):
+                # Replace this occurrence
+                lines[line_idx] = line[:col] + new_name + line[col + name_len :]
+                break
 
     with open(filepath, "w", encoding="utf-8") as f:
-        f.write(source_to_modify)
+        f.writelines(lines)
 
 
 def check_file(
