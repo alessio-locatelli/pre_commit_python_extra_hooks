@@ -1,11 +1,4 @@
-# pre_commit_extra_hooks Development Guidelines
-
-Auto-generated from all feature plans. Last updated: 2025-12-01
-
-## Active Technologies
-
-- Python 3.13+ + Python stdlib only (ast, re, tokenize) (005-fix-forbid-vars-linter-bugs)
-- N/A (operates on source files) (005-fix-forbid-vars-linter-bugs)
+# Different custom Python linters and hooks for pre-commit.
 
 ## Project Structure
 
@@ -13,12 +6,6 @@ Auto-generated from all feature plans. Last updated: 2025-12-01
 src/
 tests/
 ```
-
-## Recent Changes
-
-- 005-fix-forbid-vars-linter-bugs: Added Python 3.13+ + Python stdlib only (ast, re, tokenize)
-
-- 004-fix-reported-bugs: Added Python 3.13+ + pytest, ruff, mypy (all dev dependencies, no runtime dependencies)
 
 ## Commands
 
