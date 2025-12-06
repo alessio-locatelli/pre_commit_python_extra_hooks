@@ -8,4 +8,5 @@ class MyClass:
     @property
     def get_value(self) -> int:
         """Property should not have get_ prefix."""
-        return self._value
+        # More than a simple accessor - performs computation
+        return self._value * 2

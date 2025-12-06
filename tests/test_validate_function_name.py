@@ -190,16 +190,11 @@ def test_detects_property() -> None:
     fixture = FIXTURES_DIR / "bad" / "property_decorator.py"
     returncode, stdout, stderr = run_hook([str(fixture)])
 
-    # Properties are detected, but the suggestion depends on the implementation
-    # In this case, it's a simple accessor returning self._value
-    # which is likely skipped by is_simple_accessor
-    # Let's check if any violations are reported
-    if returncode == 1:
-        assert "get_value" in stdout
-        assert "value" in stdout or "property" in stdout
-    else:
-        # Simple accessor was skipped (which is acceptable)
-        assert returncode == 0
+    # Properties should be detected and suggest removing get_ prefix
+    assert returncode == 1
+    assert "get_value" in stdout
+    assert "value" in stdout  # Should suggest removing get_ prefix
+    assert "property" in stdout
 
 
 # ============================================================================
