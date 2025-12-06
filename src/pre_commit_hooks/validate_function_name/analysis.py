@@ -1,0 +1,454 @@
+"""AST analysis and behavior detection for function naming."""
+
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass
+from pathlib import Path
+
+IGNORE_COMMENT_MARKER = "naming: ignore"
+GET_PREFIX = "get_"
+
+
+@dataclass
+class Suggestion:
+    """A naming suggestion for a function."""
+
+    path: Path
+    func_name: str
+    lineno: int
+    suggested_name: str
+    reason: str
+
+
+def read_source(path: Path) -> str:
+    """Read source code from a file."""
+    return path.read_text(encoding="utf8")
+
+
+def line_at(source: str, lineno: int) -> str:
+    """Get the line at the given line number (1-indexed)."""
+    lines = source.splitlines()
+    return lines[lineno - 1] if lineno - 1 < len(lines) else ""
+
+
+def has_inline_ignore(source: str, func_node: ast.FunctionDef) -> bool:
+    """Check if function has inline ignore comment."""
+    try:
+        line = line_at(source, func_node.lineno)
+        return IGNORE_COMMENT_MARKER in line
+    except Exception:  # pragma: no cover
+        return False
+
+
+def _call_name(node: ast.AST) -> str | None:
+    """Return a readable dotted name for a call (e.g., 'requests.get' or 'open')."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts: list[str] = []
+        cur: ast.expr = node
+        while isinstance(cur, ast.Attribute):
+            parts.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            parts.append(cur.id)
+            return ".".join(reversed(parts))
+    return None
+
+
+def decorator_name(d: ast.AST) -> str | None:
+    """Extract decorator name from decorator node."""
+    if isinstance(d, ast.Name):
+        return d.id
+    if isinstance(d, ast.Attribute):
+        # e.g. abc.abstractmethod
+        name = _call_name(d)
+        return name
+    return None
+
+
+def is_decorator_override_or_abstract(func_node: ast.FunctionDef) -> bool:
+    """Check if function is decorated with @override or @abstractmethod."""
+    for d in func_node.decorator_list:
+        name = decorator_name(d)
+        if not name:
+            continue
+        lname = name.lower()
+        if lname.endswith("override") or lname.endswith("abstractmethod"):
+            return True
+    return False
+
+
+def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
+    """Analyze function behavior and return detected patterns.
+
+    Returns:
+        Dictionary with boolean flags for detected behaviors:
+        - is_property: Function is decorated with @property
+        - disk_read: Reads from disk (open, read_text, etc.)
+        - disk_write: Writes to disk (write, save, dump, etc.)
+        - network_read: Reads from network (requests.get, etc.)
+        - network_write: Writes to network (requests.post, etc.)
+        - outputs: Prints or logs output
+        - returns_bool: Returns boolean (based on annotation)
+        - aggregates: Performs aggregation (sum, min, max, mean, etc.)
+        - creates_object: Creates new objects (calls constructors)
+        - mutates_args: Mutates arguments or state
+        - yields: Generator function
+        - parses: Parses structured data (JSON, YAML, etc.)
+        - renders: Renders/serializes data to string
+        - searches: Searches or finds items
+        - validates: Validates input and returns errors
+        - transforms: Transforms data
+        - delegates_get: Delegates to another get_* function
+        - collects: Collects data into a list/dict
+    """
+    flags: dict[str, bool] = {
+        "is_property": False,
+        "disk_read": False,
+        "disk_write": False,
+        "network_read": False,
+        "network_write": False,
+        "outputs": False,
+        "returns_bool": False,
+        "aggregates": False,
+        "creates_object": False,
+        "mutates_args": False,
+        "yields": False,
+        "parses": False,
+        "renders": False,
+        "searches": False,
+        "validates": False,
+        "transforms": False,
+        "delegates_get": False,
+        "collects": False,
+    }
+
+    # property
+    for deco in func_node.decorator_list:
+        if (
+            isinstance(deco, ast.Name)
+            and deco.id == "property"
+            or isinstance(deco, ast.Attribute)
+            and deco.attr.endswith("property")
+        ):
+            flags["is_property"] = True
+
+    # returns_bool: rely only on annotation (do not inspect return values)
+    if getattr(func_node, "returns", None) is not None:
+        ann = func_node.returns
+        if isinstance(ann, ast.Name) and ann.id == "bool":
+            flags["returns_bool"] = True
+
+    # track variables assigned from get_* calls (delegation detection)
+    get_assigned_vars: set[str] = set()
+
+    # track local containers that are created and appended to
+    created_containers: set[str] = set()
+    appended_to: set[str] = set()
+
+    # Quick scan for 'while' loops checking .exists() or using .parent
+    # (heuristic for find_root)
+    has_loop_checking_exists_or_parent = False
+
+    # walk nodes
+    for node in ast.walk(func_node):
+        if isinstance(node, (ast.Yield, ast.YieldFrom)):
+            flags["yields"] = True
+        if isinstance(node, ast.Call):
+            name = _call_name(node.func)
+            if not name:
+                continue
+            lname = name.lower()
+            # disk read/write
+            if (
+                lname in ("open",)
+                or lname.endswith(".read")
+                or lname.endswith(".read_text")
+                or lname.endswith(".read_bytes")
+                or lname.endswith(".load")
+            ):
+                flags["disk_read"] = True
+            if (
+                lname.endswith(".write")
+                or lname.endswith(".save")
+                or lname.endswith(".dump")
+            ):
+                flags["disk_write"] = True
+            # json/yaml loads/dumps
+            if (
+                lname.endswith("json.loads")
+                or lname.endswith("yaml.safe_load")
+                or lname.endswith("yaml.load")
+            ):
+                flags["parses"] = True
+            if lname.endswith("json.dumps") or lname.endswith("yaml.dump"):
+                flags["renders"] = True
+            # network
+            if any(
+                lib in lname
+                for lib in ("requests", "httpx", "urllib", "aiohttp", "socket", "grpc")
+            ):
+                if any(
+                    verb in lname
+                    for verb in ("get", "fetch", "download", "read", "recv", "request")
+                ):
+                    flags["network_read"] = True
+                if any(
+                    verb in lname for verb in ("post", "put", "send", "upload", "patch")
+                ):
+                    flags["network_write"] = True
+            # logger / print
+            if lname in ("print",) or (
+                lname.endswith(".write") and ("stdout" in lname or "stderr" in lname)
+            ):
+                flags["outputs"] = True
+            if (
+                lname.endswith(".info")
+                or lname.endswith(".debug")
+                or lname.endswith(".warning")
+                or lname.endswith(".error")
+            ):
+                flags["outputs"] = True
+            # aggregate helpers
+            if lname in (
+                "sum",
+                "min",
+                "max",
+                "statistics.mean",
+                "statistics.median",
+            ) or lname.endswith(".aggregate"):
+                flags["aggregates"] = True
+            # search/match
+            if (
+                lname.endswith(".find")
+                or lname.endswith(".search")
+                or lname.endswith(".index")
+            ):
+                flags["searches"] = True
+            # validation
+            if lname.endswith(".is_valid") or lname.endswith(".validate"):
+                flags["validates"] = True
+            # transform detection
+            if lname.endswith(".transform") or lname.endswith(".map"):
+                flags["transforms"] = True
+            # object creation: constructor calls heuristic
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id
+                and node.func.id[0].isupper()
+            ):
+                flags["creates_object"] = True
+
+            # detect calls to other get_ functions and assignments (delegation)
+            if isinstance(node.func, ast.Name) and node.func.id.startswith(GET_PREFIX):
+                parent = getattr(node, "parent", None)
+                if parent and isinstance(parent, ast.Assign):
+                    for t in parent.targets:
+                        if isinstance(t, ast.Name):
+                            get_assigned_vars.add(t.id)
+                # direct return of call handled later
+
+        # mutation: attribute assignments or calls to .append/.extend/.add
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    # detect list/dict creation: x = [] or x = {} or x = list() / dict()
+                    if isinstance(node.value, (ast.List, ast.Dict)):
+                        created_containers.add(target.id)
+                    if (
+                        isinstance(node.value, ast.Call)
+                        and isinstance(node.value.func, ast.Name)
+                        and node.value.func.id in ("list", "dict", "set")
+                    ):
+                        created_containers.add(target.id)
+
+                if isinstance(target, ast.Attribute):
+                    flags["mutates_args"] = True
+                if isinstance(target, ast.Subscript):
+                    flags["mutates_args"] = True
+        if isinstance(node, ast.AugAssign):
+            flags["mutates_args"] = True
+        if isinstance(node, ast.Call):
+            name = _call_name(node.func)
+            if name and any(
+                s in name
+                for s in (
+                    "append",
+                    "extend",
+                    "add",
+                    "insert",
+                    "remove",
+                    "pop",
+                    "clear",
+                    "update",
+                    "setdefault",
+                )
+            ):
+                # Try to find which variable is being appended to
+                parent = getattr(node, "parent", None)
+                # 'x.append(...)' -> node.func is Attribute with value Name('x')
+                if isinstance(node.func, ast.Attribute) and isinstance(
+                    node.func.value, ast.Name
+                ):
+                    appended_to.add(node.func.value.id)
+                flags["mutates_args"] = True
+
+        # detect .exists() / .parent usage inside loops (heuristic for find_root)
+        if isinstance(node, ast.While):
+            # look for Call nodes inside the while that call .exists()
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    n = _call_name(sub.func)
+                    if n and n.endswith(".exists"):
+                        has_loop_checking_exists_or_parent = True
+                if isinstance(sub, ast.Attribute) and sub.attr == "parent":
+                    has_loop_checking_exists_or_parent = True
+
+    # Delegation: if return returns a variable assigned by get_*
+    # or returns a call to get_*
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Return):
+            if isinstance(node.value, ast.Call):
+                call_name = _call_name(node.value.func)
+                if call_name and call_name.startswith(GET_PREFIX):
+                    flags["delegates_get"] = True
+            if isinstance(node.value, ast.Name) and node.value.id in get_assigned_vars:
+                flags["delegates_get"] = True
+            # returning a collected container variable
+            if isinstance(node.value, ast.Name) and node.value.id in created_containers:
+                flags["collects"] = True
+
+    # if we saw a variable created as a container and later appended to, mark collects
+    if created_containers & appended_to:
+        flags["collects"] = True
+
+    # Final heuristic: if we saw a loop checking .exists() or .parent,
+    # treat as search/find
+    if has_loop_checking_exists_or_parent:
+        flags["searches"] = True
+
+    # heuristics for returns list of errors (unchanged)
+    assigns = [n for n in ast.walk(func_node) if isinstance(n, ast.Assign)]
+    for a in assigns:
+        for t in a.targets:
+            if isinstance(t, ast.Name) and t.id.lower() in (
+                "errors",
+                "errs",
+                "error_list",
+            ):
+                flags["validates"] = True
+
+    return flags
+
+
+def attach_parents(node: ast.AST) -> None:
+    """Attach parent references to AST nodes for better analysis."""
+    for child in ast.iter_child_nodes(node):
+        child.parent = node  # type: ignore[attr-defined]
+        attach_parents(child)
+
+
+def is_simple_accessor(func_node: ast.FunctionDef) -> bool:
+    """Check if function is a trivial accessor/getter pattern.
+
+    Returns True for:
+    - Single 'return self.attr' or 'return obj[attr]'
+    - Single 'return obj.get(...)'
+    - Simple subscript/attribute/call to .get
+
+    These are idiomatic getters and should not be flagged.
+    """
+    body = func_node.body
+    # ignore docstring-only wrappers
+    if not body:
+        return False
+    # skip leading docstring expression
+    if (
+        isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+        if not body:
+            return False
+
+    if len(body) != 1:
+        return False
+    node = body[0]
+    # allow simple return statements only
+    if not isinstance(node, ast.Return) or node.value is None:
+        return False
+    value = node.value
+    # self.attr or obj.attr
+    if isinstance(value, ast.Attribute):
+        return True
+    # obj['key'] or obj[expr]
+    if isinstance(value, ast.Subscript):
+        return True
+    # obj.get(...) or some_dict.get(...)
+    if isinstance(value, ast.Call):
+        call_name = _call_name(value.func)
+        if (
+            call_name
+            and call_name.endswith(".get")
+            or (isinstance(value.func, ast.Name) and value.func.id == "get")
+        ):
+            return True
+    return False
+
+
+def process_file(path: Path) -> list[Suggestion]:
+    """Process a single file and return naming suggestions.
+
+    Args:
+        path: Path to the Python file to analyze
+
+    Returns:
+        List of Suggestion objects for functions that should be renamed
+    """
+    # Import here to avoid circular dependency
+    from .suggestion import suggest_name_for
+
+    try:
+        source = read_source(path)
+    except Exception:  # pragma: no cover
+        return []
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    # attach parent links for better analysis
+    attach_parents(tree)
+
+    suggestions: list[Suggestion] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name.startswith(GET_PREFIX):
+            # skip if decorated with override/abstract
+            if is_decorator_override_or_abstract(node):
+                continue
+            if has_inline_ignore(source, node):
+                continue
+            # skip simple accessors/dict-like getters (idiomatic)
+            if is_simple_accessor(node):
+                continue
+
+            analysis = analyze_function(node)
+            suggested_name, reason = suggest_name_for(node, analysis)
+
+            if suggested_name != node.name:
+                suggestions.append(
+                    Suggestion(
+                        path=path,
+                        func_name=node.name,
+                        lineno=node.lineno,
+                        suggested_name=suggested_name,
+                        reason=reason,
+                    )
+                )
+
+    return suggestions

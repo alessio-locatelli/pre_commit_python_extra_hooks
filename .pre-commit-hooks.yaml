@@ -27,3 +27,10 @@
   entry: python -m pre_commit_hooks.check_redundant_super_init
   language: python
   types: [python]
+
+- id: validate-function-name
+  name: Validate function names
+  description: Detect get_* functions and suggest better names based on behavior
+  entry: python -m pre_commit_hooks.validate_function_name
+  language: python
+  types: [python]
