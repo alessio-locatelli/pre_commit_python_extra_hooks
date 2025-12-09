@@ -151,11 +151,18 @@ class SuperInitChecker(ast.NodeVisitor):
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                 # Check if it has any parameters beyond 'self'
                 args = item.args
-                # Count positional arguments (excluding self)
+                # Check positional arguments beyond 'self'
                 if len(args.args) > 1:
                     return True
                 # Check for *args or **kwargs
-                return bool(args.vararg or args.kwarg)
+                if args.vararg or args.kwarg:
+                    return True
+                # Check for keyword-only arguments (e.g., *, key=None)
+                if args.kwonlyargs:
+                    return True
+                # Check for positional-only args (e.g., /, value)
+                # Exclude 'self', so check for more than 1 posonly arg
+                return bool(args.posonlyargs and len(args.posonlyargs) > 1)
 
         # No __init__ defined, recursively check parent classes
         for base in class_node.bases:

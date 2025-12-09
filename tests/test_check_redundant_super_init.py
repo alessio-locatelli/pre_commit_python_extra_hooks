@@ -310,3 +310,21 @@ class Child(Parent):
     # This is conservative behavior - assumes unknown bases don't accept args
     assert len(violations) == 1
     assert "Parent.__init__()" in violations[0][1]
+
+
+def test_parent_with_keyword_only_args(tmp_path: Path) -> None:
+    """Test parent __init__ with keyword-only arguments."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text(
+        """class Base:
+    def __init__(self, *, key=None, value=None):
+        pass
+
+class Child(Base):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+"""
+    )
+    violations = check_file(str(test_file))
+    # No violation because parent accepts keyword-only args
+    assert len(violations) == 0
