@@ -1,2 +1,8 @@
 [run]
 plugins = covdefaults
+
+exclude_also =
+    no cover: start(?s:.)*?no cover: stop
+    # Use if you want to ignore cases where (some of) the code is covered. See
+    # https://github.com/pydantic/strict-no-cover
+    pragma: lax no cover
