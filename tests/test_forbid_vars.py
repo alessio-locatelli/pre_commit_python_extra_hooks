@@ -6,8 +6,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-import pytest
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -155,10 +153,7 @@ def test_error_message_format() -> None:
         parts = line.split(":", 2)  # Split into filepath, line, message
         assert len(parts) >= 2, "Error message should have filepath:line: format"
         # Check that line number is numeric
-        try:
-            int(parts[1].strip())
-        except ValueError:
-            pytest.fail(f"Line number should be numeric in: {line}")
+        assert parts[1].strip().isdigit(), f"Line number should be numeric in: {line}"
 
 
 def test_error_message_includes_link() -> None:

@@ -132,21 +132,21 @@ def is_active(user: User) -> bool:
 
 **Detection Patterns:**
 
-| Pattern             | Suggested Prefix | Example                            |
-| ------------------- | ---------------- | ---------------------------------- |
-| Boolean return type | `is_*`           | `get_valid()` → `is_valid()`       |
-| Disk I/O (read)     | `load_*`         | `get_config()` → `load_config()`   |
-| Disk I/O (write)    | `save_to_*`      | `get_saved()` → `save_to_saved()`  |
-| Network (read)      | `fetch_*`        | `get_data()` → `fetch_data()`      |
-| Network (write)     | `send_*`         | `get_posted()` → `send_posted()`   |
-| Generator/yield     | `iter_*`         | `get_items()` → `iter_items()`     |
-| Aggregation         | `calculate_*`    | `get_total()` → `calculate_total()`|
-| JSON/YAML parsing   | `parse_*`        | `get_json()` → `parse_json()`      |
-| Searching           | `find_*`         | `get_root()` → `find_root()`       |
-| Validation          | `validate_*`     | `get_errors()` → `validate_input()`|
-| Collection building | `extract_*`      | `get_names()` → `extract_names()`  |
-| Object creation     | `create_*`       | `get_instance()` → `create_instance()` |
-| Mutation            | `update_*`       | `get_modified()` → `update_record()` |
+| Pattern             | Suggested Prefix | Example                                 |
+| ------------------- | ---------------- | --------------------------------------- |
+| Boolean return type | `is_*`           | `get_valid()` → `is_valid()`            |
+| Disk I/O (read)     | `load_*`         | `get_config()` → `load_config()`        |
+| Disk I/O (write)    | `save_to_*`      | `get_saved()` → `save_to_saved()`       |
+| Network (read)      | `fetch_*`        | `get_data()` → `fetch_data()`           |
+| Network (write)     | `send_*`         | `get_posted()` → `send_posted()`        |
+| Generator/yield     | `iter_*`         | `get_items()` → `iter_items()`          |
+| Aggregation         | `calculate_*`    | `get_total()` → `calculate_total()`     |
+| JSON/YAML parsing   | `parse_*`        | `get_json()` → `parse_json()`           |
+| Searching           | `find_*`         | `get_root()` → `find_root()`            |
+| Validation          | `validate_*`     | `get_errors()` → `validate_input()`     |
+| Collection building | `extract_*`      | `get_names()` → `extract_names()`       |
+| Object creation     | `create_*`       | `get_instance()` → `create_instance()`  |
+| Mutation            | `update_*`       | `get_modified()` → `update_record()`    |
 | @property           | Remove `get_`    | `@property get_name` → `@property name` |
 
 **Features:**

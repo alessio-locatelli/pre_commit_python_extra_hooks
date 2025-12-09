@@ -33,8 +33,17 @@ def test_detects_trailing_comment_on_closing_paren(tmp_path: Path) -> None:
     arg
 )  # Comment here
 """)
-    # Import will be done when hook is implemented
-    # This test validates the fixture structure
+    # Hook should detect violation without fixing
+    returncode, stdout, stderr = run_hook([str(test_file)], fix=False)
+    assert returncode == 1, "Hook should detect trailing comment"
+    # File should not be modified in detection mode
+    assert (
+        test_file.read_text()
+        == """result = func(
+    arg
+)  # Comment here
+"""
+    )
 
 
 def test_fixes_trailing_comment_inline_placement(tmp_path: Path) -> None:

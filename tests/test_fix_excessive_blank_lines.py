@@ -36,7 +36,13 @@ def test_detects_excessive_blank_lines(tmp_path: Path) -> None:
         "\n"  # Another extra blank line
         "import something\n"
     )
-    # Hook should detect violation
+    # Hook should detect violation without fixing
+    returncode, stdout, stderr = run_hook([str(test_file)], fix=False)
+    assert returncode == 1, "Hook should detect excessive blank lines"
+    # File should not be modified in detection mode
+    assert test_file.read_text() == (
+        '"""Module docstring."""\n\n\n\nimport something\n'
+    )
 
 
 def test_collapses_blank_lines_to_one(tmp_path: Path) -> None:
