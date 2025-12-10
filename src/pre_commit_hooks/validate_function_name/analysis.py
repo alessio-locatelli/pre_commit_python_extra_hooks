@@ -34,11 +34,8 @@ def line_at(source: str, lineno: int) -> str:
 
 def has_inline_ignore(source: str, func_node: ast.FunctionDef) -> bool:
     """Check if function has inline ignore comment."""
-    try:
-        line = line_at(source, func_node.lineno)
-        return IGNORE_COMMENT_MARKER in line
-    except Exception:
-        return False
+    line = line_at(source, func_node.lineno)
+    return IGNORE_COMMENT_MARKER in line
 
 
 def _call_name(node: ast.AST) -> str | None:
@@ -413,7 +410,7 @@ def process_file(path: Path) -> list[Suggestion]:
 
     try:
         source = read_source(path)
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return []
 
     try:

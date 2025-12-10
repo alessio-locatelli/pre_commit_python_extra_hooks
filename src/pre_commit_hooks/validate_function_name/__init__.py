@@ -57,7 +57,7 @@ def _should_scan_file(filepath: Path) -> bool:
     try:
         content = filepath.read_text(encoding="utf8")
         return f"def {GET_PREFIX}" in content
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return False
 
 

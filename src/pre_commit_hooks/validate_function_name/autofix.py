@@ -104,7 +104,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
     try:
         source = read_source(filepath)
         tree = ast.parse(source)
-    except Exception:
+    except (OSError, SyntaxError, UnicodeDecodeError):
         return False
 
     # Find the specific function
@@ -150,7 +150,7 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     """
     try:
         source = read_source(filepath)
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return False
 
     # Word-boundary regex to avoid renaming parts of other identifiers
@@ -168,5 +168,5 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     try:
         filepath.write_text(new_source, encoding="utf8")
         return True
-    except Exception:
+    except OSError:
         return False

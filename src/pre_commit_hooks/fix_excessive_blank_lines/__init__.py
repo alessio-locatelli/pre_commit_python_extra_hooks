@@ -185,7 +185,7 @@ def fix_file(filename: str) -> None:
     try:
         with open(filename, "w", encoding="utf-8", newline="") as f:
             f.writelines(new_lines)
-    except Exception:
+    except OSError:
         pass
 
 
