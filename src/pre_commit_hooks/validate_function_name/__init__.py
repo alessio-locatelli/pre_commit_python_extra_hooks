@@ -39,26 +39,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from pre_commit_hooks._cache import CacheManager
+from pre_commit_hooks._prefilter import git_grep_filter
+
 from .analysis import GET_PREFIX, Suggestion, process_file
 from .autofix import apply_fix, should_autofix
 
 ERROR_CODE = "NAMING-001"
-
-
-def _should_scan_file(filepath: Path) -> bool:
-    """Quick pre-filter to check if file might contain get_* functions.
-
-    Args:
-        filepath: Path to Python file
-
-    Returns:
-        True if file should be scanned (contains "def get_")
-    """
-    try:
-        content = filepath.read_text(encoding="utf8")
-        return f"def {GET_PREFIX}" in content
-    except (OSError, UnicodeDecodeError):
-        return False
 
 
 def _format_violation(
@@ -117,20 +104,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         # No files to process
         return 0
 
-    # Convert to Path objects
-    files = [Path(f) for f in args.filenames]
-
-    # Pre-filter files for performance
-    candidate_files = [f for f in files if _should_scan_file(f)]
+    # Pre-filter: only process files with "def get_" pattern
+    candidate_files = git_grep_filter(
+        args.filenames, f"def {GET_PREFIX}", fixed_string=True
+    )
 
     if not candidate_files:
         # No candidate files found
         return 0
 
+    # Initialize cache
+    cache = CacheManager(hook_name="validate-function-name")
+
     # Process each file and collect suggestions
     all_suggestions: list[Suggestion] = []
-    for filepath in candidate_files:
-        suggestions = process_file(filepath)
+    for filename in candidate_files:
+        filepath = Path(filename)
+
+        # Try cache first (skip cache in --fix mode since file may be modified)
+        suggestions = None
+        if not args.fix:
+            cached = cache.get_cached_result(filepath, "validate-function-name")
+            if cached is not None:
+                # Deserialize suggestions from cache
+                suggestions = [
+                    Suggestion(
+                        path=Path(s["path"]),
+                        func_name=s["func_name"],
+                        lineno=s["lineno"],
+                        suggested_name=s["suggested_name"],
+                        reason=s["reason"],
+                    )
+                    for s in cached.get("suggestions", [])
+                ]
+
+        # If cache miss, run analysis
+        if suggestions is None:
+            suggestions = process_file(filepath)
+
+            # Cache result (only if not in --fix mode)
+            if not args.fix:
+                # Serialize suggestions for caching
+                cache.set_cached_result(
+                    filepath,
+                    "validate-function-name",
+                    {
+                        "suggestions": [
+                            {
+                                "path": str(s.path),
+                                "func_name": s.func_name,
+                                "lineno": s.lineno,
+                                "suggested_name": s.suggested_name,
+                                "reason": s.reason,
+                            }
+                            for s in suggestions
+                        ]
+                    },
+                )
+
         all_suggestions.extend(suggestions)
 
     if not all_suggestions:

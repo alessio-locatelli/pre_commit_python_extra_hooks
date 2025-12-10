@@ -62,3 +62,15 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.coverage.run]
+source_pkgs = ["pre_commit_hooks"]
+
+[tool.coverage.report]
+fail_under = 100
+skip_empty = true
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]

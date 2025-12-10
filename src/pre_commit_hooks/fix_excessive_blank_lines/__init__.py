@@ -16,6 +16,9 @@ Example:
 
 import argparse
 import sys
+from pathlib import Path
+
+from pre_commit_hooks._cache import CacheManager
 
 
 def find_module_header_end(lines: list[str]) -> int:
@@ -208,9 +211,38 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if not args.filenames:
+        return 0
+
+    # Initialize cache
+    cache = CacheManager(hook_name="fix-excessive-blank-lines")
+
     exit_code = 0
     for filename in args.filenames:
-        violations = check_file(filename)
+        filepath = Path(filename)
+
+        # Try cache first (skip cache in --fix mode since file will be modified)
+        violations = None
+        if not args.fix:
+            cached = cache.get_cached_result(filepath, "fix-excessive-blank-lines")
+            if cached is not None:
+                violations = [
+                    tuple(v) for v in cached.get("violations", [])
+                ]  # Convert from list
+
+        # If cache miss, run check
+        if violations is None:
+            violations = check_file(filename)
+
+            # Cache result (only if not in --fix mode)
+            if not args.fix:
+                # Convert tuples to lists for JSON serialization
+                cache.set_cached_result(
+                    filepath,
+                    "fix-excessive-blank-lines",
+                    {"violations": [list(v) for v in violations]},
+                )
+
         if violations:
             if args.fix:
                 fix_file(filename)

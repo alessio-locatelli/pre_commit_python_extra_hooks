@@ -15,7 +15,11 @@ import re
 import sys
 import tokenize
 from io import StringIO
+from pathlib import Path
 from typing import NamedTuple
+
+from pre_commit_hooks._cache import CacheManager
+from pre_commit_hooks._prefilter import git_grep_filter
 
 # Linter pragma patterns that should NEVER be moved
 LINTER_PRAGMA_PATTERNS = [
@@ -32,6 +36,9 @@ LINTER_PRAGMA_PATTERNS = [
     r"#\s*isort:",  # isort
 ]
 
+# Pre-compile regex patterns for performance (optimization)
+_COMPILED_LINTER_PATTERNS = [re.compile(p) for p in LINTER_PRAGMA_PATTERNS]
+
 
 def is_linter_pragma(comment_text: str) -> bool:
     """Check if a comment contains a linter pragma directive.
@@ -42,7 +49,8 @@ def is_linter_pragma(comment_text: str) -> bool:
     Returns:
         True if the comment matches any linter pragma pattern
     """
-    return any(re.search(pattern, comment_text) for pattern in LINTER_PRAGMA_PATTERNS)
+    # Use pre-compiled patterns (performance optimization)
+    return any(pattern.search(comment_text) for pattern in _COMPILED_LINTER_PATTERNS)
 
 
 def is_bracket_only_line(
@@ -258,9 +266,42 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if not args.filenames:
+        return 0
+
+    # Pre-filter: only process files with comments
+    candidates = git_grep_filter(args.filenames, "#", fixed_string=True)
+    if not candidates:
+        return 0
+
+    # Initialize cache
+    cache = CacheManager(hook_name="fix-misplaced-comments")
+
     exit_code = 0
-    for filename in args.filenames:
-        violations = check_file(filename)
+    for filename in candidates:
+        filepath = Path(filename)
+
+        # Try cache first (skip cache in --fix mode since file will be modified)
+        violations = None
+        if not args.fix:
+            cached = cache.get_cached_result(filepath, "fix-misplaced-comments")
+            if cached is not None:
+                violations = [
+                    tuple(v) for v in cached.get("violations", [])
+                ]  # Convert from list
+
+        # If cache miss, run check
+        if violations is None:
+            violations = check_file(filename)
+
+            # Cache result (only if not in --fix mode)
+            if not args.fix:
+                cache.set_cached_result(
+                    filepath,
+                    "fix-misplaced-comments",
+                    {"violations": [list(v) for v in violations]},
+                )
+
         if violations:
             if args.fix:
                 fix_file(filename)

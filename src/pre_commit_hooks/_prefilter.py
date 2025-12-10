@@ -1,0 +1,143 @@
+"""Batch file pre-filtering using git grep for performance.
+
+This module provides fast file filtering using git grep to eliminate files
+that don't need processing. Falls back to Python substring search if git
+is unavailable.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Sequence
+from pathlib import Path
+
+__all__ = ["git_grep_filter", "batch_filter_files"]
+
+
+def git_grep_filter(
+    filepaths: Sequence[str], pattern: str, fixed_string: bool = False
+) -> list[str]:
+    """Filter files using git grep for performance.
+
+    Uses git grep to quickly filter files containing a pattern. This is much
+    faster than parsing every file with Python. Falls back to Python substring
+    search if git is unavailable.
+
+    Args:
+        filepaths: List of file paths to filter
+        pattern: Pattern to search for (regex or fixed string)
+        fixed_string: If True, use -F (fixed string matching, faster)
+
+    Returns:
+        List of file paths containing the pattern
+
+    Example:
+        >>> # Find files with "def get_"
+        >>> candidates = git_grep_filter(all_files, "def get_", fixed_string=True)
+        >>> # Process only candidate files
+        >>> for filepath in candidates:
+        ...     check_file(filepath)
+    """
+    if not filepaths:
+        return []
+
+    try:
+        # Build git grep command
+        cmd = ["git", "grep", "--files-with-matches", "--null"]
+        if fixed_string:
+            cmd.append("--fixed-strings")
+        cmd.extend(["-e", pattern, "--"])
+        cmd.extend(filepaths)
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=False, timeout=30
+        )
+
+        if result.returncode == 0:  # pragma: no cover
+            # Parse null-separated output
+            # Git grep returns paths relative to repo root, but we need to preserve
+            # the format of input paths (absolute vs relative)
+            git_matches = {f for f in result.stdout.split("\0") if f}
+
+            # Build mapping: resolved path -> original input path
+            input_map = {Path(fp).resolve(): fp for fp in filepaths}
+
+            # Map git results back to original input paths
+            matches = []
+            for git_path in git_matches:
+                resolved = Path(git_path).resolve()
+                if resolved in input_map:
+                    matches.append(input_map[resolved])
+
+            return matches
+        elif result.returncode == 1:  # pragma: no cover
+            # No matches found (not an error)
+            return []
+        else:
+            # Error occurred, fall back to Python
+            return _python_fallback_filter(filepaths, pattern)
+
+    except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired):
+        # git not available or timeout, fall back
+        return _python_fallback_filter(filepaths, pattern)
+
+
+def _python_fallback_filter(filepaths: Sequence[str], pattern: str) -> list[str]:
+    """Fallback: simple Python substring search.
+
+    Args:
+        filepaths: List of file paths
+        pattern: Pattern to search for (treated as substring)
+
+    Returns:
+        List of file paths containing the pattern
+    """
+    matches = []
+    for filepath in filepaths:
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                content = f.read()
+                if pattern in content:
+                    matches.append(filepath)
+        except (OSError, UnicodeDecodeError):
+            # Include file if we can't read it (let hook handle error)
+            matches.append(filepath)
+    return matches
+
+
+def batch_filter_files(
+    filepaths: Sequence[str], patterns: list[str], match_any: bool = True
+) -> list[str]:
+    """Filter files matching any/all patterns using git grep.
+
+    Args:
+        filepaths: List of file paths
+        patterns: List of patterns to match
+        match_any: If True, match any pattern (OR); if False, match all (AND)
+
+    Returns:
+        Filtered file paths
+
+    Example:
+        >>> # Find files with "data" OR "result"
+        >>> matches = batch_filter_files(files, ["data", "result"], match_any=True)
+        >>> # Find files with "def" AND "class"
+        >>> matches = batch_filter_files(files, ["def", "class"], match_any=False)
+    """
+    if not patterns:
+        return list(filepaths)
+
+    if match_any:
+        # OR: file matches if it contains ANY pattern
+        all_matches = set()
+        for pattern in patterns:
+            matches = git_grep_filter(filepaths, pattern, fixed_string=True)
+            all_matches.update(matches)
+        return sorted(all_matches)
+    else:
+        # AND: file matches if it contains ALL patterns
+        result = set(filepaths)
+        for pattern in patterns:
+            matches = git_grep_filter(filepaths, pattern, fixed_string=True)
+            result.intersection_update(matches)
+        return sorted(result)

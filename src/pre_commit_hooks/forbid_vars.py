@@ -11,6 +11,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from pre_commit_hooks._cache import CacheManager
+from pre_commit_hooks._prefilter import batch_filter_files
+
 # Regex pattern for inline ignore comments (case-insensitive)
 IGNORE_PATTERN = re.compile(
     r"#\s*maintainability:\s*ignore\[meaningless-variable-name\]", re.IGNORECASE
@@ -52,16 +55,45 @@ DEFAULT_AUTOFIX_PATTERNS = {
 }
 
 
-def load_autofix_config() -> dict[str, Any]:
+def _compile_patterns(
+    patterns_dict: dict[str, list[dict[str, str]]],
+) -> dict[str, list[dict[str, Any]]]:
     """
-    Load autofix configuration from pyproject.toml.
+    Pre-compile regex patterns for performance.
+
+    Args:
+        patterns_dict: Dictionary of pattern categories with regex strings
 
     Returns:
-        A dictionary containing the autofix configuration.
+        Dictionary with compiled regex patterns
+    """
+    compiled: dict[str, list[dict[str, Any]]] = {}
+    for category, patterns in patterns_dict.items():
+        compiled[category] = []
+        for pattern in patterns:
+            compiled[category].append(
+                {
+                    "regex": pattern["regex"],  # Keep original for reference
+                    "compiled": re.compile(pattern["regex"]),  # Pre-compiled
+                    "name": pattern["name"],
+                }
+            )
+    return compiled
+
+
+def load_autofix_config() -> dict[str, Any]:
+    """
+    Load autofix configuration from pyproject.toml and pre-compile regex patterns.
+
+    Returns:
+        A dictionary containing the autofix configuration with pre-compiled regexes.
     """
     pyproject_path = Path("pyproject.toml")
     if not pyproject_path.exists():
-        return {"patterns": DEFAULT_AUTOFIX_PATTERNS, "enabled": ["http"]}
+        return {
+            "patterns": _compile_patterns(DEFAULT_AUTOFIX_PATTERNS),
+            "enabled": ["http"],
+        }
 
     with open(pyproject_path, "rb") as f:
         pyproject_data = tomllib.load(f)
@@ -86,7 +118,8 @@ def load_autofix_config() -> dict[str, Any]:
     # Get enabled categories, default to http
     enabled = config.get("enabled", ["http"])
 
-    return {"patterns": patterns, "enabled": enabled}
+    # Pre-compile all regex patterns (performance optimization)
+    return {"patterns": _compile_patterns(patterns), "enabled": enabled}
 
 
 class ScopeVisitor(ast.NodeVisitor):
@@ -166,6 +199,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             scope_names: All names defined in the current file's scope.
         """
         self.forbidden_names = forbidden_names
+        self.source = source  # Store full source (optimization: avoid reconstruction)
         self.source_lines = source.splitlines()
         self.autofix_config = autofix_config
         self.scope_names = scope_names
@@ -176,10 +210,15 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self.scope_used_suggestions: dict[int | None, set[str]] = {}
         # Maps (scope_id, forbidden_var_name) to the generated suggestion
         self.scope_var_suggestions: dict[tuple[int | None, str], str] = {}
+        # Cache scope names to avoid O(n²) repeated AST walks (performance optimization)
+        self.scope_names_cache: dict[int | None, set[str]] = {}
 
     def _get_scope_names(self, scope_node: ast.AST | None) -> set[str]:
         """
         Collect all names defined in a specific scope only.
+
+        Uses caching to avoid repeated AST walks for the same scope
+        (performance optimization).
 
         Args:
             scope_node: The AST node representing the scope (function/class/module).
@@ -188,11 +227,21 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         Returns:
             Set of all variable names defined in that scope.
         """
+        scope_id = id(scope_node) if scope_node else None
+
+        # Check cache first
+        if scope_id in self.scope_names_cache:
+            return self.scope_names_cache[scope_id]
+
+        # Cache miss - compute scope names
         visitor = ScopeVisitor(target_scope=scope_node)
         if scope_node:
             visitor.visit(scope_node)
         elif self.tree:
             visitor.visit(self.tree)
+
+        # Cache for future use
+        self.scope_names_cache[scope_id] = visitor.names
         return visitor.names
 
     def _generate_unique_name(self, suggestion: str, forbidden_var_name: str) -> str:
@@ -261,7 +310,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         for category in enabled_categories:
             patterns = all_patterns.get(category, [])
             for pattern in patterns:
-                if re.search(pattern["regex"], rhs_source):
+                # Use pre-compiled regex (performance optimization)
+                if pattern["compiled"].search(rhs_source):
                     specificity = len(pattern["regex"])
                     if specificity > max_specificity:
                         max_specificity = specificity
@@ -306,9 +356,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         """Visit regular assignment nodes: data = 1."""
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             target = node.targets[0]
-            rhs_source = ast.get_source_segment(
-                "".join(f"{line}\n" for line in self.source_lines), node.value
-            )
+            # Use pre-stored source instead of rebuilding (performance optimization)
+            rhs_source = ast.get_source_segment(self.source, node.value)
             if rhs_source:
                 match = self._find_best_match(rhs_source)
                 self._check_name(target.id, target.lineno, target.col_offset, match)
@@ -319,9 +368,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         """Visit annotated assignment nodes: data: int = 1."""
         if isinstance(node.target, ast.Name):
             if node.value:
-                rhs_source = ast.get_source_segment(
-                    "".join(f"{line}\n" for line in self.source_lines), node.value
-                )
+                # Use pre-stored source instead of rebuilding (performance optimization)
+                rhs_source = ast.get_source_segment(self.source, node.value)
                 match = self._find_best_match(rhs_source) if rhs_source else None
             else:
                 match = None
@@ -448,7 +496,9 @@ def _get_restricted_positions(source: str) -> set[tuple[int, int]]:
     return restricted
 
 
-def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -> None:
+def _apply_fixes(
+    filepath: str, violations: list[dict[str, Any]], source: str, tree: ast.Module
+) -> None:
     """
     Apply autofixes by replacing forbidden variable assignments and their uses.
 
@@ -456,11 +506,13 @@ def _apply_fixes(filepath: str, violations: list[dict[str, Any]], source: str) -
     ALL uses of a variable within that scope, not just the assignment position.
     This ensures that when 'data' is renamed to 'response', all references to
     'data' in that function are also updated.
+
+    Args:
+        filepath: Path to the file being fixed
+        violations: List of violations with suggestions
+        source: Original source code
+        tree: Pre-parsed AST tree (optimization: avoid re-parsing)
     """
-    try:
-        tree = ast.parse(source, filename=filepath)
-    except SyntaxError:
-        return
 
     lines = source.splitlines(keepends=True)
 
@@ -645,8 +697,6 @@ def check_file(
     except (OSError, UnicodeDecodeError):
         return []
 
-    ignored_lines = get_ignored_lines(source)
-
     try:
         tree = ast.parse(source, filename=filepath)
     except SyntaxError:
@@ -660,12 +710,18 @@ def check_file(
     visitor.tree = tree  # Store tree for scope-aware name generation
     visitor.visit(tree)
 
-    violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
+    # Lazy tokenization: only tokenize if violations found (performance optimization)
+    if visitor.violations:
+        ignored_lines = get_ignored_lines(source)
+        violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
+    else:
+        violations = []
 
     if fix:
         fixable_violations = [v for v in violations if v.get("suggestion")]
         if fixable_violations:
-            _apply_fixes(filepath, fixable_violations, source)
+            # Pass pre-parsed tree to avoid re-parsing (performance optimization)
+            _apply_fixes(filepath, fixable_violations, source, tree)
             for v in violations:
                 if v in fixable_violations:
                     v["fixed"] = True
@@ -864,20 +920,75 @@ def main(argv: Sequence[str] | None = None) -> int:
     autofix_config = load_autofix_config()
 
     # Parse forbidden names from argument
-
     forbidden_names = {n.strip() for n in args.names.split(",") if n.strip()}
 
     if not forbidden_names:
         # If no forbidden names provided, exit successfully
-
         return 0
 
-    # Check all files
+    if not args.filenames:
+        return 0
 
+    # Pre-filter: only process files that might contain forbidden names
+    # Use simple pattern matching (just the name itself) to catch all cases
+    candidate_files = batch_filter_files(
+        args.filenames, list(forbidden_names), match_any=True
+    )
+
+    if not candidate_files:
+        return 0
+
+    # Initialize cache
+    cache = CacheManager(hook_name="forbid-vars")
+
+    # Create cache key that includes forbidden names
+    # Sort for consistency
+    forbidden_names_key = ",".join(sorted(forbidden_names))
+
+    # Check all files
     failed = False
 
-    for filepath in args.filenames:
-        violations = check_file(filepath, forbidden_names, args.fix, autofix_config)
+    for filepath in candidate_files:
+        path = Path(filepath)
+
+        # Try cache first (skip cache in --fix mode since file will be modified)
+        violations = None
+        if not args.fix:
+            cached = cache.get_cached_result(path, "forbid-vars")
+            if (
+                cached is not None
+                and cached.get("forbidden_names") == forbidden_names_key
+            ):
+                # Cache is valid and has matching forbidden names
+                violations = cached.get("violations", [])
+
+        # If cache miss, run check
+        if violations is None:
+            violations = check_file(filepath, forbidden_names, args.fix, autofix_config)
+
+            # Cache result (only if not in --fix mode)
+            if not args.fix:
+                # Filter out non-serializable fields (AST nodes) before caching
+                serializable_violations = [
+                    {
+                        k: v
+                        for k, v in violation.items()
+                        if k
+                        not in (
+                            "scope_node",
+                            "node",
+                        )  # Exclude AST nodes
+                    }
+                    for violation in violations
+                ]
+                cache.set_cached_result(
+                    path,
+                    "forbid-vars",
+                    {
+                        "violations": serializable_violations,
+                        "forbidden_names": forbidden_names_key,
+                    },
+                )
 
         if violations:
             failed = True
@@ -885,7 +996,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             for v in violations:
                 if v.get("fixed"):
                     report_fix(filepath, v["line"], v["name"], v["suggestion"])
-
                 else:
                     report_violation(
                         filepath, v["line"], v["name"], v.get("suggestion")

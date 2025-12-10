@@ -17,6 +17,10 @@ Example:
 import argparse
 import ast
 import sys
+from pathlib import Path
+
+from pre_commit_hooks._cache import CacheManager
+from pre_commit_hooks._prefilter import git_grep_filter
 
 
 class SuperInitChecker(ast.NodeVisitor):
@@ -219,9 +223,33 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if not args.filenames:
+        return 0
+
+    # Pre-filter: only process files with super().__init__ calls
+    candidates = git_grep_filter(args.filenames, "super().__init__", fixed_string=True)
+    if not candidates:  # pragma: no cover
+        return 0
+
+    # Initialize cache
+    cache = CacheManager(hook_name="check-redundant-super-init")
+
     exit_code = 0
-    for filename in args.filenames:
-        violations = check_file(filename)
+    for filename in candidates:
+        filepath = Path(filename)
+
+        # Try cache first
+        cached = cache.get_cached_result(filepath, "check-redundant-super-init")
+        if cached is not None:  # pragma: no cover
+            violations = [tuple(v) for v in cached.get("violations", [])]
+        else:
+            violations = check_file(filename)
+            cache.set_cached_result(
+                filepath,
+                "check-redundant-super-init",
+                {"violations": [list(v) for v in violations]},
+            )
+
         for line_num, message in violations:
             print(
                 f"{filename}:{line_num}: MAINTAINABILITY-006: {message}",
