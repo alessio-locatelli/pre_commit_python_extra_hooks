@@ -221,6 +221,18 @@ def test_clear_cache(cache_manager: CacheManager, sample_file: Path) -> None:
     cache_files = list(cache_manager.cache_dir.rglob("*.json"))
     assert len(cache_files) == 0
 
+    # Test with files that are NOT old enough to clear
+    cache_manager.set_cached_result(sample_file, "test-hook", {"violations": []})
+    cache_files_before = list(cache_manager.cache_dir.rglob("*.json"))
+    assert len(cache_files_before) > 0
+
+    # Clear files older than 999 days (nothing should be deleted)
+    cache_manager.clear_cache(older_than_days=999)
+
+    # Files should still exist
+    cache_files_after = list(cache_manager.cache_dir.rglob("*.json"))
+    assert len(cache_files_after) == len(cache_files_before)
+
 
 def test_cache_path_uses_two_level_structure(
     cache_manager: CacheManager, sample_file: Path

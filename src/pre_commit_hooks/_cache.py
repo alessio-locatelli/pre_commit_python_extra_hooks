@@ -222,11 +222,10 @@ class CacheManager:
             older_than_days: Delete cache files older than this many days
         """
         cutoff = time.time() - (older_than_days * 86400)
-        # Utility method not currently used by any hooks;
-        # provided for manual cache management if needed
-        for cache_file in self.cache_dir.rglob("*.json"):  # pragma: no cover
+        for cache_file in self.cache_dir.rglob("*.json"):
             try:
                 if cache_file.stat().st_mtime < cutoff:
                     cache_file.unlink()
-            except OSError:
+            # Graceful error handling for permission issues or concurrent deletion
+            except OSError:  # pragma: no cover
                 pass
