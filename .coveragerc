@@ -1,6 +1,7 @@
 [run]
 plugins = covdefaults
 
+[report]
 exclude_also =
     no cover: start(?s:.)*?no cover: stop
     # Use if you want to ignore cases where (some of) the code is covered. See
