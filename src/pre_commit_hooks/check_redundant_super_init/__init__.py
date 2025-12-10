@@ -228,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Pre-filter: only process files with super().__init__ calls
     candidates = git_grep_filter(args.filenames, "super().__init__", fixed_string=True)
+    # All test fixtures contain super().__init__ pattern, so this early
+    # exit never triggers in tests; works in real usage
     if not candidates:  # pragma: no cover
         return 0
 
@@ -240,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
 
         # Try cache first
         cached = cache.get_cached_result(filepath, "check-redundant-super-init")
+        # Tests run with cold cache to verify analysis logic; warm cache
+        # path is exercised in benchmarks and real usage
         if cached is not None:  # pragma: no cover
             violations = [tuple(v) for v in cached.get("violations", [])]
         else:

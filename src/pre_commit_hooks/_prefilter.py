@@ -53,6 +53,8 @@ def git_grep_filter(
             cmd, capture_output=True, text=True, check=False, timeout=30
         )
 
+        # Tests mock subprocess to force fallback path; this success path
+        # is exercised in real-world usage and benchmarks
         if result.returncode == 0:  # pragma: no cover
             # Parse null-separated output
             # Git grep returns paths relative to repo root, but we need to preserve
@@ -70,6 +72,8 @@ def git_grep_filter(
                     matches.append(input_map[resolved])
 
             return matches
+        # Tests mock subprocess to force fallback path; this "no matches"
+        # path is exercised in real-world usage
         elif result.returncode == 1:  # pragma: no cover
             # No matches found (not an error)
             return []
