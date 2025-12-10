@@ -39,6 +39,7 @@ npx prettier . --write --cache
 taplo fmt pyproject.toml
 uv run coverage run -m pytest
 uv run coverage report
+uv run strict-no-cover
 ```
 
 When the task is completed, all code must conform to the following:
