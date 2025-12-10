@@ -37,7 +37,7 @@ def has_inline_ignore(source: str, func_node: ast.FunctionDef) -> bool:
     try:
         line = line_at(source, func_node.lineno)
         return IGNORE_COMMENT_MARKER in line
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
 
 
@@ -413,7 +413,7 @@ def process_file(path: Path) -> list[Suggestion]:
 
     try:
         source = read_source(path)
-    except Exception:  # pragma: no cover
+    except Exception:
         return []
 
     try:

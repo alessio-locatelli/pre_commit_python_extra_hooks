@@ -46,7 +46,7 @@ When the task is completed, all code must conform to the following:
 - all code has unit and integration tests;
 - all edge cases are identified and tested;
 - dead or unused code is removed (100% coverage is achieved);
-- code that is an intentional guard from impossible cases or interface misuse and should not be tested is excluded via `# pragma: no cover`;
+- code that is an intentional guard from impossible cases or interface misuse and should not be tested is excluded from coverage report;
 
 ## Git
 

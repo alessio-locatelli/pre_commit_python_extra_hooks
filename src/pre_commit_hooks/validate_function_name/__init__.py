@@ -57,7 +57,7 @@ def _should_scan_file(filepath: Path) -> bool:
     try:
         content = filepath.read_text(encoding="utf8")
         return f"def {GET_PREFIX}" in content
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
 
 
@@ -151,7 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if apply_fix(suggestion.path, suggestion):
                     print(_format_violation(suggestion, fixed=True))
                     fixed_count += 1
-                else:  # pragma: no cover
+                else:
                     # Fix failed for some reason
                     print(
                         _format_violation(
@@ -187,5 +187,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     return exit_code
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())

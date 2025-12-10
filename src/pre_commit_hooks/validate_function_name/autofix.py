@@ -104,7 +104,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
     try:
         source = read_source(filepath)
         tree = ast.parse(source)
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
 
     # Find the specific function
@@ -118,7 +118,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
             func_node = node
             break
 
-    if func_node is None:  # pragma: no cover
+    if func_node is None:
         return False
 
     # Check 2: Size (< 20 lines excluding docstring)
@@ -150,7 +150,7 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     """
     try:
         source = read_source(filepath)
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
 
     # Word-boundary regex to avoid renaming parts of other identifiers
@@ -161,12 +161,12 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     new_source = pattern.sub(suggestion.suggested_name, source)
 
     # Check if anything was changed
-    if new_source == source:  # pragma: no cover
+    if new_source == source:
         return False
 
     # Write back
     try:
         filepath.write_text(new_source, encoding="utf8")
         return True
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
