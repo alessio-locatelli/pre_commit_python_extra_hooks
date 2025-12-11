@@ -11,6 +11,8 @@ Example:
 """
 
 import argparse
+import functools
+import logging
 import re
 import sys
 import tokenize
@@ -20,6 +22,8 @@ from typing import NamedTuple
 
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import git_grep_filter
+
+logger = logging.getLogger('fix_misplaced_comment')
 
 # Linter pragma patterns that should NEVER be moved
 LINTER_PRAGMA_PATTERNS = [
@@ -37,9 +41,10 @@ LINTER_PRAGMA_PATTERNS = [
 ]
 
 # Pre-compile regex patterns for performance (optimization)
-_COMPILED_LINTER_PATTERNS = [re.compile(p) for p in LINTER_PRAGMA_PATTERNS]
+_COMPILED_LINTER_PATTERNS = {re.compile(p) for p in LINTER_PRAGMA_PATTERNS}
 
 
+@functools.cache
 def is_linter_pragma(comment_text: str) -> bool:
     """Check if a comment contains a linter pragma directive.
 
@@ -243,8 +248,8 @@ def fix_file(filename: str) -> None:
     try:
         with open(filename, "w", encoding=encoding, newline="") as f:
             f.writelines(new_lines)
-    except OSError:
-        pass
+    except OSError as os_error:
+        logger.error("Failed to write %s. Error: %s", filename, repr(os_error))
 
 
 def main(argv: list[str] | None = None) -> int:
