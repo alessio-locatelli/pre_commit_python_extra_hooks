@@ -27,11 +27,6 @@ class SuperInitChecker(ast.NodeVisitor):
     """AST visitor to check for redundant super().__init__(**kwargs)."""
 
     def __init__(self, filename: str):
-        """Initialize checker.
-
-        Args:
-            filename: Name of file being checked
-        """
         self.filename = filename
         self.violations: list[tuple[int, str]] = []
         self.classes: dict[str, ast.ClassDef] = {}  # Track class definitions
@@ -78,18 +73,18 @@ class SuperInitChecker(ast.NodeVisitor):
                 continue
 
             # Check if this is super().__init__() call
-            if not self._is_super_init_call(stmt):
+            if not _is_super_init_call(stmt):
                 continue
 
             # Check if **kwargs is forwarded
-            if not self._forwards_kwargs(stmt):
+            if not _forwards_kwargs(stmt):
                 continue
 
             # Check parent signatures
             for base in class_node.bases:
                 if isinstance(base, ast.Name):
                     parent = self.classes.get(base.id)
-                    if parent and not self._parent_accepts_args(parent, self.classes):
+                    if parent and not _parent_accepts_args(parent, self.classes):
                         self.violations.append(
                             (
                                 init_node.lineno,
@@ -98,88 +93,84 @@ class SuperInitChecker(ast.NodeVisitor):
                             )
                         )
 
-    @staticmethod
-    def _is_super_init_call(node: ast.Call) -> bool:
-        """Check if node is a super().__init__() call.
+def _is_super_init_call(node: ast.Call) -> bool:
+    """Check if node is a super().__init__() call.
 
-        Args:
-            node: Call AST node
-
-        Returns:
-            True if this is super().__init__()
-        """
-        # Check if func is Attribute with value=Call(super) and attr='__init__'
-        if not isinstance(node.func, ast.Attribute):
-            return False
-
-        if node.func.attr != "__init__":
-            return False
-
-        # Check if the value is a super() call
-        if not isinstance(node.func.value, ast.Call):
-            return False
-
-        func = node.func.value.func
-        return isinstance(func, ast.Name) and func.id == "super"
-
-    @staticmethod
-    def _forwards_kwargs(node: ast.Call) -> bool:
-        """Check if call forwards **kwargs.
-
-        Args:
-            node: Call AST node
-
-        Returns:
-            True if **kwargs is forwarded
-        """
-        # Check keywords for **kwargs (Starred node)
-        return any(keyword.arg is None for keyword in node.keywords)
-
-    @staticmethod
-    def _parent_accepts_args(
-        class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]
-    ) -> bool:
-        """Check if parent's __init__ accepts any arguments.
-
-        This method recursively traverses the inheritance chain to determine
-        if any ancestor class accepts arguments through its __init__ method.
-
-        Args:
-            class_node: The parent class definition
-            classes: Dictionary mapping class names to their AST nodes
-
-        Returns:
-            True if __init__ accepts arguments beyond self
-        """
-        for item in class_node.body:
-            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
-                # Check if it has any parameters beyond 'self'
-                args = item.args
-                # Check positional arguments beyond 'self'
-                if len(args.args) > 1:
-                    return True
-                # Check for *args or **kwargs
-                if args.vararg or args.kwarg:
-                    return True
-                # Check for keyword-only arguments (e.g., *, key=None)
-                if args.kwonlyargs:
-                    return True
-                # Check for positional-only args (e.g., /, value)
-                # Exclude 'self', so check for more than 1 posonly arg
-                return bool(args.posonlyargs and len(args.posonlyargs) > 1)
-
-        # No __init__ defined, recursively check parent classes
-        for base in class_node.bases:
-            if isinstance(base, ast.Name):
-                # For built-in or imported types, we can't check further
-                # but Exception and its subclasses accept **kwargs through BaseException
-                if base.id in ("Exception", "BaseException"):
-                    return True
-                # Recursively check user-defined parent classes
-                parent = classes.get(base.id)
-                if parent and SuperInitChecker._parent_accepts_args(parent, classes):
-                    return True
+    Args:
+        node: Call AST node
+    """
+    # Check if func is Attribute with value=Call(super) and attr='__init__'
+    if not isinstance(node.func, ast.Attribute):
         return False
+
+    if node.func.attr != "__init__":
+        return False
+
+    # Check if the value is a super() call
+    if not isinstance(node.func.value, ast.Call):
+        return False
+
+    func = node.func.value.func
+    return isinstance(func, ast.Name) and func.id == "super"
+
+
+def _forwards_kwargs(node: ast.Call) -> bool:
+    """Check if call forwards **kwargs.
+
+    Args:
+        node: Call AST node
+
+    Returns:
+        True if **kwargs is forwarded
+    """
+    # Check keywords for **kwargs (Starred node)
+    return any(keyword.arg is None for keyword in node.keywords)
+
+
+def _parent_accepts_args(
+    class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]
+) -> bool:
+    """Check if parent's __init__ accepts any arguments.
+
+    This method recursively traverses the inheritance chain to determine
+    if any ancestor class accepts arguments through its __init__ method.
+
+    Args:
+        class_node: The parent class definition
+        classes: Dictionary mapping class names to their AST nodes
+
+    Returns:
+        True if __init__ accepts arguments beyond self
+    """
+    for item in class_node.body:
+        if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+            # Check if it has any parameters beyond 'self'
+            args = item.args
+            # Check positional arguments beyond 'self'
+            if len(args.args) > 1:
+                return True
+            # Check for *args or **kwargs
+            if args.vararg or args.kwarg:
+                return True
+            # Check for keyword-only arguments (e.g., *, key=None)
+            if args.kwonlyargs:
+                return True
+            # Check for positional-only args (e.g., /, value)
+            # Exclude 'self', so check for more than 1 posonly arg
+            return bool(args.posonlyargs and len(args.posonlyargs) > 1)
+
+    # No __init__ defined, recursively check parent classes
+    for base in class_node.bases:
+        if isinstance(base, ast.Name):
+            # For built-in or imported types, we can't check further
+            # but Exception and its subclasses accept **kwargs through BaseException
+            if base.id in ("Exception", "BaseException"):
+                return True
+            # Recursively check user-defined parent classes
+            parent = classes.get(base.id)
+            if parent and _parent_accepts_args(parent, classes):
+                return True
+    return False
 
 
 def check_file(filename: str) -> list[tuple[int, str]]:
