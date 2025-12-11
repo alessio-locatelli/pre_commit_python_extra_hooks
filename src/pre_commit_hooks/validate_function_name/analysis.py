@@ -10,7 +10,7 @@ IGNORE_COMMENT_MARKER = "naming: ignore"
 GET_PREFIX = "get_"
 
 
-@dataclass
+@dataclass(slots=True)
 class Suggestion:
     """A naming suggestion for a function."""
 

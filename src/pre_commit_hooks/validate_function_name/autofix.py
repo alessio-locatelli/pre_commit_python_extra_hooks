@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from pathlib import Path
 
 from .analysis import Suggestion, read_source
+
+logger = logging.getLogger("validate-function-name")
 
 
 def _count_nesting_depth(func_node: ast.FunctionDef) -> int:
@@ -51,7 +54,7 @@ def _count_returns(func_node: ast.FunctionDef) -> int:
     return sum(1 for node in ast.walk(func_node) if isinstance(node, ast.Return))
 
 
-def _count_function_lines(func_node: ast.FunctionDef, source: str) -> int:
+def _count_function_lines(func_node: ast.FunctionDef) -> int:
     """Count lines of code in function, excluding docstring.
 
     Args:
@@ -104,7 +107,8 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
     try:
         source = read_source(filepath)
         tree = ast.parse(source)
-    except (OSError, SyntaxError, UnicodeDecodeError):
+    except (OSError, SyntaxError, UnicodeDecodeError) as error:
+        logger.warning("Filepath: %s. Error: %s", filepath, repr(error))
         return False
 
     # Find the specific function
@@ -150,7 +154,8 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     """
     try:
         source = read_source(filepath)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("Filepath: %s. Error: %s", filepath, repr(error))
         return False
 
     # Word-boundary regex to avoid renaming parts of other identifiers
@@ -168,5 +173,6 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
     try:
         filepath.write_text(new_source, encoding="utf8")
         return True
-    except OSError:
+    except OSError as os_error:
+        logger.warning("Filepath: %s. Error: %s", filepath, repr(os_error))
         return False
