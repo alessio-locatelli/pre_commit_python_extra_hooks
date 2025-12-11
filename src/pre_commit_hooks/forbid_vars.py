@@ -2,6 +2,7 @@
 
 import argparse
 import ast
+import logging
 import io
 import re
 import sys
@@ -13,6 +14,8 @@ from typing import Any
 
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import batch_filter_files
+
+logger = logging.getLogger("vorbid-vars")
 
 # Regex pattern for inline ignore comments (case-insensitive)
 IGNORE_PATTERN = re.compile(
@@ -442,58 +445,11 @@ def get_ignored_lines(source: str) -> set[int]:
 
             if IGNORE_PATTERN.search(tok_string):
                 ignored.add(line)
-    except tokenize.TokenError:
+    except tokenize.TokenError as token_error:
         # If tokenization fails, return empty set (no lines ignored)
-        pass
+        logger.debug(repr(token_error))
 
     return ignored
-
-
-def _get_restricted_positions(source: str) -> set[tuple[int, int]]:
-    """Get (line, col) positions where names should NOT be replaced.
-
-    This includes:
-    - Function parameter names
-    - Keyword argument names
-    - Attribute names
-    - Any Name node in a string context
-    """
-    restricted: set[tuple[int, int]] = set()
-
-    try:
-        tree = ast.parse(source, filename="<string>")
-    except SyntaxError:
-        return restricted
-
-    # Collect function parameters
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Function parameters
-            for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
-                if hasattr(arg, "lineno") and hasattr(arg, "col_offset"):
-                    restricted.add((arg.lineno, arg.col_offset))
-            if node.args.vararg:
-                restricted.add((node.args.vararg.lineno, node.args.vararg.col_offset))
-            if node.args.kwarg:
-                restricted.add((node.args.kwarg.lineno, node.args.kwarg.col_offset))
-
-        # Keyword arguments in function calls
-        elif isinstance(node, ast.Call):
-            for keyword in node.keywords:
-                if keyword.arg:  # Not **kwargs
-                    # The keyword name position is roughly the start of the argument
-                    # For exact position we'd need more work, so we use a heuristic
-                    pass
-
-        # Attribute names
-        elif isinstance(node, ast.Attribute):
-            # The attr_name's position is after the dot
-            if hasattr(node, "lineno") and hasattr(node, "col_offset"):
-                # ast doesn't give us exact position of attribute name,
-                # but we can estimate it's after the dot in the source
-                pass
-
-    return restricted
 
 
 def _apply_fixes(
@@ -694,12 +650,14 @@ def check_file(
     try:
         with open(filepath, encoding="utf-8") as f:
             source = f.read()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.error("File: %s, error: %s", filepath, repr(error))
         return []
 
     try:
         tree = ast.parse(source, filename=filepath)
-    except SyntaxError:
+    except SyntaxError as syntax_error:
+        logger.error("File: %s, error: %s", filepath, repr(syntax_error))
         return []
 
     scope_visitor = ScopeVisitor()
@@ -733,186 +691,54 @@ def report_violation(
     filepath: str, line: int, name: str, suggestion: str | None = None
 ) -> None:
     """
-
-
-
     Report a single violation with helpful message and link.
-
-
-
-
-
-
-
     Follows standard linter format: filepath:line: message
-
-
-
-
-
-
-
     Args:
-
-
-
         filepath: Path to the file containing the violation
-
-
-
         line: Line number where the violation occurs
-
-
-
         name: The forbidden variable name found
-
-
-
         suggestion: The suggested new name, if any
-
-
-
     """
-
     message = f"Forbidden variable name '{name}' found."
-
     if suggestion:
         message += f" Consider renaming to '{suggestion}'."
-
     else:
         message += " Use a more descriptive name."
-
     message += (
         " Or add '# maintainability: ignore[meaningless-variable-name]' to suppress. "
         "See https://hilton.org.uk/blog/meaningless-variable-names"
     )
-
     print(f"{filepath}:{line}: {message}")
 
 
 def report_fix(filepath: str, line: int, name: str, suggestion: str) -> None:
     """Report a successfully applied fix."""
-
     print(f"Applied fix for '{name}' -> '{suggestion}' in {filepath}:{line}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """
-
-
-
-
-
-
-
-
-
-
-
-    Main entry point for the forbid-vars hook.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    """Main entry point for the forbid-vars hook.
 
     Args:
-
-
-
-
-
-
-
-
-
-
-
         argv: Command-line arguments (defaults to sys.argv if None)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     Returns:
-
-
-
-
-
-
-
-
-
-
-
         Exit code: 0 for success, 1 for failure
-
-
-
-
-
-
-
-
-
-
-
     """
 
     parser = argparse.ArgumentParser(
         description="Check for forbidden variable names in Python files"
     )
-
     parser.add_argument("filenames", nargs="*", help="Filenames to check")
-
     parser.add_argument(
         "--names",
         default="data,result",
         help="Comma-separated list of forbidden names (default: data,result)",
     )
-
     parser.add_argument(
         "--fix",
         action="store_true",
         help="Automatically fix forbidden names where possible.",
     )
-
     args = parser.parse_args(argv)
 
     # Load autofix configuration
