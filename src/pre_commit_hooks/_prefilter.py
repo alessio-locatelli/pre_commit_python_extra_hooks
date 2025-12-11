@@ -7,11 +7,15 @@ is unavailable.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
 __all__ = ["git_grep_filter", "batch_filter_files"]
+
+
+logger = logging.getLogger("linter")
 
 
 def git_grep_filter(
@@ -81,7 +85,8 @@ def git_grep_filter(
             # Error occurred, fall back to Python
             return _python_fallback_filter(filepaths, pattern)
 
-    except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired) as error:
+        logger.error(repr(error))
         # git not available or timeout, fall back
         return _python_fallback_filter(filepaths, pattern)
 

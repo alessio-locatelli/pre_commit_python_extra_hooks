@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
 
 __all__ = ["CacheManager"]
 
+logger = logging.getLogger("cache")
 
 class CacheManager:
     """Content-hash-based file cache with mtime optimization.
@@ -119,7 +121,13 @@ class CacheManager:
             # Content changed, cache invalid
             return None
 
-        except (OSError, json.JSONDecodeError, KeyError):
+        except (OSError, json.JSONDecodeError, KeyError) as error:
+            logger.warning(
+                "File: %s, hook name: %, error: %s",
+                filepath,
+                hook_name,
+                repr(error)
+            )
             # Treat any error as cache miss
             return None
 
@@ -155,7 +163,13 @@ class CacheManager:
             # Atomic write
             self._write_cache(cache_file, cache_data)
 
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as error:
+            logger.warning(
+                "File: %s, hook name: %, error: %s",
+                filepath,
+                hook_name,
+                repr(error)
+            )
             # Don't crash on cache write failure - just skip caching
             pass
 
@@ -227,5 +241,6 @@ class CacheManager:
                 if cache_file.stat().st_mtime < cutoff:
                     cache_file.unlink()
             # Graceful error handling for permission issues or concurrent deletion
-            except OSError:  # pragma: no cover
-                pass
+            except OSError as os_error:  # pragma: no cover
+                logger.warning("Clear cache failed: %s", repr(os_error))
+
