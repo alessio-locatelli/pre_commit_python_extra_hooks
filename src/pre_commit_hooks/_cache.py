@@ -18,6 +18,7 @@ __all__ = ["CacheManager"]
 
 logger = logging.getLogger("cache")
 
+
 class CacheManager:
     """Content-hash-based file cache with mtime optimization.
 
@@ -123,10 +124,7 @@ class CacheManager:
 
         except (OSError, json.JSONDecodeError, KeyError) as error:
             logger.warning(
-                "File: %s, hook name: %, error: %s",
-                filepath,
-                hook_name,
-                repr(error)
+                "File: %s, hook name: %, error: %s", filepath, hook_name, repr(error)
             )
             # Treat any error as cache miss
             return None
@@ -165,10 +163,7 @@ class CacheManager:
 
         except (OSError, json.JSONDecodeError) as error:
             logger.warning(
-                "File: %s, hook name: %, error: %s",
-                filepath,
-                hook_name,
-                repr(error)
+                "File: %s, hook name: %, error: %s", filepath, hook_name, repr(error)
             )
             # Don't crash on cache write failure - just skip caching
             pass
@@ -243,4 +238,3 @@ class CacheManager:
             # Graceful error handling for permission issues or concurrent deletion
             except OSError as os_error:  # pragma: no cover
                 logger.warning("Clear cache failed: %s", repr(os_error))
-

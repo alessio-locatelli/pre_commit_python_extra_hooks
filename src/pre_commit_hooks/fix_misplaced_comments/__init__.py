@@ -23,7 +23,7 @@ from typing import NamedTuple
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import git_grep_filter
 
-logger = logging.getLogger('fix_misplaced_comment')
+logger = logging.getLogger("fix_misplaced_comment")
 
 # Linter pragma patterns that should NEVER be moved
 LINTER_PRAGMA_PATTERNS = [

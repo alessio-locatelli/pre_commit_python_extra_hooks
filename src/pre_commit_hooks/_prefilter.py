@@ -85,7 +85,11 @@ def git_grep_filter(
             # Error occurred, fall back to Python
             return _python_fallback_filter(filepaths, pattern)
 
-    except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired) as error:
+    except (
+        subprocess.SubprocessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as error:
         logger.error(repr(error))
         # git not available or timeout, fall back
         return _python_fallback_filter(filepaths, pattern)

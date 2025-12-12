@@ -93,6 +93,7 @@ class SuperInitChecker(ast.NodeVisitor):
                             )
                         )
 
+
 def _is_super_init_call(node: ast.Call) -> bool:
     """Check if node is a super().__init__() call.
 

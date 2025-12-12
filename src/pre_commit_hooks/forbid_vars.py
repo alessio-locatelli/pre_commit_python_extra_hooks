@@ -2,8 +2,8 @@
 
 import argparse
 import ast
-import logging
 import io
+import logging
 import re
 import sys
 import tokenize
