@@ -15,10 +15,13 @@ Example:
 """
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from pre_commit_hooks._cache import CacheManager
+
+logger = logging.getLogger("fix_excessive_blank_lines")
 
 
 def find_module_header_end(lines: list[str]) -> int:
@@ -84,7 +87,8 @@ def check_file(filename: str) -> list[tuple[int, str]]:
     try:
         with open(filename, encoding="utf-8") as f:
             lines = f.readlines()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filename, repr(error))
         return []
 
     if not lines:
@@ -142,7 +146,8 @@ def fix_file(filename: str) -> None:
         with open(filename, encoding="utf-8") as f:
             content = f.read()
             lines = content.splitlines(keepends=True)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filename, repr(error))
         return
 
     if not lines:
@@ -188,8 +193,8 @@ def fix_file(filename: str) -> None:
     try:
         with open(filename, "w", encoding="utf-8", newline="") as f:
             f.writelines(new_lines)
-    except OSError:
-        pass
+    except OSError as os_error:
+        logger.error("Failed to write %s. Error: %s", filename, repr(os_error))
 
 
 def main(argv: list[str] | None = None) -> int:

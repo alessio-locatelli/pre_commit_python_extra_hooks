@@ -419,7 +419,8 @@ def process_file(filepath: Path) -> list[Suggestion]:
 
     try:
         tree = ast.parse(source)
-    except SyntaxError:
+    except SyntaxError as syntax_error:
+        logger.warning("File: %s, error: %s", filepath, repr(syntax_error))
         return []
 
     # attach parent links for better analysis

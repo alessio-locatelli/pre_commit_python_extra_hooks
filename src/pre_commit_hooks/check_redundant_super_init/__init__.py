@@ -16,11 +16,14 @@ Example:
 
 import argparse
 import ast
+import logging
 import sys
 from pathlib import Path
 
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import git_grep_filter
+
+logger = logging.getLogger("check_redundant_super_init")
 
 
 class SuperInitChecker(ast.NodeVisitor):
@@ -186,12 +189,14 @@ def check_file(filename: str) -> list[tuple[int, str]]:
     try:
         with open(filename, encoding="utf-8") as f:
             source = f.read()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filename, repr(error))
         return []
 
     try:
         tree = ast.parse(source, filename)
-    except SyntaxError:
+    except SyntaxError as syntax_error:
+        logger.warning("File: %s, error: %s", filename, repr(syntax_error))
         return []
 
     checker = SuperInitChecker(filename)

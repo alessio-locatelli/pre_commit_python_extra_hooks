@@ -116,12 +116,14 @@ def check_file(filename: str) -> list[tuple[int, str]]:
     try:
         with tokenize.open(filename) as f:
             source = f.read()
-    except (SyntaxError, UnicodeDecodeError):
+    except (SyntaxError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filename, repr(error))
         return []
 
     try:
         tokens = list(tokenize.generate_tokens(StringIO(source).readline))
-    except tokenize.TokenError:
+    except tokenize.TokenError as token_error:
+        logger.warning("File: %s, error: %s", filename, repr(token_error))
         return []
 
     violations = []
@@ -168,12 +170,14 @@ def fix_file(filename: str) -> None:
         with tokenize.open(filename) as f:
             source = f.read()
             encoding = f.encoding
-    except (SyntaxError, UnicodeDecodeError):
+    except (SyntaxError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filename, repr(error))
         return
 
     try:
         tokens = list(tokenize.generate_tokens(StringIO(source).readline))
-    except tokenize.TokenError:
+    except tokenize.TokenError as token_error:
+        logger.warning("File: %s, error: %s", filename, repr(token_error))
         return
 
     # Find misplaced comments and move them
