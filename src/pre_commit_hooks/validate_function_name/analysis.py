@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ast
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("cache")
 
 IGNORE_COMMENT_MARKER = "naming: ignore"
 GET_PREFIX = "get_"
@@ -396,7 +399,7 @@ def is_simple_accessor(func_node: ast.FunctionDef) -> bool:
     return False
 
 
-def process_file(path: Path) -> list[Suggestion]:
+def process_file(filepath: Path) -> list[Suggestion]:
     """Process a single file and return naming suggestions.
 
     Args:
@@ -409,8 +412,9 @@ def process_file(path: Path) -> list[Suggestion]:
     from .suggestion import suggest_name_for
 
     try:
-        source = read_source(path)
-    except (OSError, UnicodeDecodeError):
+        source = read_source(filepath)
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filepath, repr(error))
         return []
 
     try:
@@ -440,7 +444,7 @@ def process_file(path: Path) -> list[Suggestion]:
             if suggested_name != node.name:
                 suggestions.append(
                     Suggestion(
-                        path=path,
+                        path=filepath,
                         func_name=node.name,
                         lineno=node.lineno,
                         suggested_name=suggested_name,

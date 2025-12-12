@@ -232,7 +232,8 @@ def check_file(filepath: str) -> list[str]:
         # Your validation logic here
         # ...
 
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("File: %s, error: %s", filepath, repr(error))
         # Skip files we can't read
         return []
 

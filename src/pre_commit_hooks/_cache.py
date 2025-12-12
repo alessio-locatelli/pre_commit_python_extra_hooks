@@ -162,11 +162,10 @@ class CacheManager:
             self._write_cache(cache_file, cache_data)
 
         except (OSError, json.JSONDecodeError) as error:
+            # Don't crash on cache write failure - just skip caching
             logger.warning(
                 "File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error)
             )
-            # Don't crash on cache write failure - just skip caching
-            pass
 
     def _get_cache_path(self, filepath: Path) -> Path:
         """Get cache file path for a source file.

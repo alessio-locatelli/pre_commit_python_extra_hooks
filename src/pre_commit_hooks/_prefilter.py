@@ -112,7 +112,8 @@ def _python_fallback_filter(filepaths: Sequence[str], pattern: str) -> list[str]
                 content = f.read()
                 if pattern in content:
                     matches.append(filepath)
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as error:
+            logger.error("File: %s, error: %s", filepath, repr(error))
             # Include file if we can't read it (let hook handle error)
             matches.append(filepath)
     return matches
