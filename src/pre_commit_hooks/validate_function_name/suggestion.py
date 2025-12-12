@@ -176,11 +176,6 @@ def suggest_name_for(
         reason = "renders/serializes data to string"
         return suggested, reason
 
-    if analysis["searches"]:
-        suggested = f"find_{entity}" if entity else "find"
-        reason = "searches or matches an item"
-        return suggested, reason
-
     if analysis["transforms"]:
         suggested = f"transform_{entity}" if entity else "transform"
         reason = "performs a transformation"

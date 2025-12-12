@@ -59,7 +59,6 @@ def _count_function_lines(func_node: ast.FunctionDef) -> int:
 
     Args:
         func_node: Function AST node
-        source: Full source code
 
     Returns:
         Number of lines (excluding docstring)
@@ -126,7 +125,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
         return False
 
     # Check 2: Size (< 20 lines excluding docstring)
-    line_count = _count_function_lines(func_node, source)
+    line_count = _count_function_lines(func_node)
     if line_count >= 20:
         return False
 

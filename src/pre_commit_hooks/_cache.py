@@ -124,7 +124,7 @@ class CacheManager:
 
         except (OSError, json.JSONDecodeError, KeyError) as error:
             logger.warning(
-                "File: %s, hook name: %, error: %s", filepath, hook_name, repr(error)
+                "File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error)
             )
             # Treat any error as cache miss
             return None
@@ -163,7 +163,7 @@ class CacheManager:
 
         except (OSError, json.JSONDecodeError) as error:
             logger.warning(
-                "File: %s, hook name: %, error: %s", filepath, hook_name, repr(error)
+                "File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error)
             )
             # Don't crash on cache write failure - just skip caching
             pass
