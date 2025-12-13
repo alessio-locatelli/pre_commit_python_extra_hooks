@@ -19,6 +19,44 @@ from pre_commit_hooks._prefilter import batch_filter_files
 
 from ._base import ASTCheck, Violation
 
+
+def filter_excluded_files(
+    filepaths: list[str], exclude_patterns: list[str]
+) -> list[str]:
+    """Filter out files matching exclude patterns.
+
+    Args:
+        filepaths: List of file paths to filter
+        exclude_patterns: List of glob patterns to exclude
+
+    Returns:
+        Filtered list of file paths
+    """
+    if not exclude_patterns:
+        return filepaths
+
+    filtered = []
+    for filepath_str in filepaths:
+        filepath = Path(filepath_str)
+        excluded = False
+
+        for pattern in exclude_patterns:
+            # Check if file matches pattern using glob-style matching
+            # Support both relative and absolute patterns
+            if filepath.match(pattern):
+                excluded = True
+                break
+            # Also check if any parent directory matches
+            if any(part for part in filepath.parts if Path(part).match(pattern)):
+                excluded = True
+                break
+
+        if not excluded:
+            filtered.append(filepath_str)
+
+    return filtered
+
+
 logger = logging.getLogger("ast_checks")
 
 # Check registry will be populated as checks are implemented
@@ -374,6 +412,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="List available checks and exit",
     )
+    parser.add_argument(
+        "--exclude",
+        help="Glob pattern(s) to exclude files/directories (comma-separated)",
+    )
 
     # Check-specific arguments
     parser.add_argument(
@@ -393,6 +435,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # No files to check
     if not args.filenames:
+        return 0
+
+    # Filter excluded files
+    exclude_patterns = []
+    if args.exclude:
+        exclude_patterns = [p.strip() for p in args.exclude.split(",") if p.strip()]
+
+    filenames = filter_excluded_files(args.filenames, exclude_patterns)
+    if not filenames:
+        # All files were excluded
         return 0
 
     # Parse enabled/disabled sets
@@ -430,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Run orchestrator
     orchestrator = CheckOrchestrator(checks=checks, fix_mode=args.fix)
-    all_violations = orchestrator.process_files(args.filenames)
+    all_violations = orchestrator.process_files(filenames)
 
     # Report results
     exit_code = 0
