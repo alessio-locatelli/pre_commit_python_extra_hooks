@@ -1,7 +1,7 @@
 """Check for forbidden meaningless variable names like 'data' and 'result'.
 
-MAINTAINABILITY-001 / TRI001: Detects and suggests replacements for meaningless
-variable names that reduce code maintainability.
+TRI001: Detects and suggests replacements for meaningless variable names that
+reduce code maintainability.
 
 Inline ignore: # pytriage: ignore=TRI001
 """
@@ -640,7 +640,7 @@ class ForbidVarsCheck:
     @property
     def error_code(self) -> str:
         """Return error code."""
-        return "MAINTAINABILITY-001"
+        return "TRI001"
 
     def get_prefilter_pattern(self) -> str | None:
         """Return pre-filter pattern.

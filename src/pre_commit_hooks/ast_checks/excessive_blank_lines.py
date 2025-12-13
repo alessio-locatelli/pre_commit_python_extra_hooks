@@ -1,7 +1,7 @@
 """Check and fix excessive blank lines after module headers.
 
-STYLE-002 / TRI002: Collapse 2+ consecutive blank lines after module headers
-(copyright, docstring, or comments) to a single blank line.
+TRI002: Collapse 2+ consecutive blank lines after module headers (copyright,
+docstring, or comments) to a single blank line.
 
 Inline ignore: # pytriage: ignore=TRI002 (not currently supported)
 """
@@ -190,7 +190,7 @@ class ExcessiveBlankLinesCheck:
     @property
     def error_code(self) -> str:
         """Return error code."""
-        return "STYLE-002"
+        return "TRI002"
 
     def get_prefilter_pattern(self) -> str | None:
         """Return pre-filter pattern.

@@ -1,7 +1,7 @@
 """validate_function_name - Detect get_* functions and suggest better names.
 
-NAMING-001 / TRI004: Functions with get_ prefix should use more descriptive
-names based on their behavior (e.g., load_, fetch_, calculate_, is_, iter_).
+TRI004: Functions with get_ prefix should use more descriptive names based on
+their behavior (e.g., load_, fetch_, calculate_, is_, iter_).
 
 This hook detects functions prefixed with `get_` and suggests more specific
 names based on behavioral analysis:
@@ -45,7 +45,7 @@ from pre_commit_hooks._prefilter import git_grep_filter
 from .analysis import GET_PREFIX, Suggestion, process_file
 from .autofix import apply_fix, should_autofix
 
-ERROR_CODE = "NAMING-001"
+ERROR_CODE = "TRI004"
 
 
 def _format_violation(
