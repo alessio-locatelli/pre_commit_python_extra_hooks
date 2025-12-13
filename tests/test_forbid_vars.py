@@ -592,3 +592,155 @@ def test_function_annotated_assignment_with_value() -> None:
 
     assert len(violations) == 1
     assert "data" in violations[0].message
+
+
+def test_load_autofix_config_without_pyproject() -> None:
+    """Test loading autofix config when pyproject.toml doesn't exist."""
+    import os
+
+    from pre_commit_hooks.ast_checks.forbid_vars import load_autofix_config
+
+    # Save original directory and change to a temp dir without pyproject.toml
+    original_dir = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+            config = load_autofix_config()
+
+            # Should return default config
+            assert "patterns" in config
+            assert "enabled" in config
+            assert config["enabled"] == ["http"]
+    finally:
+        os.chdir(original_dir)
+
+
+def test_autofix_with_custom_patterns() -> None:
+    """Test autofix with custom patterns in pyproject.toml."""
+    import os
+
+    original_dir = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+
+            # Create pyproject.toml with custom patterns
+            pyproject = Path("pyproject.toml")
+            pyproject.write_text(r"""
+[tool.forbid-vars.autofix]
+enabled = ["custom", "http"]
+
+[[tool.forbid-vars.autofix.patterns]]
+category = "custom"
+regex = "\\.fetch\\(.*\\)"
+name = "fetched_data"
+""")
+
+            from pre_commit_hooks.ast_checks.forbid_vars import load_autofix_config
+
+            config = load_autofix_config()
+
+            # Should include custom pattern
+            assert "custom" in config["patterns"]
+            assert "http" in config["enabled"]
+            assert "custom" in config["enabled"]
+    finally:
+        os.chdir(original_dir)
+
+
+def test_suggestion_fallback_when_in_forbidden_names() -> None:
+    """Test that suggestion falls back to 'var' when itself is forbidden."""
+    # Create a custom check where 'response' is also forbidden
+    check = ForbidVarsCheck(forbidden_names={"data", "response"})
+
+    source = """def fetch():
+    data = response.get()
+    return data
+"""
+
+    tree = ast.parse(source)
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should have a violation with 'var' as suggestion
+    assert len(violations) == 1
+    assert violations[0].fixable
+    assert violations[0].fix_data is not None
+    assert violations[0].fix_data["suggestion"] == "var"
+
+
+def test_name_conflict_counter_increment() -> None:
+    """Test that counter increments when multiple conflicts exist."""
+    source = """def process():
+    response = 1
+    response_2 = 2
+    data = response.get()  # Should suggest response_3
+    return data
+"""
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filepath = Path(tmpdir) / "test.py"
+        filepath.write_text(source)
+
+        tree = ast.parse(source)
+        check = ForbidVarsCheck()
+        violations = check.check(filepath, tree, source)
+
+        # Should suggest response_3 to avoid conflicts
+        assert len(violations) == 1
+        assert violations[0].fix_data is not None
+        assert violations[0].fix_data["suggestion"] == "response_3"
+
+
+def test_semantic_naming_with_regex_groups() -> None:
+    """Test semantic naming pattern with regex group substitution."""
+    import os
+
+    original_dir = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+
+            # Create pyproject.toml with semantic patterns enabled
+            pyproject = Path("pyproject.toml")
+            pyproject.write_text("""
+[tool.forbid-vars.autofix]
+enabled = ["semantic"]
+""")
+
+            from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck
+
+            check = ForbidVarsCheck()
+
+            source = """def process():
+    data = get_user()
+    return data
+"""
+
+            tree = ast.parse(source)
+            violations = check.check(Path("test.py"), tree, source)
+
+            # Should suggest 'user' based on semantic pattern
+            assert len(violations) == 1
+            assert violations[0].fixable
+            assert violations[0].fix_data is not None
+            assert violations[0].fix_data["suggestion"] == "user"
+    finally:
+        os.chdir(original_dir)
+
+
+def test_cached_scope_names_reuse() -> None:
+    """Test that scope names are cached and reused."""
+    source = """def process():
+    data = response.get()
+    result = data.json()
+    return result
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should detect both violations using cached scope names
+    assert len(violations) == 2
+    names = {v.fix_data["name"] for v in violations if v.fix_data}
+    assert names == {"data", "result"}

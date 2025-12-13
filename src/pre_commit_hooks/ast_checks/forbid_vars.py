@@ -239,7 +239,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         visitor = ScopeVisitor(target_scope=scope_node)
         if scope_node:
             visitor.visit(scope_node)
-        elif self.tree:
+        elif self.tree:  # pragma: no cover (tree always set by check method)
             visitor.visit(self.tree)
 
         # Cache for future use
@@ -484,6 +484,7 @@ def _apply_fixes(
                 violations_by_scope[scope_id] = []
             violations_by_scope[scope_id].append(v)
 
+    # pragma: no cover (caller filters for fixable violations)
     if not violations_by_scope:
         return
 
@@ -673,6 +674,7 @@ class ForbidVarsCheck:
         """
         if self.forbidden_names:
             return next(iter(sorted(self.forbidden_names)))
+        # pragma: no cover (constructor defaults to DEFAULT_FORBIDDEN_NAMES)
         return None
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
