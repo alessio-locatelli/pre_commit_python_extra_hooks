@@ -126,6 +126,19 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
         "collects": False,
     }
 
+    # Collect parameter names to distinguish argument mutation from cache updates
+    param_names: set[str] = set()
+    for arg in func_node.args.args:
+        param_names.add(arg.arg)
+    for arg in func_node.args.posonlyargs:
+        param_names.add(arg.arg)
+    for arg in func_node.args.kwonlyargs:
+        param_names.add(arg.arg)
+    if func_node.args.vararg:
+        param_names.add(func_node.args.vararg.arg)
+    if func_node.args.kwarg:
+        param_names.add(func_node.args.kwarg.arg)
+
     # property
     for deco in func_node.decorator_list:
         if (
@@ -265,12 +278,30 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
                     ):
                         created_containers.add(target.id)
 
+                # Only flag mutation if we're modifying a parameter or its attributes
+                # (not module-level caches/globals like _cache[key] = value)
                 if isinstance(target, ast.Attribute):
-                    flags["mutates_args"] = True
+                    # Check if we're mutating an argument (handles nested: arg.x.y.z)
+                    base_name = _get_base_name(target)
+                    if base_name and (base_name in param_names or base_name == "self"):
+                        flags["mutates_args"] = True
                 if isinstance(target, ast.Subscript):
-                    flags["mutates_args"] = True
+                    # Check if we're mutating an argument (handles nested: arg.x[y])
+                    base_name = _get_base_name(target)
+                    if base_name and (base_name in param_names or base_name == "self"):
+                        flags["mutates_args"] = True
         if isinstance(node, ast.AugAssign):
-            flags["mutates_args"] = True
+            # Similar logic for augmented assignments: x += 1
+            target = node.target
+            if isinstance(target, (ast.Attribute, ast.Subscript)):
+                # Handle nested attributes/subscripts
+                base_name = _get_base_name(target)
+                if base_name and (base_name in param_names or base_name == "self"):
+                    flags["mutates_args"] = True
+            elif isinstance(target, ast.Name):
+                # x += 1 where x is a parameter (modifying mutable default argument)
+                if target.id in param_names:
+                    flags["mutates_args"] = True
         if isinstance(node, ast.Call):
             name = _call_name(node.func)
             if name and any(
@@ -293,8 +324,11 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
                 if isinstance(node.func, ast.Attribute) and isinstance(
                     node.func.value, ast.Name
                 ):
-                    appended_to.add(node.func.value.id)
-                flags["mutates_args"] = True
+                    var_name = node.func.value.id
+                    appended_to.add(var_name)
+                    # Only flag mutation if appending to a parameter
+                    if var_name in param_names or var_name == "self":
+                        flags["mutates_args"] = True
 
         # detect .exists() / .parent usage inside loops (heuristic for find_root)
         if isinstance(node, ast.While):
@@ -349,6 +383,25 @@ def attach_parents(node: ast.AST) -> None:
     for child in ast.iter_child_nodes(node):
         child.parent = node  # type: ignore[attr-defined]
         attach_parents(child)
+
+
+def _get_base_name(node: ast.expr) -> str | None:
+    """Get the base name from an expression (handles nested attributes).
+
+    Examples:
+        x -> "x"
+        x.y -> "x"
+        x.y.z -> "x"
+        x[0] -> "x"
+        x[0].y -> "x"
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return _get_base_name(node.value)
+    if isinstance(node, ast.Subscript):
+        return _get_base_name(node.value)
+    return None
 
 
 def is_simple_accessor(func_node: ast.FunctionDef) -> bool:
