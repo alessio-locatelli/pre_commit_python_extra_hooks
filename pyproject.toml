@@ -19,8 +19,8 @@ classifiers = [
 
 # Entry points define the CLI commands
 # These map to the 'entry' field in .pre-commit-hooks.yaml
+# Note: ast-checks uses python -m entry point instead of a script entry
 [project.scripts]
-forbid-vars = "pre_commit_hooks.forbid_vars:main"
 
 [dependency-groups]
 dev = [

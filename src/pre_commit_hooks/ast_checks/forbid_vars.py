@@ -1,21 +1,24 @@
-"""Pre-commit hook to forbid meaningless variable names like 'data' and 'result'."""
+"""Check for forbidden meaningless variable names like 'data' and 'result'.
 
-import argparse
+MAINTAINABILITY-001: Detects and suggests replacements for meaningless
+variable names that reduce code maintainability.
+"""
+
+from __future__ import annotations
+
 import ast
 import io
 import logging
 import re
-import sys
 import tokenize
 import tomllib
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pre_commit_hooks._cache import CacheManager
-from pre_commit_hooks._prefilter import batch_filter_files
+from . import register_check
+from ._base import Violation
 
-logger = logging.getLogger("vorbid-vars")
+logger = logging.getLogger("forbid_vars")
 
 # Regex pattern for inline ignore comments (case-insensitive)
 IGNORE_PATTERN = re.compile(
@@ -61,8 +64,7 @@ DEFAULT_AUTOFIX_PATTERNS = {
 def _compile_patterns(
     patterns_dict: dict[str, list[dict[str, str]]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """
-    Pre-compile regex patterns for performance.
+    """Pre-compile regex patterns for performance.
 
     Args:
         patterns_dict: Dictionary of pattern categories with regex strings
@@ -85,8 +87,7 @@ def _compile_patterns(
 
 
 def load_autofix_config() -> dict[str, Any]:
-    """
-    Load autofix configuration from pyproject.toml and pre-compile regex patterns.
+    """Load autofix configuration from pyproject.toml and pre-compile regex patterns.
 
     Returns:
         A dictionary containing the autofix configuration with pre-compiled regexes.
@@ -178,8 +179,7 @@ class ScopeVisitor(ast.NodeVisitor):
 
 
 class ForbiddenNameVisitor(ast.NodeVisitor):
-    """
-    AST visitor that detects forbidden variable names in Python code.
+    """AST visitor that detects forbidden variable names in Python code.
 
     This visitor checks all contexts where variables are defined and
     tries to find an autofix suggestion.
@@ -192,8 +192,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         autofix_config: dict[str, Any],
         scope_names: set[str],
     ) -> None:
-        """
-        Initialize the visitor.
+        """Initialize the visitor.
 
         Args:
             forbidden_names: Set of variable names that are not allowed.
@@ -217,8 +216,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self.scope_names_cache: dict[int | None, set[str]] = {}
 
     def _get_scope_names(self, scope_node: ast.AST | None) -> set[str]:
-        """
-        Collect all names defined in a specific scope only.
+        """Collect all names defined in a specific scope only.
 
         Uses caching to avoid repeated AST walks for the same scope
         (performance optimization).
@@ -248,8 +246,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         return visitor.names
 
     def _generate_unique_name(self, suggestion: str, forbidden_var_name: str) -> str:
-        """
-        Generate a unique variable name considering only the current scope.
+        """Generate a unique variable name considering only the current scope.
 
         This ensures that variables with the same name in different functions
         don't get unnecessary suffixes (e.g., response_2, response_3).
@@ -423,8 +420,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 
 
 def get_ignored_lines(source: str) -> set[int]:
-    """
-    Extract line numbers that have inline ignore comments.
+    """Extract line numbers that have inline ignore comments.
 
     Uses the tokenize module to accurately detect comments (not strings).
 
@@ -453,15 +449,12 @@ def get_ignored_lines(source: str) -> set[int]:
 
 
 def _apply_fixes(
-    filepath: str, violations: list[dict[str, Any]], source: str, tree: ast.Module
+    filepath: Path, violations: list[dict[str, Any]], source: str, tree: ast.Module
 ) -> None:
-    """
-    Apply autofixes by replacing forbidden variable assignments and their uses.
+    """Apply autofixes by replacing forbidden variable assignments and their uses.
 
     This implementation is scope-aware: it groups violations by scope and replaces
     ALL uses of a variable within that scope, not just the assignment position.
-    This ensures that when 'data' is renamed to 'response', all references to
-    'data' in that function are also updated.
 
     Args:
         filepath: Path to the file being fixed
@@ -469,7 +462,6 @@ def _apply_fixes(
         source: Original source code
         tree: Pre-parsed AST tree (optimization: avoid re-parsing)
     """
-
     lines = source.splitlines(keepends=True)
 
     # Step 1: Group violations by scope
@@ -623,212 +615,125 @@ def _apply_fixes(
         if before_ok and after_ok:
             lines[line_idx] = line[:col] + new_name + line[col + name_len :]
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+    filepath.write_text("".join(lines), encoding="utf-8")
 
 
-def check_file(
-    filepath: str,
-    forbidden_names: set[str],
-    fix: bool = False,
-    autofix_config: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """
-    Check a Python file for forbidden variable names.
+@register_check
+class ForbidVarsCheck:
+    """Check for forbidden meaningless variable names."""
 
-    Args:
-        filepath: Path to the Python file to check
-        forbidden_names: Set of forbidden variable names
-        fix: If True, automatically fix violations when possible
-        autofix_config: Configuration for the autofix feature
+    def __init__(self, forbidden_names: set[str] | None = None) -> None:
+        """Initialize check.
 
-    Returns:
-        List of violations.
-    """
-    if autofix_config is None:
-        autofix_config = {}
-    try:
-        with open(filepath, encoding="utf-8") as f:
-            source = f.read()
-    except (OSError, UnicodeDecodeError) as error:
-        logger.error("File: %s, error: %s", filepath, repr(error))
-        return []
+        Args:
+            forbidden_names: Set of forbidden variable names (default: data, result)
+        """
+        self.forbidden_names = forbidden_names or DEFAULT_FORBIDDEN_NAMES
+        self.autofix_config = load_autofix_config()
 
-    try:
-        tree = ast.parse(source, filename=filepath)
-    except SyntaxError as syntax_error:
-        logger.error("File: %s, error: %s", filepath, repr(syntax_error))
-        return []
+    @property
+    def check_id(self) -> str:
+        """Return check identifier."""
+        return "forbid-vars"
 
-    scope_visitor = ScopeVisitor()
-    scope_visitor.visit(tree)
-    scope_names = scope_visitor.names
+    @property
+    def error_code(self) -> str:
+        """Return error code."""
+        return "MAINTAINABILITY-001"
 
-    visitor = ForbiddenNameVisitor(forbidden_names, source, autofix_config, scope_names)
-    visitor.tree = tree  # Store tree for scope-aware name generation
-    visitor.visit(tree)
+    def get_prefilter_pattern(self) -> str | None:
+        """Return pre-filter pattern.
 
-    # Lazy tokenization: only tokenize if violations found (performance optimization)
-    if visitor.violations:
-        ignored_lines = get_ignored_lines(source)
-        violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
-    else:
+        Returns the first forbidden name as a simple pattern.
+        """
+        if self.forbidden_names:
+            return next(iter(sorted(self.forbidden_names)))
+        return None
+
+    def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
+        """Run check and return violations.
+
+        Args:
+            filepath: Path to file
+            tree: Parsed AST tree
+            source: Source code
+
+        Returns:
+            List of violations
+        """
+        scope_visitor = ScopeVisitor()
+        scope_visitor.visit(tree)
+        scope_names = scope_visitor.names
+
+        visitor = ForbiddenNameVisitor(
+            self.forbidden_names, source, self.autofix_config, scope_names
+        )
+        visitor.tree = tree  # Store tree for scope-aware name generation
+        visitor.visit(tree)
+
+        # Lazy tokenization: only tokenize if violations found
+        if visitor.violations:
+            ignored_lines = get_ignored_lines(source)
+            raw_violations = [
+                v for v in visitor.violations if v["line"] not in ignored_lines
+            ]
+        else:
+            raw_violations = []
+
+        # Convert to Violation objects
         violations = []
+        for v in raw_violations:
+            message = f"Forbidden variable name '{v['name']}' found."
+            if v.get("suggestion"):
+                message += f" Consider renaming to '{v['suggestion']}'."
+            else:
+                message += " Use a more descriptive name."
+            message += (
+                " Or add '# maintainability: ignore"
+                "[meaningless-variable-name]' to suppress."
+            )
 
-    if fix:
-        fixable_violations = [v for v in violations if v.get("suggestion")]
-        if fixable_violations:
-            # Pass pre-parsed tree to avoid re-parsing (performance optimization)
-            _apply_fixes(filepath, fixable_violations, source, tree)
-            for v in violations:
-                if v in fixable_violations:
-                    v["fixed"] = True
-
-    return violations
-
-
-def report_violation(
-    filepath: str, line: int, name: str, suggestion: str | None = None
-) -> None:
-    """
-    Report a single violation with helpful message and link.
-    Follows standard linter format: filepath:line: message
-    Args:
-        filepath: Path to the file containing the violation
-        line: Line number where the violation occurs
-        name: The forbidden variable name found
-        suggestion: The suggested new name, if any
-    """
-    message = f"Forbidden variable name '{name}' found."
-    if suggestion:
-        message += f" Consider renaming to '{suggestion}'."
-    else:
-        message += " Use a more descriptive name."
-    message += (
-        " Or add '# maintainability: ignore[meaningless-variable-name]' to suppress. "
-        "See https://hilton.org.uk/blog/meaningless-variable-names"
-    )
-    print(f"{filepath}:{line}: {message}")
-
-
-def report_fix(filepath: str, line: int, name: str, suggestion: str) -> None:
-    """Report a successfully applied fix."""
-    print(f"Applied fix for '{name}' -> '{suggestion}' in {filepath}:{line}")
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Main entry point for the forbid-vars hook.
-
-    Args:
-        argv: Command-line arguments (defaults to sys.argv if None)
-    Returns:
-        Exit code: 0 for success, 1 for failure
-    """
-
-    parser = argparse.ArgumentParser(
-        description="Check for forbidden variable names in Python files"
-    )
-    parser.add_argument("filenames", nargs="*", help="Filenames to check")
-    parser.add_argument(
-        "--names",
-        default="data,result",
-        help="Comma-separated list of forbidden names (default: data,result)",
-    )
-    parser.add_argument(
-        "--fix",
-        action="store_true",
-        help="Automatically fix forbidden names where possible.",
-    )
-    args = parser.parse_args(argv)
-
-    # Load autofix configuration
-
-    autofix_config = load_autofix_config()
-
-    # Parse forbidden names from argument
-    forbidden_names = {n.strip() for n in args.names.split(",") if n.strip()}
-
-    if not forbidden_names:
-        # If no forbidden names provided, exit successfully
-        return 0
-
-    if not args.filenames:
-        return 0
-
-    # Pre-filter: only process files that might contain forbidden names
-    # Use simple pattern matching (just the name itself) to catch all cases
-    candidate_files = batch_filter_files(
-        args.filenames, list(forbidden_names), match_any=True
-    )
-
-    if not candidate_files:
-        return 0
-
-    # Initialize cache
-    cache = CacheManager(hook_name="forbid-vars")
-
-    # Create cache key that includes forbidden names
-    # Sort for consistency
-    forbidden_names_key = ",".join(sorted(forbidden_names))
-
-    # Check all files
-    failed = False
-
-    for filepath in candidate_files:
-        path = Path(filepath)
-
-        # Try cache first (skip cache in --fix mode since file will be modified)
-        violations = None
-        if not args.fix:
-            cached = cache.get_cached_result(path, "forbid-vars")
-            if (
-                cached is not None
-                and cached.get("forbidden_names") == forbidden_names_key
-            ):
-                # Cache is valid and has matching forbidden names
-                violations = cached.get("violations", [])
-
-        # If cache miss, run check
-        if violations is None:
-            violations = check_file(filepath, forbidden_names, args.fix, autofix_config)
-
-            # Cache result (only if not in --fix mode)
-            if not args.fix:
-                # Filter out non-serializable fields (AST nodes) before caching
-                serializable_violations = [
-                    {
-                        k: v
-                        for k, v in violation.items()
-                        if k
-                        not in (
-                            "scope_node",
-                            "node",
-                        )  # Exclude AST nodes
-                    }
-                    for violation in violations
-                ]
-                cache.set_cached_result(
-                    path,
-                    "forbid-vars",
-                    {
-                        "violations": serializable_violations,
-                        "forbidden_names": forbidden_names_key,
-                    },
+            violations.append(
+                Violation(
+                    check_id=self.check_id,
+                    error_code=self.error_code,
+                    line=v["line"],
+                    col=v["col"],
+                    message=message,
+                    fixable=bool(v.get("suggestion")),
+                    fix_data=v,  # Store full violation data for fixing
                 )
+            )
 
-        if violations:
-            failed = True
+        return violations
 
-            for v in violations:
-                if v.get("fixed"):
-                    report_fix(filepath, v["line"], v["name"], v["suggestion"])
-                else:
-                    report_violation(
-                        filepath, v["line"], v["name"], v.get("suggestion")
-                    )
+    def fix(
+        self,
+        filepath: Path,
+        violations: list[Violation],
+        source: str,
+        tree: ast.Module,
+    ) -> bool:
+        """Apply fixes for forbidden variable names.
 
-    return 1 if failed else 0
+        Args:
+            filepath: Path to file
+            violations: Violations to fix
+            source: Source code
+            tree: Parsed AST tree
 
+        Returns:
+            True if fixes were applied successfully
+        """
+        # Extract fixable violations with suggestions
+        fixable = [v.fix_data for v in violations if v.fixable and v.fix_data]
 
-if __name__ == "__main__":
-    sys.exit(main())
+        if not fixable:
+            return False
+
+        try:
+            _apply_fixes(filepath, fixable, source, tree)
+            return True
+        except Exception as fix_error:  # noqa: BLE001
+            logger.error("Failed to apply fixes to %s: %s", filepath, repr(fix_error))
+            return False

@@ -1,29 +1,20 @@
-"""Detect redundant **kwargs forwarding to parent __init__ methods.
+"""Check for redundant **kwargs forwarding to parent __init__ methods.
 
 MAINTAINABILITY-006: Detects when a class forwards **kwargs to a parent
 __init__ that accepts no arguments. This is a logic error that creates
 misleading inheritance patterns.
-
-Example:
-    Bad:  class Child(Parent):
-              def __init__(self, **kwargs):
-                  super().__init__(**kwargs)  # Parent.__init__ has no params
-
-    Good: class Child(Parent):
-              def __init__(self):
-                  super().__init__()
 """
 
-import argparse
+from __future__ import annotations
+
 import ast
 import logging
-import sys
 from pathlib import Path
 
-from pre_commit_hooks._cache import CacheManager
-from pre_commit_hooks._prefilter import git_grep_filter
+from . import register_check
+from ._base import Violation
 
-logger = logging.getLogger("check_redundant_super_init")
+logger = logging.getLogger("redundant_super_init")
 
 
 class SuperInitChecker(ast.NodeVisitor):
@@ -177,89 +168,69 @@ def _parent_accepts_args(
     return False
 
 
-def check_file(filename: str) -> list[tuple[int, str]]:
-    """Check file for redundant super init kwargs.
+@register_check
+class RedundantSuperInitCheck:
+    """Check for redundant **kwargs forwarding to parent __init__."""
 
-    Args:
-        filename: Path to Python file
+    @property
+    def check_id(self) -> str:
+        """Return check identifier."""
+        return "redundant-super-init"
 
-    Returns:
-        List of (line_number, message) tuples
-    """
-    try:
-        with open(filename, encoding="utf-8") as f:
-            source = f.read()
-    except (OSError, UnicodeDecodeError) as error:
-        logger.warning("File: %s, error: %s", filename, repr(error))
-        return []
+    @property
+    def error_code(self) -> str:
+        """Return error code."""
+        return "MAINTAINABILITY-006"
 
-    try:
-        tree = ast.parse(source, filename)
-    except SyntaxError as syntax_error:
-        logger.warning("File: %s, error: %s", filename, repr(syntax_error))
-        return []
+    def get_prefilter_pattern(self) -> str | None:
+        """Return pre-filter pattern."""
+        return "super().__init__"
 
-    checker = SuperInitChecker(filename)
-    checker.visit(tree)
-    return checker.violations
+    def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
+        """Run check and return violations.
 
+        Args:
+            filepath: Path to file
+            tree: Parsed AST tree
+            source: Source code
 
-def main(argv: list[str] | None = None) -> int:
-    """Main entry point.
+        Returns:
+            List of violations
+        """
+        checker = SuperInitChecker(str(filepath))
+        checker.visit(tree)
 
-    Args:
-        argv: Command line arguments
-
-    Returns:
-        Exit code (0 if no violations, 1 if violations found)
-    """
-    parser = argparse.ArgumentParser(
-        description="Check for redundant super init kwargs forwarding"
-    )
-    parser.add_argument("filenames", nargs="*", help="Filenames to check")
-
-    args = parser.parse_args(argv)
-
-    if not args.filenames:
-        return 0
-
-    # Pre-filter: only process files with super().__init__ calls
-    candidates = git_grep_filter(args.filenames, "super().__init__", fixed_string=True)
-    # All test fixtures contain super().__init__ pattern, so this early
-    # exit never triggers in tests; works in real usage
-    if not candidates:  # pragma: no cover
-        return 0
-
-    # Initialize cache
-    cache = CacheManager(hook_name="check-redundant-super-init")
-
-    exit_code = 0
-    for filename in candidates:
-        filepath = Path(filename)
-
-        # Try cache first
-        cached = cache.get_cached_result(filepath, "check-redundant-super-init")
-        # Tests run with cold cache to verify analysis logic; warm cache
-        # path is exercised in benchmarks and real usage
-        if cached is not None:  # pragma: no cover
-            violations = [tuple(v) for v in cached.get("violations", [])]
-        else:
-            violations = check_file(filename)
-            cache.set_cached_result(
-                filepath,
-                "check-redundant-super-init",
-                {"violations": [list(v) for v in violations]},
+        violations = []
+        for line_num, message in checker.violations:
+            violations.append(
+                Violation(
+                    check_id=self.check_id,
+                    error_code=self.error_code,
+                    line=line_num,
+                    col=0,  # No specific column for this check
+                    message=message,
+                    fixable=False,  # No autofix support
+                )
             )
 
-        for line_num, message in violations:
-            print(
-                f"{filename}:{line_num}: MAINTAINABILITY-006: {message}",
-                file=sys.stderr,
-            )
-            exit_code = 1
+        return violations
 
-    return exit_code
+    def fix(
+        self,
+        filepath: Path,
+        violations: list[Violation],
+        source: str,
+        tree: ast.Module,
+    ) -> bool:
+        """No autofix support for this check.
 
+        Args:
+            filepath: Path to file
+            violations: Violations to fix
+            source: Source code
+            tree: Parsed AST tree
 
-if __name__ == "__main__":
-    sys.exit(main())
+        Returns:
+            False (no fixes applied)
+        """
+        return False

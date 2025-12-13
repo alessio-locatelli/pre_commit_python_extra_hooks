@@ -1,27 +1,19 @@
-"""Detect and fix excessive blank lines after module headers.
+"""Check and fix excessive blank lines after module headers.
 
 STYLE-002: Collapse 2+ consecutive blank lines after module headers (copyright,
 docstring, or comments) to a single blank line. Preserves copyright spacing.
-
-Example:
-    Bad:  '''Module docstring'''
-
-
-          import os
-
-    Good: '''Module docstring'''
-
-          import os
 """
 
-import argparse
+from __future__ import annotations
+
+import ast
 import logging
-import sys
 from pathlib import Path
 
-from pre_commit_hooks._cache import CacheManager
+from . import register_check
+from ._base import Violation
 
-logger = logging.getLogger("fix_excessive_blank_lines")
+logger = logging.getLogger("excessive_blank_lines")
 
 
 def find_module_header_end(lines: list[str]) -> int:
@@ -75,21 +67,16 @@ def find_module_header_end(lines: list[str]) -> int:
     return len(lines)
 
 
-def check_file(filename: str) -> list[tuple[int, str]]:
+def check_file_violations(source: str) -> list[tuple[int, str]]:
     """Check file for excessive blank lines.
 
     Args:
-        filename: Path to Python file
+        source: File source code
 
     Returns:
         List of (line_number, message) tuples
     """
-    try:
-        with open(filename, encoding="utf-8") as f:
-            lines = f.readlines()
-    except (OSError, UnicodeDecodeError) as error:
-        logger.warning("File: %s, error: %s", filename, repr(error))
-        return []
+    lines = source.splitlines(keepends=True)
 
     if not lines:
         return []
@@ -136,22 +123,19 @@ def check_file(filename: str) -> list[tuple[int, str]]:
     return violations
 
 
-def fix_file(filename: str) -> None:
-    """Fix excessive blank lines in file.
+def fix_file_content(source: str) -> str:
+    """Fix excessive blank lines in source code.
 
     Args:
-        filename: Path to Python file
+        source: Original source code
+
+    Returns:
+        Fixed source code
     """
-    try:
-        with open(filename, encoding="utf-8") as f:
-            content = f.read()
-            lines = content.splitlines(keepends=True)
-    except (OSError, UnicodeDecodeError) as error:
-        logger.warning("File: %s, error: %s", filename, repr(error))
-        return
+    lines = source.splitlines(keepends=True)
 
     if not lines:
-        return
+        return source
 
     header_end = find_module_header_end(lines)
 
@@ -189,78 +173,85 @@ def fix_file(filename: str) -> None:
             found_first_code_line = True
             new_lines.append(line)
 
-    # Write back
-    try:
-        with open(filename, "w", encoding="utf-8", newline="") as f:
-            f.writelines(new_lines)
-    except OSError as os_error:
-        logger.error("Failed to write %s. Error: %s", filename, repr(os_error))
+    return "".join(new_lines)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Main entry point.
+@register_check
+class ExcessiveBlankLinesCheck:
+    """Check for excessive blank lines after module headers."""
 
-    Args:
-        argv: Command line arguments
+    @property
+    def check_id(self) -> str:
+        """Return check identifier."""
+        return "excessive-blank-lines"
 
-    Returns:
-        Exit code (0 if no violations, 1 if violations found/fixed)
-    """
-    parser = argparse.ArgumentParser(
-        description="Fix excessive blank lines after module headers"
-    )
-    parser.add_argument("filenames", nargs="*", help="Filenames to check")
-    parser.add_argument(
-        "--fix", action="store_true", help="Automatically fix violations"
-    )
+    @property
+    def error_code(self) -> str:
+        """Return error code."""
+        return "STYLE-002"
 
-    args = parser.parse_args(argv)
+    def get_prefilter_pattern(self) -> str | None:
+        """Return pre-filter pattern.
 
-    if not args.filenames:
-        return 0
+        Returns None because all files should be checked.
+        """
+        return None
 
-    # Initialize cache
-    cache = CacheManager(hook_name="fix-excessive-blank-lines")
+    def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
+        """Run check and return violations.
 
-    exit_code = 0
-    for filename in args.filenames:
-        filepath = Path(filename)
+        Args:
+            filepath: Path to file
+            tree: Parsed AST tree (not used for this check)
+            source: Source code
 
-        # Try cache first (skip cache in --fix mode since file will be modified)
-        violations = None
-        if not args.fix:
-            cached = cache.get_cached_result(filepath, "fix-excessive-blank-lines")
-            if cached is not None:
-                violations = [
-                    tuple(v) for v in cached.get("violations", [])
-                ]  # Convert from list
+        Returns:
+            List of violations
+        """
+        file_violations = check_file_violations(source)
 
-        # If cache miss, run check
-        if violations is None:
-            violations = check_file(filename)
-
-            # Cache result (only if not in --fix mode)
-            if not args.fix:
-                # Convert tuples to lists for JSON serialization
-                cache.set_cached_result(
-                    filepath,
-                    "fix-excessive-blank-lines",
-                    {"violations": [list(v) for v in violations]},
+        violations = []
+        for line_num, message in file_violations:
+            violations.append(
+                Violation(
+                    check_id=self.check_id,
+                    error_code=self.error_code,
+                    line=line_num,
+                    col=0,
+                    message=message,
+                    fixable=True,
                 )
+            )
 
-        if violations:
-            if args.fix:
-                fix_file(filename)
-                print(f"Fixed: {filename}", file=sys.stderr)
-            else:
-                for line_num, message in violations:
-                    print(
-                        f"{filename}:{line_num}: STYLE-002: {message}", file=sys.stderr
-                    )
-            exit_code = 1
+        return violations
 
-    return exit_code
+    def fix(
+        self,
+        filepath: Path,
+        violations: list[Violation],
+        source: str,
+        tree: ast.Module,
+    ) -> bool:
+        """Apply fixes for excessive blank lines.
 
+        Args:
+            filepath: Path to file
+            violations: Violations to fix
+            source: Source code
+            tree: Parsed AST tree (not used)
 
-if __name__ == "__main__":
-    sys.exit(main())
+        Returns:
+            True if fixes were applied successfully
+        """
+        if not violations:
+            return False
+
+        try:
+            fixed_content = fix_file_content(source)
+
+            # Write back to file
+            filepath.write_text(fixed_content, encoding="utf-8")
+            return True
+        except OSError as os_error:
+            logger.error("Failed to write %s: %s", filepath, repr(os_error))
+            return False

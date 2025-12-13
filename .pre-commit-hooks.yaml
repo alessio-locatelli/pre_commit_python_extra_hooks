@@ -1,7 +1,7 @@
-- id: forbid-vars
-  name: forbid meaningless variable names
-  description: Prevents use of meaningless variable names like 'data' and 'result'
-  entry: forbid-vars
+- id: ast-checks
+  name: Python AST checks (grouped)
+  description: Run multiple AST-based checks in a single pass for improved performance
+  entry: python -m pre_commit_hooks.ast_checks
   language: python
   types: [python]
 
@@ -12,25 +12,3 @@
   language: python
   types: [python]
   args: [--fix]
-
-- id: fix-excessive-blank-lines
-  name: Fix excessive blank lines
-  description: Collapse multiple blank lines after module headers to one
-  entry: python -m pre_commit_hooks.fix_excessive_blank_lines
-  language: python
-  types: [python]
-  args: [--fix]
-
-- id: check-redundant-super-init
-  name: Check redundant super init kwargs
-  description: Detect redundant **kwargs forwarding to parent __init__()
-  entry: python -m pre_commit_hooks.check_redundant_super_init
-  language: python
-  types: [python]
-
-- id: validate-function-name
-  name: Validate function names
-  description: Detect get_* functions and suggest better names based on behavior
-  entry: python -m pre_commit_hooks.validate_function_name
-  language: python
-  types: [python]
