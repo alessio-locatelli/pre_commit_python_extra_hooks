@@ -1,7 +1,9 @@
 """Check for forbidden meaningless variable names like 'data' and 'result'.
 
-MAINTAINABILITY-001: Detects and suggests replacements for meaningless
+MAINTAINABILITY-001 / TRI001: Detects and suggests replacements for meaningless
 variable names that reduce code maintainability.
+
+Inline ignore: # pytriage: ignore=TRI001
 """
 
 from __future__ import annotations
@@ -20,10 +22,9 @@ from ._base import Violation
 
 logger = logging.getLogger("forbid_vars")
 
-# Regex pattern for inline ignore comments (case-insensitive)
-IGNORE_PATTERN = re.compile(
-    r"#\s*maintainability:\s*ignore\[meaningless-variable-name\]", re.IGNORECASE
-)
+# Regex pattern for inline ignore comments
+# Format: # pytriage: ignore=TRI001
+IGNORE_PATTERN = re.compile(r"#\s*pytriage:\s*ignore=TRI001", re.IGNORECASE)
 
 # Default forbidden variable names
 DEFAULT_FORBIDDEN_NAMES = {"data", "result"}
@@ -688,10 +689,7 @@ class ForbidVarsCheck:
                 message += f" Consider renaming to '{v['suggestion']}'."
             else:
                 message += " Use a more descriptive name."
-            message += (
-                " Or add '# maintainability: ignore"
-                "[meaningless-variable-name]' to suppress."
-            )
+            message += " Or add '# pytriage: ignore=TRI001' to suppress."
 
             violations.append(
                 Violation(

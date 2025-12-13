@@ -1,8 +1,10 @@
 """Check for redundant **kwargs forwarding to parent __init__ methods.
 
-MAINTAINABILITY-006: Detects when a class forwards **kwargs to a parent
-__init__ that accepts no arguments. This is a logic error that creates
+MAINTAINABILITY-006 / TRI003: Detects when a class forwards **kwargs to a
+parent __init__ that accepts no arguments. This is a logic error that creates
 misleading inheritance patterns.
+
+Inline ignore: # pytriage: ignore=TRI003 (not currently supported)
 """
 
 from __future__ import annotations

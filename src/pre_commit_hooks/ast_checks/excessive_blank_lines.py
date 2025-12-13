@@ -1,7 +1,9 @@
 """Check and fix excessive blank lines after module headers.
 
-STYLE-002: Collapse 2+ consecutive blank lines after module headers (copyright,
-docstring, or comments) to a single blank line. Preserves copyright spacing.
+STYLE-002 / TRI002: Collapse 2+ consecutive blank lines after module headers
+(copyright, docstring, or comments) to a single blank line.
+
+Inline ignore: # pytriage: ignore=TRI002 (not currently supported)
 """
 
 from __future__ import annotations

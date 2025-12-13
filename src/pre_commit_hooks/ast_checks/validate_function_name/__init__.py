@@ -1,7 +1,7 @@
 """validate_function_name - Detect get_* functions and suggest better names.
 
-NAMING-001: Functions with get_ prefix should use more descriptive names
-based on their behavior (e.g., load_, fetch_, calculate_, is_, iter_).
+NAMING-001 / TRI004: Functions with get_ prefix should use more descriptive
+names based on their behavior (e.g., load_, fetch_, calculate_, is_, iter_).
 
 This hook detects functions prefixed with `get_` and suggests more specific
 names based on behavioral analysis:
@@ -25,10 +25,10 @@ Options:
     --fix    Auto-fix safe violations (small, simple functions only)
 
 Suppression:
-    Add inline comment to suppress: # naming: ignore
+    Add inline comment to suppress: # pytriage: ignore=TRI004
 
 Example:
-    def get_users() -> list[User]:  # naming: ignore
+    def get_users() -> list[User]:  # pytriage: ignore=TRI004
         return User.objects.all()
 """
 

@@ -3,6 +3,17 @@
 This module provides a unified interface for running multiple AST-based checks
 in a single pass, improving performance by eliminating redundant file I/O and
 AST parsing operations.
+
+Inline Ignore Comments
+----------------------
+Use `# pytriage: ignore=<code>` to suppress specific violations:
+  - TRI001: Forbid meaningless variable names (forbid-vars)
+  - TRI002: Excessive blank lines (excessive-blank-lines)
+  - TRI003: Redundant super init (redundant-super-init)
+  - TRI004: Function naming violations (validate-function-name)
+
+Example:
+    data = [1, 2, 3]  # pytriage: ignore=TRI001
 """
 
 from __future__ import annotations

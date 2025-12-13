@@ -9,7 +9,8 @@ from pathlib import Path
 
 logger = logging.getLogger("cache")
 
-IGNORE_COMMENT_MARKER = "naming: ignore"
+# Inline ignore comment format: # pytriage: ignore=TRI004
+IGNORE_COMMENT_MARKER = "pytriage: ignore=TRI004"
 GET_PREFIX = "get_"
 
 
