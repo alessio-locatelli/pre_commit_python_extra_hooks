@@ -14,7 +14,7 @@ class Violation:
 
     Attributes:
         check_id: Unique identifier for the check (e.g., "forbid-vars")
-        error_code: Error code for the violation (e.g., "MAINTAINABILITY-001")
+        error_code: Error code for the violation (e.g., "TRI001")
         line: Line number where the violation occurs
         col: Column offset where the violation occurs
         message: Human-readable description of the violation
@@ -54,7 +54,7 @@ class ASTCheck(Protocol):
     def error_code(self) -> str:
         """Error code prefix for violations from this check.
 
-        Examples: "MAINTAINABILITY-001", "NAMING-001", "STYLE-002"
+        Examples: "TRI001", "TRI002", "TRI003"
 
         Returns:
             Error code string

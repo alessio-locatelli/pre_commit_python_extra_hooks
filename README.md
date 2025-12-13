@@ -75,7 +75,7 @@ result = func(
 
 ### fix-excessive-blank-lines
 
-**STYLE-002**: Collapses multiple consecutive blank lines after module headers (copyright, docstrings, or comments) to a single blank line.
+**TRI002**: Collapses multiple consecutive blank lines after module headers (copyright, docstrings, or comments) to a single blank line.
 
 **Why?** Excessive blank lines after module headers create visual clutter and violate PEP 8 conventions.
 
@@ -105,7 +105,7 @@ import os  # Good - 1 blank line
 
 ### check-redundant-super-init
 
-**MAINTAINABILITY-006**: Detects when a class forwards `**kwargs` to a parent `__init__` that accepts no arguments.
+**TRI003**: Detects when a class forwards `**kwargs` to a parent `__init__` that accepts no arguments.
 
 **Why?** Forwarding kwargs to parents that don't accept them is a logic error that creates misleading inheritance patterns.
 
@@ -139,7 +139,7 @@ class Child(Base):
 
 ### validate-function-name
 
-**NAMING-001**: Detects functions with `get_` prefix and suggests better names based on their behavior patterns.
+**TRI004**: Detects functions with `get_` prefix and suggests better names based on their behavior patterns.
 
 **Why?** The `get_` prefix is overused and often masks the true intent of a function. Specific verbs like `load_`, `fetch_`, `calculate_`, `is_`, or `iter_` make code more readable and self-documenting.
 
