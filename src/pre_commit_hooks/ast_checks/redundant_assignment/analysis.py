@@ -139,7 +139,9 @@ class VariableTracker(ast.NodeVisitor):
 
     def _increment_stmt_index(self) -> None:
         """Increment the statement index in the current scope."""
-        if self.stmt_index_stack:
+        # Defensive guard: stack initialized with [0] in __init__ and maintained
+        # via balanced _enter_scope/_exit_scope calls; should never be empty
+        if self.stmt_index_stack:  # pragma: lax no cover
             self.stmt_index_stack[-1] += 1
 
     def _get_current_scope_id(self) -> int:

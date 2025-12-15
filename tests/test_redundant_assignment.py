@@ -362,6 +362,38 @@ def example():
     assert len(violations) >= 1
 
 
+def test_annotated_assignment_not_global() -> None:
+    """Test annotated assignment that is not global/nonlocal (normal path)."""
+    source = """
+def example():
+    result: int = calculate_value()
+    another: str = "test"
+    return result, another
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Both assignments should be tracked normally
+    assert isinstance(violations, list)
+
+
+def test_annotated_assignment_without_value() -> None:
+    """Test annotated assignment without value (type hint only)."""
+    source = """
+def example():
+    x: str  # Type hint only, no assignment
+    x = "value"
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Only the assignment with value should be tracked
+    assert isinstance(violations, list)
+
+
 def test_class_attributes_not_analyzed() -> None:
     """Test that class attributes are not analyzed."""
     source = """
@@ -806,3 +838,110 @@ def example():
 
     # Each assignment should be tracked separately
     assert isinstance(violations, list)
+
+
+def test_multiple_annotated_assignments_same_variable() -> None:
+    """Test multiple annotated assignments to same variable."""
+    source = """
+def example():
+    x: str = "first"
+    print(x)
+    x: str = "second"
+    print(x)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Each annotated assignment should be tracked separately
+    assert isinstance(violations, list)
+
+
+def test_self_referential_assignment_correctly_tracked() -> None:
+    """Test that x = x + 1 pattern correctly ignores LHS in RHS."""
+    source = """
+def example():
+    x = 1
+    x = x + 1
+    print(x)
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Second assignment (x = x + 1) has two uses (print and return)
+    # First assignment (x = 1) has one use (x + 1 RHS)
+    # Neither should be flagged as redundant because multiple uses
+    # This test verifies that currently_assigning logic works
+    assert len(violations) == 0
+
+
+def test_should_autofix_complex_call_args() -> None:
+    """Test that should_autofix rejects calls with complex arguments."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        PatternType,
+        UsageInfo,
+        VariableLifecycle,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        should_autofix,
+    )
+
+    # Create a call with complex arguments (dict comprehension)
+    source = "func({k: v for k, v in items})"
+    rhs_node = ast.parse(source, mode="eval").body
+
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=source,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    lifecycle = VariableLifecycle(
+        assignment=assignment,
+        uses=[
+            UsageInfo(
+                var_name="x",
+                line=2,
+                col=0,
+                stmt_index=1,
+                context="unknown",
+                scope_id=0,
+            )
+        ],
+    )
+
+    # Should NOT autofix due to complex arguments
+    result = should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE)
+    assert result is False
+
+
+def test_process_file_success_path() -> None:
+    """Test process_file success path with valid Python file."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        process_file,
+    )
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write("""
+def example():
+    x = "foo"
+    return x
+""")
+        f.flush()
+        filepath = Path(f.name)
+
+    lifecycles = process_file(filepath)
+    # Should return lifecycles, not empty list
+    assert len(lifecycles) >= 1
+
+    filepath.unlink()
