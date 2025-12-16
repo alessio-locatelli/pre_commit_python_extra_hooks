@@ -38,7 +38,7 @@ from .. import register_check
 from .._base import Violation
 from .analysis import VariableTracker, detect_redundancy
 from .autofix import apply_fixes
-from .semantic import should_report_violation
+from .semantic import should_autofix, should_report_violation
 
 # Regex pattern for inline ignore comments
 # Format: # pytriage: ignore=TRI005
@@ -167,12 +167,13 @@ class RedundantAssignmentCheck:
             if not should_report_violation(lifecycle, pattern):
                 continue
 
-            # Determine if fixable (currently disabled for safety)
-            # Autofix is disabled due to edge cases that can break code
-            fixable = False  # was: should_autofix(lifecycle, pattern)
+            # Determine if fixable (very conservative - only simplest cases)
+            fixable = should_autofix(lifecycle, pattern)
 
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)
+            if fixable:
+                message = f"[FIXABLE] {message} Run with --fix to inline automatically."
 
             violation = Violation(
                 check_id=self.check_id,

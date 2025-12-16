@@ -30,6 +30,7 @@ class AssignmentInfo:
         scope_id: Scope identifier for isolation
         has_type_annotation: Whether assignment has type annotation
         in_loop: Whether assignment is inside a loop
+        in_control_flow: Whether assignment is inside control flow (if/try/with)
     """
 
     var_name: str
@@ -41,6 +42,7 @@ class AssignmentInfo:
     scope_id: int
     has_type_annotation: bool = False
     in_loop: bool = False
+    in_control_flow: bool = False
 
 
 @dataclass
@@ -130,6 +132,9 @@ class VariableTracker(ast.NodeVisitor):
 
         # Track if we're inside a loop (for, while)
         self.loop_depth = 0
+
+        # Track if we're inside control flow (if, try, with)
+        self.control_flow_depth = 0
 
     def _enter_scope(self) -> None:
         """Enter a new scope (function, class, etc.)."""
@@ -243,6 +248,46 @@ class VariableTracker(ast.NodeVisitor):
         self.generic_visit(node)
         self.loop_depth -= 1
 
+    def visit_If(self, node: ast.If) -> None:
+        """Visit if statement (track control flow depth).
+
+        Args:
+            node: If statement node
+        """
+        self.control_flow_depth += 1
+        self.generic_visit(node)
+        self.control_flow_depth -= 1
+
+    def visit_Try(self, node: ast.Try) -> None:
+        """Visit try statement (track control flow depth).
+
+        Args:
+            node: Try statement node
+        """
+        self.control_flow_depth += 1
+        self.generic_visit(node)
+        self.control_flow_depth -= 1
+
+    def visit_With(self, node: ast.With) -> None:
+        """Visit with statement (track control flow depth).
+
+        Args:
+            node: With statement node
+        """
+        self.control_flow_depth += 1
+        self.generic_visit(node)
+        self.control_flow_depth -= 1
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        """Visit async with statement (track control flow depth).
+
+        Args:
+            node: Async with statement node
+        """
+        self.control_flow_depth += 1
+        self.generic_visit(node)
+        self.control_flow_depth -= 1
+
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit class definition (enter new scope).
 
@@ -297,6 +342,7 @@ class VariableTracker(ast.NodeVisitor):
                     scope_id=scope_id,
                     has_type_annotation=False,
                     in_loop=self.loop_depth > 0,
+                    in_control_flow=self.control_flow_depth > 0,
                 )
 
                 # Store assignment
@@ -346,6 +392,7 @@ class VariableTracker(ast.NodeVisitor):
                 scope_id=scope_id,
                 has_type_annotation=True,  # This is an annotated assignment
                 in_loop=self.loop_depth > 0,
+                in_control_flow=self.control_flow_depth > 0,
             )
 
             # Store assignment

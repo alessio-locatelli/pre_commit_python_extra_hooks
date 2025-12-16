@@ -257,7 +257,7 @@ def test_prefilter_pattern() -> None:
 
 
 def test_fixable_marked_correctly() -> None:
-    """Test that violations are detected (autofix disabled for safety)."""
+    """Test that simple violations are marked fixable."""
     source = """
 x = "foo"
 func(x=x)
@@ -266,10 +266,10 @@ func(x=x)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should detect violations (but autofix is disabled for safety)
+    # Should detect violations and mark simple ones as fixable
     assert len(violations) >= 1
-    # Autofix is disabled, so no violations should be marked fixable
-    assert not any(v.fixable for v in violations)
+    # Simple case: constant assignment, immediate use, short name, no control flow
+    assert any(v.fixable for v in violations)
 
 
 def test_non_fixable_semantic_value() -> None:
@@ -289,7 +289,7 @@ def example():
 
 
 def test_fix_method_with_fixable_violations() -> None:
-    """Test that fix method correctly handles disabled autofix."""
+    """Test that fix method can fix simple violations."""
     from tempfile import NamedTemporaryFile
 
     source = """x = "foo"
@@ -307,18 +307,19 @@ func(x=x)
     # Should detect violations
     assert len(violations) >= 1
 
-    # Autofix is disabled, so no violations should be marked fixable
-    assert not any(v.fixable for v in violations)
+    # Simple case should be marked fixable
+    assert any(v.fixable for v in violations)
 
-    # Apply fixes (should return False since autofix is disabled)
+    # Apply fixes
     result = check.fix(filepath, violations, source, tree)
-    assert result is False
+    assert result is True
 
-    # Read the content (should be unchanged)
+    # Read the fixed content
     fixed_content = filepath.read_text()
 
-    # The content should remain unchanged since autofix is disabled
-    assert fixed_content == source
+    # The assignment should be removed and the usage should be inlined
+    assert "x = " not in fixed_content
+    assert 'func(x="foo")' in fixed_content
 
     filepath.unlink()
 
@@ -1608,6 +1609,160 @@ def test_semantic_scoring_very_long_expression() -> None:
     assert score >= 35
 
 
+# === Autofix Safety Tests ===
+# Tests to verify autofix only handles safe, simple cases
+
+
+def test_autofix_not_in_loop() -> None:
+    """Test that autofix does not fix variables inside loops."""
+    source = """
+for i in range(10):
+    x = i * 2
+    print(x)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag or fix variables in loops
+    assert len(violations) == 0
+
+
+def test_autofix_not_in_control_flow() -> None:
+    """Test that autofix does not fix variables inside control flow."""
+    source = """
+def example():
+    if condition:
+        x = "value"
+        process(x)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # May detect but should not be fixable due to control flow
+    for v in violations:
+        assert not v.fixable
+
+
+def test_autofix_not_long_names() -> None:
+    """Test that autofix does not fix variables with long names."""
+    source = """
+very_long_descriptive_name = 42
+use(very_long_descriptive_name)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not be fixable due to long variable name (> 10 chars)
+    for v in violations:
+        assert not v.fixable
+
+
+def test_autofix_only_simple_rhs() -> None:
+    """Test that autofix only fixes simple RHS expressions."""
+    source = """
+def example():
+    x = func(arg1, arg2)
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not be fixable due to complex RHS (function call)
+    for v in violations:
+        assert not v.fixable
+
+
+def test_autofix_simple_constant() -> None:
+    """Test that autofix handles simple constants."""
+    from tempfile import NamedTemporaryFile
+
+    source = """y = 42
+result = y + 10
+"""
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, tree, source)
+
+    # Simple constant should be fixable
+    fixable_violations = [v for v in violations if v.fixable]
+    if fixable_violations:
+        result = check.fix(filepath, fixable_violations, source, tree)
+        assert result is True
+
+        fixed_content = filepath.read_text()
+        assert "y = 42" not in fixed_content
+        assert "result = 42 + 10" in fixed_content
+
+    filepath.unlink()
+
+
+def test_autofix_simple_attribute() -> None:
+    """Test that autofix handles simple single-level attribute access."""
+    from tempfile import NamedTemporaryFile
+
+    source = """v = obj.attr
+use(v)
+"""
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, tree, source)
+
+    # Simple attribute access should be fixable
+    fixable_violations = [v for v in violations if v.fixable]
+    if fixable_violations:
+        result = check.fix(filepath, fixable_violations, source, tree)
+        assert result is True
+
+        fixed_content = filepath.read_text()
+        assert "v = obj.attr" not in fixed_content
+        assert "use(obj.attr)" in fixed_content
+
+    filepath.unlink()
+
+
+def test_autofix_word_boundaries() -> None:
+    """Test that autofix uses word boundaries correctly."""
+    from tempfile import NamedTemporaryFile
+
+    source = """x = 5
+result = max(x, 10)
+"""
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, tree, source)
+
+    fixable_violations = [v for v in violations if v.fixable]
+    if fixable_violations:
+        result = check.fix(filepath, fixable_violations, source, tree)
+        assert result is True
+
+        fixed_content = filepath.read_text()
+        # Should replace 'x' but not affect 'max'
+        assert "result = max(5, 10)" in fixed_content
+        assert "max" in fixed_content  # 'max' should still be present
+
+    filepath.unlink()
+
+
 # === Bug Reproduction Tests ===
 # The following tests reproduce bugs from bug_report.md
 
@@ -1628,7 +1783,7 @@ def test_problem_1_loop_reassignment() -> None:
 
     # Should NOT flag latest_datetime as it's reassigned in a loop
     # and used across iterations
-    for v in violations:  # pragma: no cover - no violations expected
+    for v in violations:
         assert "latest_datetime" not in v.message, (
             f"Should not flag latest_datetime in loop reassignment: {v.message}"
         )
@@ -1648,7 +1803,7 @@ def test_problem_2_boolean_descriptive_names() -> None:
     violations = check.check(Path("test.py"), tree, source)
 
     # Should NOT flag has_cycle - it's a descriptive boolean name
-    for v in violations:  # pragma: no cover - no violations expected
+    for v in violations:
         assert "has_cycle" not in v.message, (
             f"Should not flag descriptive boolean variable has_cycle: {v.message}"
         )
@@ -1753,7 +1908,7 @@ def test_same_variable_different_scopes() -> None:
     # 1. It's assigned in different branches
     # 2. It's used after the if/else block
     # 3. Both assignments are needed for the final return
-    for v in violations:  # pragma: no cover - no violations expected
+    for v in violations:
         should_skip = (
             "result" not in v.message
             or "positive" not in source

@@ -227,12 +227,15 @@ def should_autofix(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
 ) -> bool:
-    """Determine if a violation should be auto-fixed (conservative).
+    """Determine if a violation should be auto-fixed (very conservative).
 
-    Only auto-fix when:
-    1. Pattern is IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY
-    2. Semantic score ≤ 20 (very low semantic value)
-    3. RHS is literal or simple name/attribute
+    Only auto-fix the SIMPLEST cases:
+    1. Pattern must be IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY
+    2. NOT inside loops (state accumulation)
+    3. NOT inside control flow (if/try/with)
+    4. Semantic score ≤ 10 (extremely low semantic value)
+    5. RHS must be simple: constant, name, or simple attribute
+    6. Variable name must be short (≤ 10 chars) to avoid meaningful names
 
     Args:
         lifecycle: Variable lifecycle
@@ -241,12 +244,21 @@ def should_autofix(
     Returns:
         True if should auto-fix
     """
+    assignment = lifecycle.assignment
+
     # Only auto-fix immediate use or literal identity patterns
     if pattern not in {PatternType.IMMEDIATE_SINGLE_USE, PatternType.LITERAL_IDENTITY}:
         return False
 
+    # Never auto-fix inside loops (state accumulation pattern)
+    if assignment.in_loop:
+        return False
+
+    # Never auto-fix inside control flow (conditional logic)
+    if assignment.in_control_flow:
+        return False
+
     # Calculate semantic value
-    assignment = lifecycle.assignment
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,
         rhs_source=assignment.rhs_source,
@@ -254,25 +266,23 @@ def should_autofix(
         has_type_annotation=assignment.has_type_annotation,
     )
 
-    # Only auto-fix if semantic value is very low (≤ 20)
-    if semantic_score > 20:
+    # Only auto-fix if semantic value is EXTREMELY low (≤ 10)
+    # This ensures we only fix truly meaningless variables
+    if semantic_score > 10:
         return False
 
-    # Only auto-fix simple RHS expressions
+    # Variable name must be short (≤ 10 chars)
+    # Longer names likely have semantic meaning
+    if len(assignment.var_name) > 10:
+        return False
+
+    # Only auto-fix VERY simple RHS expressions
     rhs_node = assignment.rhs_node
-    if isinstance(
-        rhs_node,
-        ast.Constant | ast.Name | ast.Attribute,
-    ):
+
+    # Allow: constants, simple names
+    if isinstance(rhs_node, ast.Constant | ast.Name):
         return True
 
-    # Also allow simple calls (no *args or **kwargs)
-    if isinstance(rhs_node, ast.Call):
-        # Check if it's a simple call (no varargs)
-        if not rhs_node.args and not rhs_node.keywords:
-            return True
-        # Allow calls with only simple arguments
-        if all(isinstance(arg, ast.Constant | ast.Name) for arg in rhs_node.args):
-            return True
-
-    return False
+    # Allow: simple attribute access (obj.attr, not obj.x.y.z)
+    # Only single-level attribute access
+    return isinstance(rhs_node, ast.Attribute) and isinstance(rhs_node.value, ast.Name)
