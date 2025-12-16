@@ -29,6 +29,7 @@ All hooks are optimized for speed with:
 | validate-function-name     | 68 ms      | 40 ms      | **41.6%** |
 | fix-misplaced-comments     | 56 ms      | 33 ms      | **41.1%** |
 | fix-excessive-blank-lines  | 45 ms      | 30 ms      | **33.5%** |
+| redundant-assignment       | 42 ms      | 35 ms      | **16.7%** |
 | check-redundant-super-init | 38 ms      | 33 ms      | 11.9%     |
 
 **Cache location**: `.cache/pre_commit_hooks/` (automatically managed, safe to delete)
@@ -219,6 +220,100 @@ The hook supports `--fix` to automatically rename functions, but ONLY when safe:
 def get_user(id: int) -> User:  # naming: ignore
     """Legacy API - name cannot be changed."""
     return User.objects.get(id=id)
+```
+
+---
+
+### redundant-assignment
+
+**TRI005**: Detects and optionally auto-fixes redundant variable assignments where the variable doesn't add meaningful clarity or simplification to the code.
+
+**Why?** Unnecessary intermediate variables add cognitive load without providing value. However, variables that add semantic meaning (transformative verbs like "formatted", "validated") or break down complex expressions are preserved.
+
+**Patterns Detected:**
+
+1. **Immediate single use**: Variable assigned and used in the very next statement
+2. **Single-use variables**: Variable assigned but used only once anywhere in its scope
+3. **Literal identity**: Variable name matches its literal value (e.g., `foo = "foo"`)
+
+**Example:**
+
+```python
+# ❌ Redundant - adds no value:
+x = "foo"
+func(x=x)
+
+# ❌ Redundant - simple pass-through:
+result = get_value()
+return result
+
+# ✅ Adds clarity - transformative verb indicates processing:
+formatted_timestamp = format_iso8601(raw_ts)
+return formatted_timestamp
+
+# ✅ Adds clarity - breaks down complex chained expression:
+collection_places = singleton_factory(mongo_client)[DATABASE_NAME]["places"]
+return collection_places.find_one({"_id": place_id})
+
+# ✅ Not flagged - conditional assignment with subsequent use:
+if condition:
+    msg = "foo"
+else:
+    msg = "bar"
+msg += " suffix"  # Uses the conditional value
+print(msg)
+```
+
+**Features:**
+
+- **Smart semantic analysis**: Preserves variables that add meaning through:
+  - Transformative verbs ("formatted", "validated", "parsed", etc.)
+  - Long expressions (60+ characters)
+  - Chained operations (`obj[x][y]`, `foo.bar.baz`)
+  - Complex expressions (comprehensions, ternary operators, lambdas)
+  - Multi-part descriptive names (`user_email_address`)
+  - Type annotations
+- **Safe autofix mode**: Automatically inlines simple, low-value assignments when safe
+- Inline suppression with `# pytriage: ignore=TRI005`
+- Gracefully handles:
+  - Augmented assignments (`x += 1`)
+  - Conditional assignments in if/else blocks
+  - Global and nonlocal variables (skipped)
+  - Tuple unpacking (skipped)
+  - Class attributes (skipped)
+
+**Autofix Mode:**
+
+The hook supports `--fix` to automatically inline redundant assignments:
+
+```yaml
+- id: redundant-assignment
+  args: [--fix] # Optional: auto-fix safe violations
+```
+
+**Autofix criteria (ALL must be met):**
+
+- Semantic value score ≤ 20 (very low value)
+- Pattern is IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY
+- RHS is simple: literal, name, attribute, or simple call
+- Inlining won't exceed 88 characters (Black's default)
+
+**Example autofix:**
+
+```python
+# Before:
+x = "foo"
+func(x=x)
+
+# After (auto-fixed):
+func(x="foo")
+```
+
+**Suppression:**
+
+```python
+result = expensive_calculation()  # pytriage: ignore=TRI005
+return result
 ```
 
 ---

@@ -30,6 +30,39 @@ TRANSFORMATIVE_VERBS = {
 }
 
 
+def _count_chained_operations(node: ast.expr) -> int:
+    """Count the number of chained operations (subscripts, attributes, calls).
+
+    Examples:
+        foo.bar.baz -> 2 (two attribute accesses)
+        obj[x][y][z] -> 3 (three subscripts)
+        func()[key].attr -> 2 (subscript + attribute)
+
+    Args:
+        node: AST expression node
+
+    Returns:
+        Number of chained operations
+    """
+    count = 0
+    current = node
+
+    while True:
+        if isinstance(current, ast.Subscript | ast.Attribute):
+            count += 1
+            current = current.value
+        elif isinstance(current, ast.Call):
+            # Count the call itself if it's part of a chain
+            if count > 0:  # Only count if it's chained with something
+                count += 1
+            current = current.func
+        else:
+            # Reached the base of the chain
+            break
+
+    return count
+
+
 def calculate_semantic_value(
     var_name: str,
     rhs_source: str,
@@ -39,9 +72,9 @@ def calculate_semantic_value(
     """Calculate semantic value score for a variable name.
 
     The score ranges from 0-100:
-    - 0-20: No semantic value (redundant assignment)
-    - 21-50: Marginal value (report but don't auto-fix)
-    - 51-100: Clear value (skip entirely)
+    - 0-20: No semantic value (redundant assignment, can auto-fix)
+    - 21-49: Marginal value (report but don't auto-fix)
+    - 50-100: Clear value (skip entirely)
 
     Args:
         var_name: Variable name
@@ -78,10 +111,25 @@ def calculate_semantic_value(
         # Lambda expressions (+25)
         score += 25
 
-    # Long expressions benefit from naming
-    if len(rhs_source) > 60:
+    # Chained operations benefit significantly from naming
+    # Examples: obj[x][y], foo.bar.baz, func()[key].attr
+    chain_count = _count_chained_operations(rhs_node)
+    if chain_count >= 3:
+        # 3+ chained operations are hard to read inline (+30)
+        score += 30
+    elif chain_count == 2:
+        # 2 chained operations benefit from naming (+20)
         score += 20
+
+    # Long expressions benefit from naming (progressive scoring)
+    if len(rhs_source) > 80:
+        # Very long expressions (80+) strongly benefit from naming
+        score += 35
+    elif len(rhs_source) > 60:
+        # Long expressions (60-80) benefit from naming
+        score += 25
     elif len(rhs_source) > 40:
+        # Medium expressions (40-60) somewhat benefit
         score += 10
 
     # Multi-part names often represent domain concepts
@@ -129,8 +177,9 @@ def should_report_violation(
         has_type_annotation=assignment.has_type_annotation,
     )
 
-    # Report violations with low to medium semantic value (≤50)
-    return semantic_score <= 50
+    # Report violations with low semantic value (< 50)
+    # Score 50+ indicates the variable adds meaningful clarity
+    return semantic_score < 50
 
 
 def should_autofix(

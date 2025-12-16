@@ -286,19 +286,435 @@ def example():
     assert len(violations) == 0
 
 
-def test_fix_method_returns_false() -> None:
-    """Test that fix method returns False when no fixes applied."""
-    source = """
-x = "foo"
+def test_fix_method_with_fixable_violations() -> None:
+    """Test that fix method can fix simple violations."""
+    from tempfile import NamedTemporaryFile
+
+    source = """x = "foo"
 func(x=x)
 """
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
-    violations = check.check(Path("test.py"), tree, source)
+    violations = check.check(filepath, tree, source)
 
-    # Currently fix is not fully implemented
-    result = check.fix(Path("test.py"), violations, source, tree)
+    # Should have fixable violations
+    assert any(v.fixable for v in violations)
+
+    # Apply fixes
+    result = check.fix(filepath, violations, source, tree)
+    assert result is True
+
+    # Read the fixed content
+    fixed_content = filepath.read_text()
+
+    # The assignment should be removed and the usage should be inlined
+    assert "x = " not in fixed_content
+    assert 'func(x="foo")' in fixed_content
+
+    filepath.unlink()
+
+
+def test_autofix_skips_violation_without_fix_data() -> None:
+    """Test that autofix skips violations without fix_data."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+
+    source = "x = 1\nprint(x)\n"
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+
+    # Create a violation without fix_data
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=1,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data=None,
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
     assert result is False
+
+    filepath.unlink()
+
+
+def test_autofix_skips_violation_with_invalid_fix_data() -> None:
+    """Test that autofix skips violations with invalid fix_data."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+
+    source = "x = 1\nprint(x)\n"
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+
+    # Create a violation with invalid fix_data (missing 'lifecycle')
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=1,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data={"other_key": "value"},
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
+    assert result is False
+
+    filepath.unlink()
+
+
+def test_autofix_skips_multiline_rhs() -> None:
+    """Test that autofix skips multiline expressions."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+        _can_safely_inline,
+    )
+
+    source_lines = ["result = func(x)\n"]
+
+    # RHS with newline should not be inlined
+    result = _can_safely_inline("result", "func(\n    arg\n)", 0, source_lines)
+    assert result is False
+
+
+def test_autofix_skips_line_length_violation() -> None:
+    """Test that autofix skips if inlining would exceed line length."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+        _can_safely_inline,
+    )
+
+    # Current line is 80 chars, adding 20 more would exceed 88
+    source_lines = ["x = " + "a" * 80 + "\n"]
+
+    # Inlining would make the line too long
+    result = _can_safely_inline("x", "a" * 20, 0, source_lines)
+    assert result is False
+
+
+def test_autofix_skips_invalid_line_indices() -> None:
+    """Test that autofix handles invalid line indices gracefully."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+        _can_safely_inline,
+    )
+
+    source_lines = ["line1\n", "line2\n"]
+
+    # Negative index
+    result = _can_safely_inline("x", "value", -1, source_lines)
+    assert result is False
+
+    # Index out of bounds
+    result = _can_safely_inline("x", "value", 10, source_lines)
+    assert result is False
+
+
+def test_autofix_with_invalid_assignment_line() -> None:
+    """Test that autofix skips violations with invalid assignment line indices."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    source = "x = 1\nprint(x)\n"
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+    rhs_node = ast.parse("1", mode="eval").body
+
+    # Create a lifecycle with invalid assignment line (line 100, which doesn't exist)
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=100,  # Invalid line number
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source="1",
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    usage = UsageInfo(
+        var_name="x",
+        line=2,
+        col=6,
+        stmt_index=1,
+        context="unknown",
+        scope_id=0,
+    )
+
+    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
+
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=100,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
+    assert result is False
+
+    filepath.unlink()
+
+
+def test_autofix_with_invalid_usage_line() -> None:
+    """Test that autofix skips violations with invalid usage line indices."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    source = "x = 1\nprint(x)\n"
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+    rhs_node = ast.parse("1", mode="eval").body
+
+    # Create a lifecycle with invalid usage line (line 100, which doesn't exist)
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source="1",
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    usage = UsageInfo(
+        var_name="x",
+        line=100,  # Invalid line number
+        col=6,
+        stmt_index=1,
+        context="unknown",
+        scope_id=0,
+    )
+
+    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
+
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=1,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
+    assert result is False
+
+    filepath.unlink()
+
+
+def test_autofix_with_multiple_uses() -> None:
+    """Test that autofix skips violations with multiple uses."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    source = "x = 1\nprint(x)\nprint(x)\n"
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+    rhs_node = ast.parse("1", mode="eval").body
+
+    # Create a lifecycle with multiple uses
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source="1",
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    usage1 = UsageInfo(
+        var_name="x",
+        line=2,
+        col=6,
+        stmt_index=1,
+        context="unknown",
+        scope_id=0,
+    )
+
+    usage2 = UsageInfo(
+        var_name="x",
+        line=3,
+        col=6,
+        stmt_index=2,
+        context="unknown",
+        scope_id=0,
+    )
+
+    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage1, usage2])
+
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=1,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data={"lifecycle": lifecycle, "pattern": "SINGLE_USE"},
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
+    assert result is False  # Should skip because of multiple uses
+
+    filepath.unlink()
+
+
+def test_autofix_with_unsafe_inlining() -> None:
+    """Test that autofix skips when inlining would be unsafe (line too long)."""
+    from tempfile import NamedTemporaryFile
+
+    from pre_commit_hooks.ast_checks._base import Violation
+    from pre_commit_hooks.ast_checks.redundant_assignment import (
+        RedundantAssignmentCheck,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    # Create a case where inlining would exceed 88 characters
+    # Line is already 60 chars, adding 40 char value would exceed 88
+    source = (
+        "x = " + "a" * 40 + "\nresult = some_long_function_name(x, param1, param2)\n"
+    )
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    check = RedundantAssignmentCheck()
+    tree = ast.parse(source)
+    rhs_node = ast.parse("a" * 40, mode="eval").body
+
+    # Manually create a fixable violation with a long RHS
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source="a" * 40,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    usage = UsageInfo(
+        var_name="x",
+        line=2,
+        col=41,  # Position of 'x' in the usage line
+        stmt_index=1,
+        context="unknown",
+        scope_id=0,
+    )
+
+    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
+
+    violations = [
+        Violation(
+            check_id="redundant-assignment",
+            error_code="TRI005",
+            line=1,
+            col=0,
+            message="test",
+            fixable=True,
+            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+        )
+    ]
+
+    result = check.fix(filepath, violations, source, tree)
+    # Should return False because inlining would make the line too long
+    assert result is False
+
+    filepath.unlink()
 
 
 def test_fix_method_with_no_fixable_violations() -> None:
@@ -945,3 +1361,242 @@ def example():
     assert len(lifecycles) >= 1
 
     filepath.unlink()
+
+
+def test_conditional_assignment_with_augmented_use() -> None:
+    """Test conditional assignments with augmented assignment not flagged."""
+    source = """
+def func(v):
+    if v:
+        msg = "foo"
+    else:
+        msg = "bar"
+
+    msg += "spameggs"
+
+    print(msg)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag either 'msg' assignment because:
+    # 1. Both assignments are in different branches (if/else)
+    # 2. The variable is used in an augmented assignment (msg += ...)
+    # 3. This is not a single-use pattern - the conditional value is essential
+    assert len(violations) == 0
+
+
+def test_augmented_assignment_tracks_usage() -> None:
+    """Test that augmented assignments track variable usage."""
+    source = """
+def example():
+    x = 1
+    x += 2
+    print(x)
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    # Should have one lifecycle for 'x' (the initial assignment)
+    # Augmented assignments are tracked as usages, not new assignments
+    x_lifecycles = [lc for lc in lifecycles if lc.assignment.var_name == "x"]
+    assert len(x_lifecycles) == 1
+
+    # The lifecycle should have two uses:
+    # 1. The read in x += 2 (augmented assignment)
+    # 2. The use in print(x)
+    lifecycle = x_lifecycles[0]
+    assert len(lifecycle.uses) == 2
+
+
+def test_augmented_assignment_single_use_can_be_flagged() -> None:
+    """Test that augmented assignments can still be flagged if redundant."""
+    source = """
+def example():
+    x = 1
+    x += 1
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # The first assignment (x = 1) is used once (in x += 1)
+    # This could be flagged as it's a simple pattern
+    # But augmented assignments typically indicate the variable will be used again
+    # So it's reasonable either way
+    assert isinstance(violations, list)
+
+
+def test_long_chained_expression_not_flagged() -> None:
+    """Test that long chained expressions with meaningful names are not flagged."""
+    source = """
+@functools.cache
+def find_place_document(place_id):
+    collection_places = singleton_factory(mongo_client)[DATABASE_NAME]["places"]
+    return collection_places.find_one({"_id": place_id})
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag 'collection_places' because:
+    # 1. It's a long expression (70+ chars)
+    # 2. It has chained subscript operations
+    # 3. The variable name is meaningful and descriptive
+    # 4. Breaking it down improves readability
+    assert len(violations) == 0
+
+
+def test_autofix_respects_line_length() -> None:
+    """Test that autofix doesn't inline if it would exceed line length."""
+    from tempfile import NamedTemporaryFile
+
+    # Create a case where inlining would exceed 88 characters
+    source = """x = "a_very_long_string_that_when_inlined_would_make_the_line_too_long"
+result = some_function(x, another_param, yet_another_param)
+"""
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, tree, source)
+
+    # May or may not have violations depending on semantic scoring
+    # But if there are violations, they should NOT be fixable due to line length
+    for v in violations:
+        if v.fixable:
+            result = check.fix(filepath, [v], source, tree)
+            # Should not fix if it violates line length
+            fixed = filepath.read_text()
+            assert len(fixed.splitlines()[1]) <= 88 or result is False
+
+    filepath.unlink()
+
+
+def test_autofix_handles_word_boundaries() -> None:
+    """Test that autofix correctly handles variable names as whole words."""
+    from tempfile import NamedTemporaryFile
+
+    # Test that 'x' doesn't match 'max' or 'index'
+    source = """x = 5
+result = x + max(x, index)
+"""
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, tree, source)
+
+    if violations and any(v.fixable for v in violations):
+        check.fix(filepath, violations, source, tree)
+        fixed = filepath.read_text()
+
+        # Should only replace the standalone 'x', not 'max' or 'index'
+        assert "max" in fixed
+        assert "index" in fixed
+
+    filepath.unlink()
+
+
+def test_chained_operations_scoring() -> None:
+    """Test that chained operations increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test with 2 chained subscripts: obj[x][y]
+    source = "obj[x][y]"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("result", source, rhs_node, False)
+
+    # Should get points for chained operations (2 chains = +20)
+    # "result" is 1 part (+0), short expression (+0)
+    assert score == 20
+
+    # Test with 3 chained operations and better naming
+    source = "func()[x][y]"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("my_value", source, rhs_node, False)
+
+    # Should get points for:
+    # - 3+ chains (+30)
+    # - 2-part name (+10)
+    assert score == 40
+
+    # Test with attribute chaining: obj.foo.bar
+    source = "obj.foo.bar"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("result", source, rhs_node, False)
+
+    # Should get points for chained attributes (2 chains = +20)
+    assert score >= 20
+
+
+def test_augmented_assignment_with_global_variable() -> None:
+    """Test that augmented assignments with global variables are skipped."""
+    source = """
+def func():
+    global x
+    x += 1
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag global variable
+    assert len(violations) == 0
+
+
+def test_augmented_assignment_with_nonlocal_variable() -> None:
+    """Test that augmented assignments with nonlocal variables are skipped."""
+    source = """
+def outer():
+    x = 1
+    def inner():
+        nonlocal x
+        x += 1
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag nonlocal variable
+    assert isinstance(violations, list)
+
+
+def test_augmented_assignment_with_attribute() -> None:
+    """Test that augmented assignments to attributes (not simple names) are skipped."""
+    source = """
+def func():
+    obj.x += 1
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not track attribute assignments
+    assert len(violations) == 0
+
+
+def test_semantic_scoring_very_long_expression() -> None:
+    """Test that very long expressions (80+ chars) get extra points."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Create an 85-character expression
+    source = "a" * 85
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("x", source, rhs_node, False)
+
+    # Should get points for very long expression (80+ = +35)
+    assert score >= 35

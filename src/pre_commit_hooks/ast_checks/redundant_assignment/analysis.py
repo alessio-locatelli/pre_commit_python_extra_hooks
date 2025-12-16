@@ -323,6 +323,55 @@ class VariableTracker(ast.NodeVisitor):
             # Clear currently assigning
             self.currently_assigning.clear()
 
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        """Track augmented assignments (+=, -=, etc.).
+
+        Augmented assignments READ the variable (to get current value) and then
+        mutate it in place. We track the READ as a usage, which prevents false
+        positives for patterns like:
+            if condition:
+                msg = "foo"
+            else:
+                msg = "bar"
+            msg += " suffix"  # This USES the conditional value
+
+        We don't track augmented assignments as NEW assignments because they're
+        mutations of existing variables, not fresh assignments that could be
+        inlined.
+
+        Args:
+            node: Augmented assignment node
+        """
+        scope_id = self._get_current_scope_id()
+        stmt_index = self._get_current_stmt_index()
+
+        # Only track simple name targets
+        if self._is_simple_name_target(node.target):
+            assert isinstance(node.target, ast.Name)  # Type narrowing
+            var_name = node.target.id
+
+            # Skip global/nonlocal variables
+            if (scope_id, var_name) in self.global_vars | self.nonlocal_vars:
+                self.generic_visit(node)
+                return
+
+            # Track the READ (use) of the current value
+            usage = UsageInfo(
+                var_name=var_name,
+                line=node.lineno,
+                col=node.col_offset,
+                stmt_index=stmt_index,
+                context="augmented_assignment",
+                scope_id=scope_id,
+            )
+            key = (scope_id, var_name)
+            if key not in self.uses:  # pragma: lax no cover
+                self.uses[key] = []
+            self.uses[key].append(usage)
+
+        # Visit RHS to track any uses of other variables
+        self.visit(node.value)
+
     def visit_Name(self, node: ast.Name) -> None:
         """Track variable uses (loads).
 
