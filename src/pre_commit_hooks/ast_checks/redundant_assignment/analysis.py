@@ -29,6 +29,7 @@ class AssignmentInfo:
         rhs_source: Right-hand side source code
         scope_id: Scope identifier for isolation
         has_type_annotation: Whether assignment has type annotation
+        in_loop: Whether assignment is inside a loop
     """
 
     var_name: str
@@ -39,6 +40,7 @@ class AssignmentInfo:
     rhs_source: str
     scope_id: int
     has_type_annotation: bool = False
+    in_loop: bool = False
 
 
 @dataclass
@@ -126,6 +128,9 @@ class VariableTracker(ast.NodeVisitor):
         # the LHS of an assignment as a use)
         self.currently_assigning: set[str] = set()
 
+        # Track if we're inside a loop (for, while)
+        self.loop_depth = 0
+
     def _enter_scope(self) -> None:
         """Enter a new scope (function, class, etc.)."""
         self.current_scope_id += 1
@@ -208,6 +213,36 @@ class VariableTracker(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815
 
+    def visit_For(self, node: ast.For) -> None:
+        """Visit for loop (track loop depth).
+
+        Args:
+            node: For loop node
+        """
+        self.loop_depth += 1
+        self.generic_visit(node)
+        self.loop_depth -= 1
+
+    def visit_While(self, node: ast.While) -> None:
+        """Visit while loop (track loop depth).
+
+        Args:
+            node: While loop node
+        """
+        self.loop_depth += 1
+        self.generic_visit(node)
+        self.loop_depth -= 1
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        """Visit async for loop (track loop depth).
+
+        Args:
+            node: Async for loop node
+        """
+        self.loop_depth += 1
+        self.generic_visit(node)
+        self.loop_depth -= 1
+
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit class definition (enter new scope).
 
@@ -261,6 +296,7 @@ class VariableTracker(ast.NodeVisitor):
                     rhs_source=rhs_source,
                     scope_id=scope_id,
                     has_type_annotation=False,
+                    in_loop=self.loop_depth > 0,
                 )
 
                 # Store assignment
@@ -309,6 +345,7 @@ class VariableTracker(ast.NodeVisitor):
                 rhs_source=rhs_source,
                 scope_id=scope_id,
                 has_type_annotation=True,  # This is an annotated assignment
+                in_loop=self.loop_depth > 0,
             )
 
             # Store assignment

@@ -257,7 +257,7 @@ def test_prefilter_pattern() -> None:
 
 
 def test_fixable_marked_correctly() -> None:
-    """Test that fixable violations are marked correctly."""
+    """Test that violations are detected (autofix disabled for safety)."""
     source = """
 x = "foo"
 func(x=x)
@@ -266,8 +266,10 @@ func(x=x)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should have at least one fixable violation
-    assert any(v.fixable for v in violations)
+    # Should detect violations (but autofix is disabled for safety)
+    assert len(violations) >= 1
+    # Autofix is disabled, so no violations should be marked fixable
+    assert not any(v.fixable for v in violations)
 
 
 def test_non_fixable_semantic_value() -> None:
@@ -287,7 +289,7 @@ def example():
 
 
 def test_fix_method_with_fixable_violations() -> None:
-    """Test that fix method can fix simple violations."""
+    """Test that fix method correctly handles disabled autofix."""
     from tempfile import NamedTemporaryFile
 
     source = """x = "foo"
@@ -302,19 +304,21 @@ func(x=x)
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    # Should have fixable violations
-    assert any(v.fixable for v in violations)
+    # Should detect violations
+    assert len(violations) >= 1
 
-    # Apply fixes
+    # Autofix is disabled, so no violations should be marked fixable
+    assert not any(v.fixable for v in violations)
+
+    # Apply fixes (should return False since autofix is disabled)
     result = check.fix(filepath, violations, source, tree)
-    assert result is True
+    assert result is False
 
-    # Read the fixed content
+    # Read the content (should be unchanged)
     fixed_content = filepath.read_text()
 
-    # The assignment should be removed and the usage should be inlined
-    assert "x = " not in fixed_content
-    assert 'func(x="foo")' in fixed_content
+    # The content should remain unchanged since autofix is disabled
+    assert fixed_content == source
 
     filepath.unlink()
 
@@ -1470,7 +1474,7 @@ result = some_function(x, another_param, yet_another_param)
     # May or may not have violations depending on semantic scoring
     # But if there are violations, they should NOT be fixable due to line length
     for v in violations:
-        if v.fixable:
+        if v.fixable:  # pragma: no cover - autofix disabled
             result = check.fix(filepath, [v], source, tree)
             # Should not fix if it violates line length
             fixed = filepath.read_text()
@@ -1496,7 +1500,9 @@ result = x + max(x, index)
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    if violations and any(v.fixable for v in violations):
+    if violations and any(
+        v.fixable for v in violations
+    ):  # pragma: no cover - autofix disabled
         check.fix(filepath, violations, source, tree)
         fixed = filepath.read_text()
 
@@ -1600,3 +1606,157 @@ def test_semantic_scoring_very_long_expression() -> None:
 
     # Should get points for very long expression (80+ = +35)
     assert score >= 35
+
+
+# === Bug Reproduction Tests ===
+# The following tests reproduce bugs from bug_report.md
+
+
+def test_problem_1_loop_reassignment() -> None:
+    """Reproduce Problem 1: Wrong variable replacement in loop reassignment."""
+    source = """def find_route():
+    latest_datetime = initial_datetime
+    for edge in edges:
+        destination_datetime_utc = edge.destination_datetime_utc
+        if destination_datetime_utc > latest_datetime:
+            latest_datetime = destination_datetime_utc
+            break
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag latest_datetime as it's reassigned in a loop
+    # and used across iterations
+    for v in violations:  # pragma: no cover - no violations expected
+        assert "latest_datetime" not in v.message, (
+            f"Should not flag latest_datetime in loop reassignment: {v.message}"
+        )
+
+
+def test_problem_2_boolean_descriptive_names() -> None:
+    """Reproduce Problem 2: False positive on descriptive boolean names."""
+    source = """def check_cycle(subgraph, depot_idx):
+    out_edge_count = len(subgraph.out_edges(depot_idx))
+    in_edge_count = len(subgraph.in_edges(depot_idx))
+    has_cycle = bool(find_cycle(subgraph, depot_idx))
+    if not all((out_edge_count, in_edge_count, has_cycle)):
+        raise ValueError("Invalid graph")
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag has_cycle - it's a descriptive boolean name
+    for v in violations:  # pragma: no cover - no violations expected
+        assert "has_cycle" not in v.message, (
+            f"Should not flag descriptive boolean variable has_cycle: {v.message}"
+        )
+
+
+def test_problem_4_multiple_exception_assignments() -> None:
+    """Reproduce Problem 4: Concatenated variable names from multiple assignments."""
+    from tempfile import NamedTemporaryFile
+
+    source = """def fetch_data():
+    error = None
+    try:
+        return get_data()
+    except ValueError as value_error:
+        error = value_error
+    except TypeError as type_error:
+        error = type_error
+    except KeyError as key_error:
+        error = key_error
+    raise error
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    violations = check.check(filepath, tree, source)
+
+    # If there are fixable violations, applying the fix should NOT create
+    # concatenated nonsense like "value_errortype_errorkey_error"
+    if any(v.fixable for v in violations):  # pragma: no cover - autofix disabled
+        check.fix(filepath, violations, source, tree)
+        fixed_content = filepath.read_text()
+
+        # Verify no concatenated garbage
+        assert "value_errortype_error" not in fixed_content
+        assert "type_errorkey_error" not in fixed_content
+
+        # Verify the code is still valid Python
+        try:
+            ast.parse(fixed_content)
+        except SyntaxError as e:
+            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
+            raise AssertionError(msg) from e
+
+    filepath.unlink()
+
+
+def test_problem_5_conditional_assignment_logic_change() -> None:
+    """Reproduce Problem 5: Logic-changing autofix for conditional assignments."""
+    from tempfile import NamedTemporaryFile
+
+    source = """def configure(service_name=None):
+    if not service_name:
+        service_name = get_caller_module_name()
+    return configure_service(service_name)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    violations = check.check(filepath, tree, source)
+
+    # If there are fixable violations, verify the logic isn't changed
+    if any(v.fixable for v in violations):  # pragma: no cover - autofix disabled
+        check.fix(filepath, violations, source, tree)
+        fixed_content = filepath.read_text()
+
+        # The fixed code should NOT change the logic
+        # Original: assigns get_caller_module_name() to service_name, then uses it
+        # WRONG: if not get_caller_module_name(): ...
+        assert "if not get_caller_module_name():" not in fixed_content, (
+            f"Autofix changed program logic!\n{fixed_content}"
+        )
+
+    filepath.unlink()
+
+
+def test_same_variable_different_scopes() -> None:
+    """Test that variables in different branches are tracked correctly."""
+    source = """def process(value):
+    if value > 0:
+        result = "positive"
+        log(result)
+    else:
+        result = "negative"
+        log(result)
+    return result
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag result because:
+    # 1. It's assigned in different branches
+    # 2. It's used after the if/else block
+    # 3. Both assignments are needed for the final return
+    for v in violations:  # pragma: no cover - no violations expected
+        should_skip = (
+            "result" not in v.message
+            or "positive" not in source
+            or "negative" not in source
+        )
+        assert should_skip

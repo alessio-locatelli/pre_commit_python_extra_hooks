@@ -38,7 +38,7 @@ from .. import register_check
 from .._base import Violation
 from .analysis import VariableTracker, detect_redundancy
 from .autofix import apply_fixes
-from .semantic import should_autofix, should_report_violation
+from .semantic import should_report_violation
 
 # Regex pattern for inline ignore comments
 # Format: # pytriage: ignore=TRI005
@@ -139,10 +139,21 @@ class RedundantAssignmentCheck:
         tracker.visit(tree)
         lifecycles = tracker.build_lifecycles()
 
+        # Count assignments per (scope, variable) to identify state tracking
+        assignment_counts: dict[tuple[int, str], int] = {}
+        for lifecycle in lifecycles:
+            key = (lifecycle.assignment.scope_id, lifecycle.assignment.var_name)
+            assignment_counts[key] = assignment_counts.get(key, 0) + 1
+
         # Detect redundant assignments
         violations: list[Violation] = []
 
         for lifecycle in lifecycles:
+            # Skip if variable has multiple assignments (state tracking pattern)
+            key = (lifecycle.assignment.scope_id, lifecycle.assignment.var_name)
+            if assignment_counts[key] > 1:
+                continue
+
             # Detect pattern
             pattern = detect_redundancy(lifecycle)
             if pattern is None:
@@ -156,13 +167,12 @@ class RedundantAssignmentCheck:
             if not should_report_violation(lifecycle, pattern):
                 continue
 
-            # Determine if fixable
-            fixable = should_autofix(lifecycle, pattern)
+            # Determine if fixable (currently disabled for safety)
+            # Autofix is disabled due to edge cases that can break code
+            fixable = False  # was: should_autofix(lifecycle, pattern)
 
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)
-            if fixable:
-                message = f"[FIXABLE] {message} Run with --fix to inline automatically."
 
             violation = Violation(
                 check_id=self.check_id,

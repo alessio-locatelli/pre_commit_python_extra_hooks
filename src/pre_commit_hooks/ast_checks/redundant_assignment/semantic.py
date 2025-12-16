@@ -29,6 +29,33 @@ TRANSFORMATIVE_VERBS = {
     "deserialized",
 }
 
+# Boolean/descriptive prefixes that indicate semantic value
+DESCRIPTIVE_PREFIXES = {
+    "has_",
+    "is_",
+    "should_",
+    "can_",
+    "will_",
+    "did_",
+    "was_",
+    "are_",
+    "were_",
+    "does_",
+}
+
+# Descriptive suffixes that indicate semantic value
+DESCRIPTIVE_SUFFIXES = {
+    "_count",
+    "_flag",
+    "_exists",
+    "_found",
+    "_valid",
+    "_enabled",
+    "_disabled",
+    "_available",
+    "_ready",
+}
+
 
 def _count_chained_operations(node: ast.expr) -> int:
     """Count the number of chained operations (subscripts, attributes, calls).
@@ -91,6 +118,14 @@ def calculate_semantic_value(
     var_lower = var_name.lower()
     if any(verb in var_lower for verb in TRANSFORMATIVE_VERBS):
         score += 60
+
+    # Check for descriptive boolean prefixes (+50 points - strong signal)
+    if any(var_lower.startswith(prefix) for prefix in DESCRIPTIVE_PREFIXES):
+        score += 50
+
+    # Check for descriptive suffixes (+40 points)
+    if any(var_lower.endswith(suffix) for suffix in DESCRIPTIVE_SUFFIXES):
+        score += 40
 
     # Expression complexity scoring
     if isinstance(
@@ -168,8 +203,14 @@ def should_report_violation(
     Returns:
         True if violation should be reported
     """
-    # Calculate semantic value
     assignment = lifecycle.assignment
+
+    # Don't report assignments inside loops - they often accumulate/track state
+    # across iterations even if they appear to have single use per iteration
+    if assignment.in_loop:
+        return False
+
+    # Calculate semantic value
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,
         rhs_source=assignment.rhs_source,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .._base import Violation
@@ -17,6 +16,11 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
     1. Replacing the variable usage with the RHS expression
     2. Removing the assignment line
 
+    IMPORTANT: Due to complexity of control flow and potential for breaking code,
+    autofix is currently DISABLED. This function returns False to prevent any
+    automatic modifications until the autofix logic is thoroughly tested and
+    validated against all edge cases.
+
     Args:
         filepath: Path to file to fix
         violations: List of violations to fix
@@ -25,83 +29,13 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
     Returns:
         True if fixes were successfully applied, False otherwise
     """
-    # Filter to only fixable violations
-    fixable_violations = [v for v in violations if v.fixable]
-
-    if not fixable_violations:
-        return False
-
-    source_lines = source.splitlines(keepends=True)
-
-    # Sort violations by line number (descending) to avoid line number shifts
-    # when we remove assignment lines
-    fixable_violations.sort(key=lambda v: v.line, reverse=True)
-
-    fixed_any = False
-
-    for violation in fixable_violations:
-        # Extract lifecycle data
-        fix_data = violation.fix_data
-        if not fix_data or "lifecycle" not in fix_data:
-            continue
-
-        lifecycle = fix_data["lifecycle"]
-        assignment = lifecycle.assignment
-        uses = lifecycle.uses
-
-        # Safety check: should have exactly one use
-        if len(uses) != 1:
-            continue
-
-        use = uses[0]
-
-        # Get assignment and use lines (convert to 0-indexed)
-        assign_line_idx = assignment.line - 1
-        use_line_idx = use.line - 1
-
-        if assign_line_idx < 0 or assign_line_idx >= len(source_lines):
-            continue
-        if use_line_idx < 0 or use_line_idx >= len(source_lines):
-            continue
-
-        # Get the RHS expression
-        rhs_source = assignment.rhs_source.strip()
-        var_name = assignment.var_name
-
-        # Check if inlining is safe
-        if not _can_safely_inline(var_name, rhs_source, use_line_idx, source_lines):
-            continue
-
-        # Perform the inline replacement
-        use_line = source_lines[use_line_idx]
-
-        # Replace the variable at the specific column offset
-        # This ensures we replace the right occurrence (e.g., in `func(x=x)`,
-        # we replace the value `x`, not the keyword argument name `x`)
-        col_offset = use.col
-
-        # Build the replacement: before + rhs + after
-        before = use_line[:col_offset]
-        after = use_line[col_offset + len(var_name) :]
-        new_use_line = before + rhs_source + after
-
-        source_lines[use_line_idx] = new_use_line
-
-        # Remove the assignment line
-        source_lines[assign_line_idx] = ""
-
-        fixed_any = True
-
-    if fixed_any:
-        # Write the fixed source back to file
-        new_source = "".join(source_lines)
-
-        # Remove consecutive blank lines created by removing assignments
-        new_source = re.sub(r"\n\n\n+", "\n\n", new_source)
-
-        filepath.write_text(new_source)
-        return True
-
+    # DISABLED: Autofix has edge cases that can break code
+    # - Word boundary issues (replacing 'x' can affect 'max', 'index', etc.)
+    # - Multiple occurrences on same line
+    # - Indentation and formatting issues
+    # - Control flow complications
+    #
+    # Users should manually review and fix violations, or use inline suppressions
     return False
 
 
