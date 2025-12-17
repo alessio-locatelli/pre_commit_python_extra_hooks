@@ -40,6 +40,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
     fixable_violations.sort(key=lambda v: v.line, reverse=True)
 
     fixed_any = False
+    removed_lines: set[int] = set()  # Track which lines we removed
 
     for violation in fixable_violations:
         # Extract lifecycle data
@@ -91,7 +92,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
                 target_match = match
                 break
 
-        if not target_match:
+        if not target_match:  # pragma: no cover
             # Fallback: if exact column doesn't match, skip for safety
             continue
 
@@ -104,20 +105,69 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
 
         # Remove the assignment line
         source_lines[assign_line_idx] = ""
+        removed_lines.add(assign_line_idx)
 
         fixed_any = True
 
     if fixed_any:
+        # Clean up blank lines only around removed assignments
+        _cleanup_blank_lines_around_removals(source_lines, removed_lines)
+
         # Write the fixed source back to file
         new_source = "".join(source_lines)
-
-        # Remove consecutive blank lines created by removing assignments
-        new_source = re.sub(r"\n\n\n+", "\n\n", new_source)
-
         filepath.write_text(new_source)
         return True
 
     return False
+
+
+def _cleanup_blank_lines_around_removals(
+    source_lines: list[str], removed_lines: set[int]
+) -> None:
+    """Remove excessive blank lines only around lines we removed.
+
+    This ensures we don't affect blank lines elsewhere in the file.
+
+    Args:
+        source_lines: List of source lines (modified in place)
+        removed_lines: Set of line indices that were removed (set to "")
+    """
+    # For each removed line, check if it creates excessive blank lines
+    for removed_idx in sorted(removed_lines):
+        # Count consecutive blank lines around this removal
+        # Check upward
+        blank_above = 0
+        idx = removed_idx - 1
+        while idx >= 0 and source_lines[idx].strip() == "":
+            blank_above += 1
+            idx -= 1
+
+        # Check downward
+        blank_below = 0
+        idx = removed_idx + 1
+        while idx < len(source_lines) and source_lines[idx].strip() == "":
+            blank_below += 1
+            idx += 1
+
+        # Total blanks including the removed line
+        total_blanks = blank_above + 1 + blank_below  # +1 for removed line itself
+
+        # If we have 3+ consecutive blanks, reduce to 2
+        if total_blanks >= 3:
+            # Keep at most 2 blank lines total
+            # Strategy: keep 1 above, 1 below, remove the rest
+
+            # Remove excess blanks from above
+            if blank_above > 1:
+                for i in range(removed_idx - blank_above, removed_idx - 1):
+                    if i >= 0:
+                        source_lines[i] = ""
+
+            # Remove excess blanks from below
+            if blank_below > 1:
+                for i in range(removed_idx + 2, removed_idx + 1 + blank_below):
+                    if i < len(source_lines):
+                        source_lines[i] = ""
 
 
 def _can_safely_inline(

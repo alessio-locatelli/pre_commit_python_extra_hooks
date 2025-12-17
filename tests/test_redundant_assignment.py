@@ -1915,3 +1915,154 @@ def test_same_variable_different_scopes() -> None:
             or "negative" not in source
         )
         assert should_skip
+
+
+def test_autofix_preserves_blank_lines_across_file() -> None:
+    """Test that autofix only cleans up blank lines around removed assignments.
+
+    Regression test for bug where autofix was deleting blank lines across
+    the entire file, not just around the removed assignment.
+    """
+    from tempfile import NamedTemporaryFile
+
+    # File with multiple classes/functions separated by blank lines
+    # and one redundant assignment that will be autofixed
+    source = """class FirstClass:
+    def method_one(self):
+        pass
+
+
+class SecondClass:
+    def method_two(self):
+        pass
+
+
+def function_with_redundant_var():
+    x = 42
+    return x
+
+
+def another_function():
+    pass
+
+
+class ThirdClass:
+    def method_three(self):
+        pass
+"""
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    violations = check.check(filepath, tree, source)
+
+    # If there are fixable violations, verify blank lines are preserved
+    if any(v.fixable for v in violations):
+        check.fix(filepath, violations, source, tree)
+        fixed_content = filepath.read_text()
+
+        # Verify blank lines between classes/functions are preserved
+        # These blank lines should NOT be affected by autofix
+        expected_pattern_1 = (
+            "class FirstClass:\n    def method_one(self):\n        pass\n\n\n"
+            "class SecondClass:"
+        )
+        assert expected_pattern_1 in fixed_content, (
+            "Blank lines between FirstClass and SecondClass were removed!"
+        )
+
+        expected_pattern_2 = (
+            "class SecondClass:\n    def method_two(self):\n        pass\n\n\n"
+            "def function_with_redundant_var():"
+        )
+        assert expected_pattern_2 in fixed_content, (
+            "Blank lines between SecondClass and "
+            "function_with_redundant_var were removed!"
+        )
+
+        expected_pattern_3 = "def another_function():\n    pass\n\n\nclass ThirdClass:"
+        assert expected_pattern_3 in fixed_content, (
+            "Blank lines between another_function and ThirdClass were removed!"
+        )
+
+        # Verify the fixed code is still valid Python
+        try:
+            ast.parse(fixed_content)
+        except SyntaxError as e:
+            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
+            raise AssertionError(msg) from e
+
+    filepath.unlink()
+
+
+def test_autofix_cleans_up_excessive_blank_lines() -> None:
+    """Test that autofix reduces 3+ consecutive blank lines to 2 around removals."""
+    from tempfile import NamedTemporaryFile
+
+    # File with excessive blank lines around a redundant assignment
+    # The blank lines between the removed assignment should be cleaned up
+    source = """def function_with_redundant():
+
+
+    x = 42
+
+
+    return x
+"""
+
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    violations = check.check(filepath, tree, source)
+
+    # If there are fixable violations, verify excessive blank lines are cleaned
+    if any(v.fixable for v in violations):
+        check.fix(filepath, violations, source, tree)
+        fixed_content = filepath.read_text()
+
+        # Verify the excessive blank lines around the removed assignment are reduced
+        # Inside the function, after removing x=42, we should have at most 2 blanks
+        # before the return statement
+        lines = fixed_content.split("\n")
+
+        # Find the function and count blanks before return
+        in_function = False
+        blanks_before_return = 0
+
+        for i, line in enumerate(lines):
+            if "def function_with_redundant" in line:
+                in_function = True
+                continue
+
+            if in_function and "return" in line:
+                # Count preceding blank lines
+                j = i - 1
+                while j >= 0 and lines[j].strip() == "":
+                    blanks_before_return += 1
+                    j -= 1
+                break
+
+        # Should have at most 2 blank lines before return
+        assert blanks_before_return <= 2, (
+            f"Fixed code has {blanks_before_return} blank lines before return "
+            f"(expected ≤2)\n{fixed_content}"
+        )
+
+        # Verify the fixed code is still valid Python
+        try:
+            ast.parse(fixed_content)
+        except SyntaxError as e:
+            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
+            raise AssertionError(msg) from e
+
+    filepath.unlink()
