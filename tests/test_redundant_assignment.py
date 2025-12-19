@@ -2224,7 +2224,57 @@ def func():
     violations = check.check(Path("test.py"), tree, source)
 
     # Should not flag 'variable' if inlining would exceed 79 characters
-    # The heuristic checks if len_diff > 20
-    # len_diff = len("compute_something_with...()") - len("variable")
-    # len_diff = 49 - 8 = 41 > 20, so should not be flagged
+    # The heuristic checks if len(rhs_source) >= 25 or len_diff > 15
+    # len(rhs_source) = 49 >= 25, so should not be flagged
+    assert len(violations) == 0
+
+
+def test_comment_above_in_function_scope_not_flagged() -> None:
+    """Test that variables with comments above are not flagged (any scope)."""
+    source = """
+def auto_clear_fixture():
+    # Exclude cache.
+    # The prefixes are hard-coded in external library
+    cache_prefixes = ("responses", "redirects")
+    process(cache_prefixes)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'cache_prefixes' because it has a comment above
+    assert len(violations) == 0
+
+
+def test_moderately_long_rhs_not_flagged() -> None:
+    """Test that RHS >= 25 chars is not flagged (line length heuristic)."""
+    source = """
+def func():
+    prefixes = ("responses", "redirects")
+    process(prefixes)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag because RHS is 26 chars (>= 25)
+    # len('("responses", "redirects")') = 26
+    assert len(violations) == 0
+
+
+def test_comment_above_multiline_not_flagged() -> None:
+    """Test that variables with multiline comments above are not flagged."""
+    source = """
+def func():
+    # First comment line
+    # Second comment line
+    # Third comment line with URL: https://example.com/path
+    variable = calculate_value()
+    return variable
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag because there's a comment on the line directly above
     assert len(violations) == 0

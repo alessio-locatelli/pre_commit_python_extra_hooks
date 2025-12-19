@@ -209,14 +209,18 @@ def _would_exceed_line_length(
 
     # For simple single-use cases, we can check if inlining would be too long
     # This requires checking the usage line, but we don't have source lines here
-    # So we'll use a conservative estimate based on the length difference
+    # So we'll use a conservative estimate based on RHS length
 
-    # Length change: remove var_name, add rhs_source
-    len_diff = len(rhs_source) - len(var_name)
+    # If the RHS is moderately long (>= 25 chars), inlining it is likely to
+    # cause line length issues, even if the variable name is also long
+    # Example: tuple/list literals, moderately complex expressions
+    if len(rhs_source) >= 25:
+        return True
 
     # If the RHS is significantly longer than the variable name,
     # it's likely to cause line length issues
-    # Use a conservative threshold: if len_diff > 20, assume it might exceed
+    # Use threshold: if len_diff > 20, assume it might exceed
+    len_diff = len(rhs_source) - len(var_name)
     return len_diff > 20
 
 
@@ -240,15 +244,14 @@ def should_report_violation(
     if assignment.in_loop:
         return False
 
+    # Skip if there's a comment right above the assignment (any scope)
+    # Comments above variables indicate documentation/explanation intent
+    if assignment.has_comment_above:
+        return False
+
     # Rule 1: Don't report global scope variables unless prefixed with `_`
-    # Also don't report global scope variables with comments above
-    if assignment.in_global_scope:
-        # Skip if NOT prefixed with underscore
-        if not assignment.var_name.startswith("_"):
-            return False
-        # Skip if there's a comment right above the assignment
-        if assignment.has_comment_above:
-            return False
+    if assignment.in_global_scope and not assignment.var_name.startswith("_"):
+        return False
 
     # Rule 2: Don't report if RHS has await AND usage also has await
     if (
