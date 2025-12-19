@@ -31,6 +31,9 @@ class AssignmentInfo:
         has_type_annotation: Whether assignment has type annotation
         in_loop: Whether assignment is inside a loop
         in_control_flow: Whether assignment is inside control flow (if/try/with)
+        in_global_scope: Whether assignment is in global/module scope
+        has_comment_above: Whether there's a comment right above the assignment
+        rhs_has_await: Whether the RHS contains an await expression
     """
 
     var_name: str
@@ -43,6 +46,9 @@ class AssignmentInfo:
     has_type_annotation: bool = False
     in_loop: bool = False
     in_control_flow: bool = False
+    in_global_scope: bool = False
+    has_comment_above: bool = False
+    rhs_has_await: bool = False
 
 
 @dataclass
@@ -54,8 +60,9 @@ class UsageInfo:
         line: Line number of usage
         col: Column offset of usage
         stmt_index: Position in scope body
-        context: Usage context ('return', 'call', 'operation', etc.)
+        context: Usage context ('return', 'call', 'operation', etc.')
         scope_id: Scope identifier for isolation
+        usage_has_await: Whether the usage is wrapped in an await expression
     """
 
     var_name: str
@@ -64,6 +71,7 @@ class UsageInfo:
     stmt_index: int
     context: str
     scope_id: int
+    usage_has_await: bool = False
 
 
 @dataclass
@@ -91,6 +99,48 @@ class VariableLifecycle:
         first_use = self.uses[0]
         # Immediate = same statement or next statement
         return first_use.stmt_index <= self.assignment.stmt_index + 1
+
+
+def _has_await_expression(node: ast.expr) -> bool:
+    """Check if an AST node contains an await expression.
+
+    Args:
+        node: AST expression node
+
+    Returns:
+        True if node contains await expression
+    """
+
+    class AwaitDetector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.has_await = False
+
+        def visit_Await(self, node: ast.Await) -> None:
+            self.has_await = True
+
+    detector = AwaitDetector()
+    detector.visit(node)
+    return detector.has_await
+
+
+def _has_comment_above(line_number: int, source_lines: list[str]) -> bool:
+    """Check if there's a comment right above the given line.
+
+    Args:
+        line_number: Line number (1-indexed)
+        source_lines: List of source code lines
+
+    Returns:
+        True if there's a comment on the line directly above
+    """
+    if line_number <= 1 or line_number > len(source_lines):
+        return False
+
+    # Check the line above (convert to 0-indexed)
+    prev_line = source_lines[line_number - 2].strip()
+
+    # Check if it's a comment line (starts with #)
+    return prev_line.startswith("#")
 
 
 class VariableTracker(ast.NodeVisitor):
@@ -135,6 +185,9 @@ class VariableTracker(ast.NodeVisitor):
 
         # Track if we're inside control flow (if, try, with)
         self.control_flow_depth = 0
+
+        # Track parent nodes for context detection
+        self.parent_stack: list[ast.AST] = []
 
     def _enter_scope(self) -> None:
         """Enter a new scope (function, class, etc.)."""
@@ -343,6 +396,11 @@ class VariableTracker(ast.NodeVisitor):
                     has_type_annotation=False,
                     in_loop=self.loop_depth > 0,
                     in_control_flow=self.control_flow_depth > 0,
+                    in_global_scope=(scope_id == 0),
+                    has_comment_above=_has_comment_above(
+                        node.lineno, self.source_lines
+                    ),
+                    rhs_has_await=_has_await_expression(node.value),
                 )
 
                 # Store assignment
@@ -393,6 +451,9 @@ class VariableTracker(ast.NodeVisitor):
                 has_type_annotation=True,  # This is an annotated assignment
                 in_loop=self.loop_depth > 0,
                 in_control_flow=self.control_flow_depth > 0,
+                in_global_scope=(scope_id == 0),
+                has_comment_above=_has_comment_above(node.lineno, self.source_lines),
+                rhs_has_await=_has_await_expression(node.value),
             )
 
             # Store assignment
@@ -456,6 +517,12 @@ class VariableTracker(ast.NodeVisitor):
         # Visit RHS to track any uses of other variables
         self.visit(node.value)
 
+    def generic_visit(self, node: ast.AST) -> None:
+        """Visit a node and track parent context."""
+        self.parent_stack.append(node)
+        super().generic_visit(node)
+        self.parent_stack.pop()
+
     def visit_Name(self, node: ast.Name) -> None:
         """Track variable uses (loads).
 
@@ -474,6 +541,11 @@ class VariableTracker(ast.NodeVisitor):
         scope_id = self._get_current_scope_id()
         stmt_index = self._get_current_stmt_index()
 
+        # Check if this usage is wrapped in an await expression
+        usage_has_await = any(
+            isinstance(parent, ast.Await) for parent in self.parent_stack
+        )
+
         # Determine context
         context = "unknown"
         # Walk up parent nodes to determine context
@@ -488,6 +560,7 @@ class VariableTracker(ast.NodeVisitor):
             stmt_index=stmt_index,
             context=context,
             scope_id=scope_id,
+            usage_has_await=usage_has_await,
         )
 
         # Store usage
@@ -495,8 +568,6 @@ class VariableTracker(ast.NodeVisitor):
         if key not in self.uses:
             self.uses[key] = []
         self.uses[key].append(usage)
-
-        self.generic_visit(node)
 
     def build_lifecycles(self) -> list[VariableLifecycle]:
         """Build variable lifecycles from tracked assignments and uses.

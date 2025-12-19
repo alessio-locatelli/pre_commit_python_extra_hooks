@@ -198,8 +198,8 @@ def _can_safely_inline(
     len_diff = len(rhs_source) - len(var_name)
     new_line_len = len(use_line.rstrip("\n\r")) + len_diff
 
-    # Check if new line would exceed reasonable length (88 chars, Black's default)
-    if new_line_len > 88:
+    # Check if new line would exceed reasonable length (79 chars, PEP 8 default)
+    if new_line_len > 79:
         return False
 
     # Check if the RHS expression contains newlines (multiline expressions)

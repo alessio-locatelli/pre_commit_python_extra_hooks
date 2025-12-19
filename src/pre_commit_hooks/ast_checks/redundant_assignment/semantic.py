@@ -190,6 +190,36 @@ def calculate_semantic_value(
     return min(score, 100)
 
 
+def _would_exceed_line_length(
+    lifecycle: VariableLifecycle,
+    max_length: int = 79,
+) -> bool:
+    """Check if inlining would cause usage lines to exceed max length.
+
+    Args:
+        lifecycle: Variable lifecycle
+        max_length: Maximum line length (default: 79)
+
+    Returns:
+        True if any usage would exceed max length after inlining
+    """
+    assignment = lifecycle.assignment
+    var_name = assignment.var_name
+    rhs_source = assignment.rhs_source.strip()
+
+    # For simple single-use cases, we can check if inlining would be too long
+    # This requires checking the usage line, but we don't have source lines here
+    # So we'll use a conservative estimate based on the length difference
+
+    # Length change: remove var_name, add rhs_source
+    len_diff = len(rhs_source) - len(var_name)
+
+    # If the RHS is significantly longer than the variable name,
+    # it's likely to cause line length issues
+    # Use a conservative threshold: if len_diff > 20, assume it might exceed
+    return len_diff > 20
+
+
 def should_report_violation(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
@@ -208,6 +238,32 @@ def should_report_violation(
     # Don't report assignments inside loops - they often accumulate/track state
     # across iterations even if they appear to have single use per iteration
     if assignment.in_loop:
+        return False
+
+    # Rule 1: Don't report global scope variables unless prefixed with `_`
+    # Also don't report global scope variables with comments above
+    if assignment.in_global_scope:
+        # Skip if NOT prefixed with underscore
+        if not assignment.var_name.startswith("_"):
+            return False
+        # Skip if there's a comment right above the assignment
+        if assignment.has_comment_above:
+            return False
+
+    # Rule 2: Don't report if RHS has await AND usage also has await
+    if (
+        assignment.rhs_has_await
+        and lifecycle.uses
+        and any(use.usage_has_await for use in lifecycle.uses)
+    ):
+        return False
+
+    # Rule 3: Don't report if inlining would likely exceed 79 characters
+    if _would_exceed_line_length(lifecycle):
+        return False
+
+    # Rule 4: Don't report if-else ternary operators
+    if isinstance(assignment.rhs_node, ast.IfExp):
         return False
 
     # Calculate semantic value

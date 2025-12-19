@@ -16,8 +16,9 @@ from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
 def test_immediate_single_use_detected() -> None:
     """Test detection of immediate single use pattern."""
     source = """
-x = "foo"
-func(x=x)
+def func_scope():
+    x = "foo"
+    func(x=x)
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -47,8 +48,9 @@ def example():
 def test_literal_identity_detected() -> None:
     """Test detection of literal identity pattern."""
     source = """
-foo = "foo"
-process(foo)
+def func_scope():
+    foo = "foo"
+    process(foo)
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -61,8 +63,9 @@ process(foo)
 def test_literal_identity_with_underscores() -> None:
     """Test literal identity with underscores matches."""
     source = """
-SOME_VALUE = "somevalue"
-process(SOME_VALUE)
+def func_scope():
+    SOME_VALUE = "somevalue"
+    process(SOME_VALUE)
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -259,8 +262,9 @@ def test_prefilter_pattern() -> None:
 def test_fixable_marked_correctly() -> None:
     """Test that simple violations are marked fixable."""
     source = """
-x = "foo"
-func(x=x)
+def func_scope():
+    x = "foo"
+    func(x=x)
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -292,8 +296,9 @@ def test_fix_method_with_fixable_violations() -> None:
     """Test that fix method can fix simple violations."""
     from tempfile import NamedTemporaryFile
 
-    source = """x = "foo"
-func(x=x)
+    source = """def func_scope():
+    x = "foo"
+    func(x=x)
 """
     with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(source)
@@ -2066,3 +2071,160 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
             raise AssertionError(msg) from e
 
     filepath.unlink()
+
+
+def test_global_scope_without_underscore_not_flagged() -> None:
+    """Test that global scope variables without underscore prefix are not flagged."""
+    source = """
+parent_url = "https://example.com"
+print(parent_url)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'parent_url' in global scope (no underscore prefix)
+    assert len(violations) == 0
+
+
+def test_global_scope_with_underscore_flagged() -> None:
+    """Test that global scope variables with underscore prefix ARE flagged."""
+    source = """
+_temp = "foo"
+print(_temp)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # SHOULD flag '_temp' in global scope (underscore prefix)
+    assert len(violations) >= 1
+    assert any("_temp" in v.message for v in violations)
+
+
+def test_global_scope_with_comment_above_not_flagged() -> None:
+    """Test that global scope variables with comments above are not flagged."""
+    source = """
+# Configuration URL
+_url = "https://example.com"
+print(_url)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag '_url' because it has a comment above
+    assert len(violations) == 0
+
+
+def test_function_scope_single_use_still_flagged() -> None:
+    """Test that function scope variables are still flagged normally."""
+    source = """
+def func():
+    x = "foo"
+    print(x)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # SHOULD flag 'x' in function scope
+    assert len(violations) >= 1
+    assert any("x" in v.message for v in violations)
+
+
+def test_await_on_both_assignment_and_usage_not_flagged() -> None:
+    """Test that await on both RHS and usage is not flagged."""
+    source = """
+async def test_json(client):
+    response = await get_test_response(client, '/null_content')
+    assert await response.json() is None
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'response' because await is on both assignment and usage
+    assert len(violations) == 0
+
+
+def test_await_only_on_assignment_flagged() -> None:
+    """Test that await only on assignment is still flagged."""
+    source = """
+async def test_func():
+    x = await get_value()
+    process(x)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # SHOULD flag 'x' because await is only on assignment, not usage
+    assert len(violations) >= 1
+    assert any("x" in v.message for v in violations)
+
+
+def test_await_only_on_usage_flagged() -> None:
+    """Test that await only on usage is still flagged."""
+    source = """
+async def test_func():
+    x = get_value()
+    result = await x.fetch()
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # SHOULD flag 'x' because await is only on usage, not assignment
+    assert len(violations) >= 1
+    assert any("x" in v.message for v in violations)
+
+
+def test_ternary_operator_not_flagged() -> None:
+    """Test that if-else ternary operators are not flagged."""
+    source = """
+import sys
+
+DEFAULT_URL = "https://default.example.com"
+parent_url = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_URL
+print(parent_url)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'parent_url' because it uses ternary operator
+    assert len(violations) == 0
+
+
+def test_ternary_in_function_not_flagged() -> None:
+    """Test that ternary operators in function scope are not flagged."""
+    source = """
+def func(condition):
+    value = "yes" if condition else "no"
+    return value
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'value' because it uses ternary operator
+    assert len(violations) == 0
+
+
+def test_long_rhs_not_flagged() -> None:
+    """Test that variables with long RHS are not flagged (>79 chars after inline)."""
+    source = """
+def func():
+    variable = compute_something_with_very_long_function_name()
+    assert variable.attribute_name
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not flag 'variable' if inlining would exceed 79 characters
+    # The heuristic checks if len_diff > 20
+    # len_diff = len("compute_something_with...()") - len("variable")
+    # len_diff = 49 - 8 = 41 > 20, so should not be flagged
+    assert len(violations) == 0
