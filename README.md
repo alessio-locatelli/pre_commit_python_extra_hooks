@@ -226,6 +226,18 @@ def get_user(id: int) -> User:  # naming: ignore
 
 ### redundant-assignment
 
+> **⚠️ Opt-in (Experimental)**: This hook is disabled by default as it's in early development and may have false positives. To enable it, override the default configuration in your `.pre-commit-config.yaml`:
+>
+> ```yaml
+> - repo: https://github.com/YOUR_USERNAME/pre-commit-extra-hooks
+>   rev: v1.0.0
+>   hooks:
+>     - id: ast-checks
+>       args: [] # Remove --disable=redundant-assignment to enable all checks
+>       # Or explicitly enable only this check:
+>       # args: [--enable=redundant-assignment]
+> ```
+
 **TRI005**: Detects and optionally auto-fixes redundant variable assignments where the variable doesn't add meaningful clarity or simplification to the code.
 
 **Why?** Unnecessary intermediate variables add cognitive load without providing value. However, variables that add semantic meaning (transformative verbs like "formatted", "validated") or break down complex expressions are preserved.
