@@ -224,6 +224,37 @@ def _would_exceed_line_length(
     return len_diff > 20
 
 
+def _would_require_parentheses(rhs_node: ast.expr) -> bool:
+    """Check if inlining the RHS would require parentheses in typical usage contexts.
+
+    This detects cases where the RHS contains operations that would need
+    parentheses when used in subscripts, attribute access, or other contexts.
+
+    Examples that need parentheses:
+        len_prefix = len(x) + 1  # Used in subscript: arr[len(x) + 1]
+        result = a or b          # Used in subscript: dict[a or b]
+        value = x and y          # Used in call: func(x and y)
+
+    Args:
+        rhs_node: Right-hand side AST node
+
+    Returns:
+        True if inlining would likely require parentheses
+    """
+    # Binary operations (+, -, *, /, //, %, **, <<, >>, |, ^, &, @)
+    # Need parentheses when used in subscripts, attribute access, or calls
+    if isinstance(rhs_node, ast.BinOp):
+        return True
+
+    # Boolean operations (and, or) need parentheses in most contexts
+    if isinstance(rhs_node, ast.BoolOp):
+        return True
+
+    # Comparison operations (==, !=, <, >, <=, >=, is, is not, in, not in)
+    # Need parentheses in most contexts
+    return isinstance(rhs_node, ast.Compare)
+
+
 def should_report_violation(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
@@ -269,6 +300,11 @@ def should_report_violation(
     if isinstance(assignment.rhs_node, ast.IfExp):
         return False
 
+    # Rule 5: Don't report if inlining would require parentheses
+    # Example: len_prefix = len(x) + 1; arr[len_prefix:] would need arr[(len(x) + 1):]
+    if _would_require_parentheses(assignment.rhs_node):
+        return False
+
     # Calculate semantic value
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,
@@ -286,15 +322,19 @@ def should_autofix(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
 ) -> bool:
-    """Determine if a violation should be auto-fixed (very conservative).
+    """Determine if a violation should be auto-fixed.
 
-    Only auto-fix the SIMPLEST cases:
-    1. Pattern must be IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY
-    2. NOT inside loops (state accumulation)
-    3. NOT inside control flow (if/try/with)
-    4. Semantic score ≤ 10 (extremely low semantic value)
-    5. RHS must be simple: constant, name, or simple attribute
-    6. Variable name must be short (≤ 10 chars) to avoid meaningful names
+    Auto-fix criteria:
+    1. For IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY patterns (conservative):
+       - NOT inside loops or control flow
+       - Semantic score ≤ 10 (extremely low semantic value)
+       - Variable name ≤ 10 chars
+       - RHS must be simple: constant, name, or simple attribute
+
+    2. For SINGLE_USE patterns (more aggressive for function-scope single use):
+       - NOT inside loops or control flow
+       - Semantic score ≤ 20 (low semantic value)
+       - RHS must be reasonably simple: constant, name, attribute, or simple call
 
     Args:
         lifecycle: Variable lifecycle
@@ -304,10 +344,6 @@ def should_autofix(
         True if should auto-fix
     """
     assignment = lifecycle.assignment
-
-    # Only auto-fix immediate use or literal identity patterns
-    if pattern not in {PatternType.IMMEDIATE_SINGLE_USE, PatternType.LITERAL_IDENTITY}:
-        return False
 
     # Never auto-fix inside loops (state accumulation pattern)
     if assignment.in_loop:
@@ -325,23 +361,54 @@ def should_autofix(
         has_type_annotation=assignment.has_type_annotation,
     )
 
-    # Only auto-fix if semantic value is EXTREMELY low (≤ 10)
-    # This ensures we only fix truly meaningless variables
-    if semantic_score > 10:
-        return False
-
-    # Variable name must be short (≤ 10 chars)
-    # Longer names likely have semantic meaning
-    if len(assignment.var_name) > 10:
-        return False
-
-    # Only auto-fix VERY simple RHS expressions
     rhs_node = assignment.rhs_node
 
-    # Allow: constants, simple names
-    if isinstance(rhs_node, ast.Constant | ast.Name):
-        return True
+    # Conservative auto-fix for immediate use or literal identity
+    if pattern in {PatternType.IMMEDIATE_SINGLE_USE, PatternType.LITERAL_IDENTITY}:
+        # Only auto-fix if semantic value is EXTREMELY low (≤ 10)
+        if semantic_score > 10:
+            return False
 
-    # Allow: simple attribute access (obj.attr, not obj.x.y.z)
-    # Only single-level attribute access
-    return isinstance(rhs_node, ast.Attribute) and isinstance(rhs_node.value, ast.Name)
+        # Variable name must be short (≤ 10 chars)
+        if len(assignment.var_name) > 10:
+            return False
+
+        # Only auto-fix VERY simple RHS expressions
+        # Allow: constants, simple names
+        if isinstance(rhs_node, ast.Constant | ast.Name):
+            return True
+
+        # Allow: simple attribute access (obj.attr, not obj.x.y.z)
+        return isinstance(rhs_node, ast.Attribute) and isinstance(
+            rhs_node.value, ast.Name
+        )
+
+    # More aggressive auto-fix for single-use variables (used once in entire function)
+    if pattern == PatternType.SINGLE_USE:
+        # Only auto-fix if semantic value is low (≤ 20)
+        # This allows slightly more meaningful names to be inlined
+        if semantic_score > 20:
+            return False
+
+        # Allow simple expressions
+        if isinstance(rhs_node, ast.Constant | ast.Name):
+            return True
+
+        # Allow: attribute access (obj.attr or obj.x.y.z)
+        if isinstance(rhs_node, ast.Attribute):
+            return True
+
+        # Allow: simple calls with no complex arguments
+        # Example: datetime.now(UTC), str(value), len(items)
+        if isinstance(rhs_node, ast.Call):
+            # Only allow calls with simple arguments (no keyword unpacking, etc.)
+            # and no more than 2 positional args
+            if len(rhs_node.args) <= 2 and not rhs_node.keywords:
+                return True
+            # Also allow calls with only simple keyword arguments
+            if len(rhs_node.args) == 0 and len(rhs_node.keywords) <= 2:
+                return True
+
+        return False
+
+    return False

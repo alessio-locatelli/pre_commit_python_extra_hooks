@@ -326,3 +326,86 @@ def get_config(settings):
     # This is a limitation but acceptable for the initial fix
     # Should be flagged since settings.database.connection_string starts with 'settings'
     assert analysis["mutates_args"], "Nested attribute mutation should be flagged"
+
+
+def test_get_returning_class_not_flagged() -> None:
+    """Test that functions returning classes keep get_ prefix."""
+    source = """
+def get_placeholder_backend(original_exception):
+    '''Create a placeholder backend class.'''
+    class PlaceholderBackend:
+        def __init__(*args, **kwargs):
+            raise original_exception
+    return PlaceholderBackend
+"""
+
+    suggestions = []
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    try:
+        suggestions = process_file(filepath)
+    finally:
+        filepath.unlink()
+
+    # Should not suggest renaming because it returns a class
+    assert len(suggestions) == 0, "Functions returning classes should keep get_ prefix"
+
+
+def test_docstring_verb_combine_detected() -> None:
+    """Test that 'combine' verb from docstring is used in suggestion."""
+    source = """
+def get_combined_revision(*functions):
+    '''Combine the parameters of all revisions into a single revision.'''
+    params = {}
+    for func in functions:
+        params.update(func.params)
+    return params
+"""
+
+    suggestions = []
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    try:
+        suggestions = process_file(filepath)
+    finally:
+        filepath.unlink()
+
+    # Should suggest combine_ prefix based on docstring
+    assert len(suggestions) == 1
+    assert suggestions[0].suggested_name == "combine_combined_revision"
+    assert "combine" in suggestions[0].reason.lower()
+
+
+def test_mock_creation_suggests_create() -> None:
+    """Test that mock/factory functions suggest create_ prefix."""
+    source = """
+from unittest.mock import MagicMock
+
+def get_mock_response(**kwargs):
+    '''Get a mock response for testing.'''
+    response_kwargs = {'url': 'http://test.com', 'status': 200}
+    response_kwargs.update(kwargs)
+    return MagicMock(spec=object, **response_kwargs)
+"""
+
+    suggestions = []
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        f.flush()
+        filepath = Path(f.name)
+
+    try:
+        suggestions = process_file(filepath)
+    finally:
+        filepath.unlink()
+
+    # Should suggest create_ prefix for mock creation
+    assert len(suggestions) == 1
+    assert suggestions[0].suggested_name == "create_mock_response"
+    assert "mock" in suggestions[0].reason.lower()

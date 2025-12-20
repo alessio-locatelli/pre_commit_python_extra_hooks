@@ -41,6 +41,40 @@ def first_docstring_line(func_node: ast.FunctionDef) -> str | None:
     return None
 
 
+def extract_first_verb(docstring_line: str) -> str | None:
+    """Extract the first verb from a docstring line.
+
+    Args:
+        docstring_line: First line of docstring
+
+    Returns:
+        First verb in lowercase, or None if no verb found
+
+    Examples:
+        "Combine the parameters..." -> "combine"
+        "Build a new instance..." -> "build"
+        "Merge two dictionaries..." -> "merge"
+    """
+    if not docstring_line:
+        return None
+
+    # Remove common prefixes and split into words
+    words = docstring_line.lower().split()
+    if not words:
+        return None
+
+    # First word is usually the verb (after common articles)
+    first_word = words[0]
+
+    # Skip articles and common prefixes
+    if first_word in {"a", "an", "the"}:
+        if len(words) > 1:
+            return words[1]
+        return None
+
+    return first_word
+
+
 def suggest_name_for(
     func_node: ast.FunctionDef, analysis: dict[str, bool]
 ) -> tuple[str, str]:
@@ -84,6 +118,10 @@ def suggest_name_for(
     if analysis["delegates_get"]:
         return old, "delegates to another get_ function; skipping suggestion"
 
+    # If function returns a class object, get_ is acceptable
+    if analysis["returns_class"]:
+        return old, "returns a class object; get_ prefix is acceptable"
+
     # docstring heuristic: 'Get or create'
     first_line = first_docstring_line(func_node)
     if first_line:
@@ -92,10 +130,61 @@ def suggest_name_for(
             suggested = f"get_or_create_{entity}" if entity else "get_or_create"
             return suggested, "docstring: 'get or create'"
 
+    # Extract first verb from docstring for better suggestions
+    docstring_verb = None
+    if first_line:
+        docstring_verb = extract_first_verb(first_line)
+
+    # Check if docstring verb matches a recognized pattern
+    # Verbs like combine/compose/merge/build should be used directly
+    recognized_verbs = {
+        "combine",
+        "compose",
+        "merge",
+        "build",
+        "assemble",
+        "construct",
+        "join",
+        "concat",
+        "concatenate",
+        "aggregate",
+        "group",
+        "union",
+    }
+
+    if docstring_verb and docstring_verb in recognized_verbs:
+        suggested = f"{docstring_verb}_{entity}" if entity else docstring_verb
+        return suggested, f"docstring indicates '{docstring_verb}' operation"
+
     if analysis["is_property"]:
         suggested = entity or old
         reason = "@property: prefer noun name rather than verb"
         return suggested, reason
+
+    # Detect mock/factory/fixture patterns (test utilities)
+    # Functions that create test objects should use create_ prefix
+    test_patterns = {
+        "mock",
+        "stub",
+        "fake",
+        "dummy",
+        "fixture",
+        "factory",
+        "builder",
+    }
+
+    entity_lower = entity.lower() if entity else ""
+    old_lower = old.lower()
+
+    # Check if the function name or entity contains test patterns and creates object
+    if (
+        any(
+            pattern in entity_lower or pattern in old_lower for pattern in test_patterns
+        )
+        and analysis["creates_object"]
+    ):
+        suggested = f"create_{entity}" if entity else "create"
+        return suggested, "creates test object/mock/fixture"
 
     # collection/parsing/extraction (prefer these before create/update)
     if analysis["collects"]:

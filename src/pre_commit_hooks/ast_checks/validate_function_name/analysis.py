@@ -104,6 +104,7 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
         - transforms: Transforms data
         - delegates_get: Delegates to another get_* function
         - collects: Collects data into a list/dict
+        - returns_class: Returns a class object (not instance)
     """
     flags: dict[str, bool] = {
         "is_property": False,
@@ -124,6 +125,7 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
         "transforms": False,
         "delegates_get": False,
         "collects": False,
+        "returns_class": False,
     }
 
     # Collect parameter names to distinguish argument mutation from cache updates
@@ -165,6 +167,12 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
     # Quick scan for 'while' loops checking .exists() or using .parent
     # (heuristic for find_root)
     has_loop_checking_exists_or_parent = False
+
+    # Track classes defined inside the function (for returns_class detection)
+    defined_classes: set[str] = set()
+    for stmt in func_node.body:
+        if isinstance(stmt, ast.ClassDef):
+            defined_classes.add(stmt.name)
 
     # walk nodes
     for node in ast.walk(func_node):
@@ -354,6 +362,14 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
             # returning a collected container variable
             if isinstance(node.value, ast.Name) and node.value.id in created_containers:
                 flags["collects"] = True
+            # Check if returning a class defined in the function
+            if isinstance(node.value, ast.Name) and node.value.id in defined_classes:
+                flags["returns_class"] = True
+            # Also check for type() or type[...] calls (metaclass operations)
+            if isinstance(node.value, ast.Call):
+                call_name = _call_name(node.value.func)
+                if call_name == "type":
+                    flags["returns_class"] = True
 
     # if we saw a variable created as a container and later appended to, mark collects
     if created_containers & appended_to:

@@ -1073,9 +1073,9 @@ def test_should_autofix_with_single_use_pattern() -> None:
         ],
     )
 
-    # SINGLE_USE pattern should not be auto-fixed
+    # SINGLE_USE pattern CAN be auto-fixed for simple cases (simple call with no args)
     result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is False
+    assert result is True
 
 
 def test_semantic_scoring_medium_length_expression() -> None:
@@ -2278,3 +2278,248 @@ def func():
 
     # Should not flag because there's a comment on the line directly above
     assert len(violations) == 0
+
+
+def test_would_require_parentheses_binop() -> None:
+    """Test that _would_require_parentheses detects binary operations."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _would_require_parentheses,
+    )
+
+    # Test BinOp (addition)
+    source = "len(x) + 1"
+    rhs_node = ast.parse(source, mode="eval").body
+    assert _would_require_parentheses(rhs_node) is True
+
+
+def test_would_require_parentheses_boolop() -> None:
+    """Test that _would_require_parentheses detects boolean operations."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _would_require_parentheses,
+    )
+
+    # Test BoolOp (and)
+    source = "a and b"
+    rhs_node = ast.parse(source, mode="eval").body
+    assert _would_require_parentheses(rhs_node) is True
+
+
+def test_would_require_parentheses_compare() -> None:
+    """Test that _would_require_parentheses detects comparison operations."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _would_require_parentheses,
+    )
+
+    # Test Compare
+    source = "x == y"
+    rhs_node = ast.parse(source, mode="eval").body
+    assert _would_require_parentheses(rhs_node) is True
+
+
+def test_would_require_parentheses_simple() -> None:
+    """Test that _would_require_parentheses returns False for simple expressions."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _would_require_parentheses,
+    )
+
+    # Test simple call - should not require parentheses
+    source = "len(x)"
+    rhs_node = ast.parse(source, mode="eval").body
+    assert _would_require_parentheses(rhs_node) is False
+
+
+def test_should_report_violation_with_parentheses_required() -> None:
+    """Test that violations requiring parentheses are not reported."""
+    source = """
+def func():
+    len_prefix = len(x) + 1
+    return arr[len_prefix:]
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should not report because inlining would require parentheses
+    assert len(violations) == 0
+
+
+def test_should_autofix_single_use_with_attribute() -> None:
+    """Test that should_autofix allows attribute access for SINGLE_USE."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        PatternType,
+        UsageInfo,
+        VariableLifecycle,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        should_autofix,
+    )
+
+    source = "obj.attr"
+    rhs_node = ast.parse(source, mode="eval").body
+
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=source,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    lifecycle = VariableLifecycle(
+        assignment=assignment,
+        uses=[
+            UsageInfo(
+                var_name="x",
+                line=5,
+                col=0,
+                stmt_index=4,
+                context="unknown",
+                scope_id=0,
+            )
+        ],
+    )
+
+    # Should autofix for SINGLE_USE with simple attribute access
+    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
+    assert result is True
+
+
+def test_should_autofix_single_use_with_keywords() -> None:
+    """Test that should_autofix allows simple keyword arguments for SINGLE_USE."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        PatternType,
+        UsageInfo,
+        VariableLifecycle,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        should_autofix,
+    )
+
+    source = "func(key=value)"
+    rhs_node = ast.parse(source, mode="eval").body
+
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=source,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    lifecycle = VariableLifecycle(
+        assignment=assignment,
+        uses=[
+            UsageInfo(
+                var_name="x",
+                line=5,
+                col=0,
+                stmt_index=4,
+                context="unknown",
+                scope_id=0,
+            )
+        ],
+    )
+
+    # Should autofix for SINGLE_USE with simple keyword call
+    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
+    assert result is True
+
+
+def test_should_autofix_single_use_high_semantic_score() -> None:
+    """Test that should_autofix rejects SINGLE_USE with high semantic score."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        PatternType,
+        UsageInfo,
+        VariableLifecycle,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        should_autofix,
+    )
+
+    source = "value"
+    rhs_node = ast.parse(source, mode="eval").body
+
+    # Use a long descriptive name that will have high semantic score
+    assignment = AssignmentInfo(
+        var_name="formatted_validated_user_full_name",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=source,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    lifecycle = VariableLifecycle(
+        assignment=assignment,
+        uses=[
+            UsageInfo(
+                var_name="formatted_validated_user_full_name",
+                line=5,
+                col=0,
+                stmt_index=4,
+                context="unknown",
+                scope_id=0,
+            )
+        ],
+    )
+
+    # Should NOT autofix due to high semantic score (descriptive name)
+    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
+    assert result is False
+
+
+def test_should_not_autofix_single_use_complex_call() -> None:
+    """Test that should_autofix rejects SINGLE_USE with complex calls."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        PatternType,
+        UsageInfo,
+        VariableLifecycle,
+    )
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        should_autofix,
+    )
+
+    # Call with 3 args (exceeds limit of 2)
+    source = "func(a, b, c)"
+    rhs_node = ast.parse(source, mode="eval").body
+
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=source,
+        scope_id=0,
+        has_type_annotation=False,
+    )
+
+    lifecycle = VariableLifecycle(
+        assignment=assignment,
+        uses=[
+            UsageInfo(
+                var_name="x",
+                line=5,
+                col=0,
+                stmt_index=4,
+                context="unknown",
+                scope_id=0,
+            )
+        ],
+    )
+
+    # Should NOT autofix - too many args
+    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
+    assert result is False

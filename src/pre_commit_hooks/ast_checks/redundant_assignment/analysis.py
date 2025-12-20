@@ -368,6 +368,14 @@ class VariableTracker(ast.NodeVisitor):
         scope_id = self._get_current_scope_id()
         stmt_index = self._get_current_stmt_index()
 
+        # Skip multiple assignments on a single line (e.g., a = b = c = value)
+        # These patterns often intentionally assign intermediate variables
+        # and avoid re-reading class attributes
+        if len(node.targets) > 1:
+            # Still visit RHS to track any variable uses
+            self.visit(node.value)
+            return
+
         # Only track simple name assignments (not tuple unpacking, attributes, etc.)
         for target in node.targets:
             if self._is_simple_name_target(target):
