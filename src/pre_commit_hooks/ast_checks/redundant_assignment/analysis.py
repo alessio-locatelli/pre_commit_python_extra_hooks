@@ -416,12 +416,59 @@ class VariableTracker(ast.NodeVisitor):
                 if key not in self.assignments:
                     self.assignments[key] = []
                 self.assignments[key].append(assignment)
+            elif isinstance(target, ast.Attribute | ast.Subscript):
+                # Track attribute/subscript assignments
+                # (e.g., obj.attr = value, obj[key] = value)
+                # The base object is being USED, so we need to track it
+                self._track_attribute_or_subscript_base_usage(target, stmt_index)
 
         # Visit RHS to track any variable uses
         self.visit(node.value)
 
         # Clear currently assigning
         self.currently_assigning.clear()
+
+    def _track_attribute_or_subscript_base_usage(
+        self, node: ast.Attribute | ast.Subscript, stmt_index: int
+    ) -> None:
+        """Track usage of base variable in attribute/subscript assignments.
+
+        When we have `obj.attr = value` or `obj[key] = value`, the `obj` variable
+        is being USED (read), so we need to track it as a usage.
+
+        Args:
+            node: Attribute or Subscript node
+            stmt_index: Current statement index
+        """
+        scope_id = self._get_current_scope_id()
+
+        # Find the base variable
+        base: ast.expr = node
+        while isinstance(base, ast.Attribute | ast.Subscript):
+            # Both Attribute and Subscript have .value as the base
+            base = base.value
+
+        # If the base is a simple name, track it as a usage
+        if isinstance(base, ast.Name):
+            var_name = base.id
+
+            # Skip if this is a global/nonlocal variable
+            if (scope_id, var_name) in self.global_vars | self.nonlocal_vars:
+                return
+
+            # Track as usage
+            usage = UsageInfo(
+                var_name=var_name,
+                line=base.lineno,
+                col=base.col_offset,
+                stmt_index=stmt_index,
+                context="attribute_or_subscript_assignment",
+                scope_id=scope_id,
+            )
+            key = (scope_id, var_name)
+            if key not in self.uses:
+                self.uses[key] = []
+            self.uses[key].append(usage)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         """Track annotated assignments.

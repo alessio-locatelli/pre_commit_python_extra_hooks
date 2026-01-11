@@ -111,18 +111,45 @@ def check_file_violations(source: str) -> list[tuple[int, str]]:
                 and blank_count >= 2
                 and start_blank is not None
             ):
-                violations.append(
-                    (
-                        start_blank + 1,
-                        f"Excessive blank lines ({blank_count}) "
-                        + "should be collapsed to 1",
+                # Check if this line is a class or function definition
+                # PEP 8 allows 2 blank lines before top-level class/function definitions
+                if _is_class_or_function_def(line):
+                    # Only report if more than 2 blank lines
+                    if blank_count > 2:
+                        violations.append(
+                            (
+                                start_blank + 1,
+                                f"Excessive blank lines ({blank_count}) "
+                                + "should be collapsed to 2",
+                            )
+                        )
+                else:
+                    # For non-class/function definitions, report if >= 2 blank lines
+                    violations.append(
+                        (
+                            start_blank + 1,
+                            f"Excessive blank lines ({blank_count}) "
+                            + "should be collapsed to 1",
+                        )
                     )
-                )
             blank_count = 0
             start_blank = None
             found_first_code_line = True
 
     return violations
+
+
+def _is_class_or_function_def(line: str) -> bool:
+    """Check if a line starts a class or function definition.
+
+    Args:
+        line: Source code line
+
+    Returns:
+        True if line starts a class or function definition
+    """
+    stripped = line.lstrip()
+    return stripped.startswith(("class ", "def ", "async def "))
 
 
 def fix_file_content(source: str) -> str:
@@ -155,22 +182,40 @@ def fix_file_content(source: str) -> str:
     # After first code line, preserve all blank lines
     blank_count = 0
     found_first_code_line = False
+    blank_line_start_idx = last_header_line
 
     for i in range(last_header_line, len(lines)):
         line = lines[i]
         is_blank = line.strip() == ""
 
         if is_blank:
+            if blank_count == 0:
+                blank_line_start_idx = i
             blank_count += 1
             if not found_first_code_line:
-                # Before first code line: collapse consecutive blank lines to 1
-                if blank_count == 1:
-                    new_lines.append(line)
+                # Before first code line: will handle after we see what comes next
+                pass
             else:
                 # After first code line: preserve all blank lines
                 new_lines.append(line)
         else:
-            # Non-blank line
+            # Non-blank line found
+            if not found_first_code_line and blank_count > 0:
+                # Check if this line is a class or function definition
+                # PEP 8 requires 2 blank lines before top-level class/function
+                # definitions
+                if _is_class_or_function_def(line):
+                    # Preserve 2 blank lines (or use existing if less than 2)
+                    target_blank_count = min(2, blank_count)
+                else:
+                    # Collapse to 1 blank line
+                    target_blank_count = 1
+
+                # Append the appropriate number of blank lines
+                for j in range(target_blank_count):
+                    if blank_line_start_idx + j < i:
+                        new_lines.append(lines[blank_line_start_idx + j])
+
             blank_count = 0
             found_first_code_line = True
             new_lines.append(line)

@@ -255,6 +255,59 @@ def _would_require_parentheses(rhs_node: ast.expr) -> bool:
     return isinstance(rhs_node, ast.Compare)
 
 
+def _contains_nondeterministic_call(node: ast.expr) -> bool:
+    """Check if an AST node contains calls to non-deterministic functions.
+
+    Non-deterministic functions include time-related, random, UUID, etc.
+    These functions return different values on each call, so inlining them
+    can change program semantics.
+
+    Args:
+        node: AST expression node
+
+    Returns:
+        True if node contains non-deterministic function calls
+    """
+    # Known non-deterministic function/method names
+    nondeterministic_names = {
+        "time",
+        "now",
+        "today",
+        "random",
+        "uuid",
+        "uuid1",
+        "uuid4",
+        "randint",
+        "choice",
+        "sample",
+        "getpid",
+        "getppid",
+    }
+
+    class NonDeterministicCallDetector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.has_nondeterministic_call = False
+
+        def visit_Call(self, node: ast.Call) -> None:
+            # Check if the function name suggests non-determinism
+            func_name = ""
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+
+            if func_name.lower() in nondeterministic_names:
+                self.has_nondeterministic_call = True
+                return
+
+            # Continue visiting child nodes
+            self.generic_visit(node)
+
+    detector = NonDeterministicCallDetector()
+    detector.visit(node)
+    return detector.has_nondeterministic_call
+
+
 def should_report_violation(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
@@ -303,6 +356,12 @@ def should_report_violation(
     # Rule 5: Don't report if inlining would require parentheses
     # Example: len_prefix = len(x) + 1; arr[len_prefix:] would need arr[(len(x) + 1):]
     if _would_require_parentheses(assignment.rhs_node):
+        return False
+
+    # Rule 6: Don't report if RHS contains non-deterministic function calls
+    # Functions like time.time(), random.random(), etc. return different values
+    # on each call, so inlining them can change program semantics
+    if _contains_nondeterministic_call(assignment.rhs_node):
         return False
 
     # Calculate semantic value
