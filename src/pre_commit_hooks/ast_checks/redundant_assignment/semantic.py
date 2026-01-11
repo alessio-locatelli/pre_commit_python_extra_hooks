@@ -90,6 +90,153 @@ def _count_chained_operations(node: ast.expr) -> int:
     return count
 
 
+def _adds_verbosity_or_context(
+    var_name: str, rhs_source: str, rhs_node: ast.expr
+) -> bool:
+    """Check if variable name adds verbosity or context beyond the RHS.
+
+    This detects cases where the variable name provides more descriptive or
+    domain-specific information than what the RHS expression conveys.
+
+    Examples that add verbosity/context:
+        raw_headers = kwargs.get("headers")  # "raw_" prefix adds meaning
+        translations = orjson.loads(f.read())  # describes what data is
+        firestore_client = db.client()  # more specific than "client"
+        user_email = data["email"]  # more verbose than just "email"
+
+    Args:
+        var_name: Variable name
+        rhs_source: Right-hand side source code
+        rhs_node: Right-hand side AST node
+
+    Returns:
+        True if variable name adds verbosity/context
+    """
+    var_lower = var_name.lower()
+    rhs_lower = rhs_source.lower()
+
+    # Pattern 1: Variable has descriptive prefix not in RHS
+    # Examples: raw_headers, parsed_data, validated_input
+    descriptive_word_prefixes = {
+        "raw",
+        "parsed",
+        "validated",
+        "sanitized",
+        "normalized",
+        "formatted",
+        "processed",
+        "filtered",
+        "sorted",
+        "cleaned",
+        "decoded",
+        "encoded",
+        "serialized",
+        "deserialized",
+        "new",
+        "old",
+        "current",
+        "previous",
+        "next",
+        "last",
+        "first",
+        "temp",
+        "tmp",
+        "original",
+        "modified",
+        "updated",
+    }
+
+    var_parts = var_name.split("_")
+    if len(var_parts) >= 2:
+        first_part = var_parts[0].lower()
+        # Check if first part is a descriptive prefix not found in RHS
+        if first_part in descriptive_word_prefixes and first_part not in rhs_lower:
+            return True
+
+    # Pattern 2: Variable name is more verbose/explicit than dict/kwargs access
+    # Examples:
+    #   raw_headers = kwargs.get("headers")  # adds "raw_" prefix
+    #   user_email = data["email"]  # adds "user_" prefix
+    #   firestore_client = db.client()  # more specific type name
+    if isinstance(rhs_node, ast.Subscript | ast.Call):
+        # Extract key/method name from RHS
+        rhs_key_or_method = None
+
+        if isinstance(rhs_node, ast.Subscript):
+            # For subscript: obj["key"] or obj[key]
+            if isinstance(rhs_node.slice, ast.Constant):
+                rhs_key_or_method = str(rhs_node.slice.value).lower()
+        elif isinstance(rhs_node, ast.Call):
+            # For calls: obj.method() or obj.method(args)
+            if isinstance(rhs_node.func, ast.Attribute):
+                rhs_key_or_method = rhs_node.func.attr.lower()
+            elif isinstance(rhs_node.func, ast.Name):
+                rhs_key_or_method = rhs_node.func.id.lower()
+
+        # Check if variable name contains the RHS key/method but with additional context
+        # Example: "raw_headers" contains "headers" but adds "raw_"
+        # Example: "firestore_client" contains "client" but adds "firestore_"
+        if (
+            rhs_key_or_method
+            and rhs_key_or_method in var_lower
+            and var_lower != rhs_key_or_method
+        ):
+            # Variable contains the RHS key but is more verbose
+            return True
+
+    # Pattern 3: Variable name is a .get() call with more context
+    # Example: raw_headers = kwargs.get("headers")
+    if (
+        isinstance(rhs_node, ast.Call)
+        and isinstance(rhs_node.func, ast.Attribute)
+        and rhs_node.func.attr == "get"
+        and rhs_node.args
+        and isinstance(rhs_node.args[0], ast.Constant)
+    ):
+        # This is a .get() call - likely kwargs.get() or dict.get()
+        # Check if variable adds context beyond the key name
+        key_name = str(rhs_node.args[0].value).lower()
+        # If var name contains the key but is longer/different, it adds context
+        if key_name in var_lower and len(var_name) > len(key_name):
+            return True
+
+    # Pattern 4: Generic parsing/loading functions with descriptive variable names
+    # Examples: translations = orjson.loads(...), config = json.load(...)
+    # The variable name describes WHAT the data is (domain/semantics)
+    # while the RHS just shows HOW it's loaded (generic operation)
+    if isinstance(rhs_node, ast.Call):
+        # Check if RHS is a generic parsing/loading function
+        generic_parse_functions = {
+            "loads",
+            "load",
+            "parse",
+            "decode",
+            "deserialize",
+            "from_json",
+            "from_yaml",
+            "from_xml",
+            "read",
+            "read_text",
+        }
+        func_name = None
+        if isinstance(rhs_node.func, ast.Attribute):
+            func_name = rhs_node.func.attr.lower()
+        elif isinstance(rhs_node.func, ast.Name):
+            func_name = rhs_node.func.id.lower()
+
+        # If it's a generic parse function and variable name is multi-part or long
+        # Variable should be descriptive (not just "data" or "result")
+        if func_name in generic_parse_functions and (
+            len(var_parts) >= 2 or len(var_name) >= 8
+        ):
+            # Don't flag generic names like "data", "result", "value"
+            generic_names = {"data", "result", "value", "output", "obj", "dict"}
+            if var_lower not in generic_names:
+                return True
+
+    return False
+
+
 def calculate_semantic_value(
     var_name: str,
     rhs_source: str,
@@ -113,6 +260,11 @@ def calculate_semantic_value(
         Semantic value score (0-100)
     """
     score = 0
+
+    # Check if variable adds verbosity or context (+50 points)
+    # This catches cases like "raw_headers = kwargs.get('headers')"
+    if _adds_verbosity_or_context(var_name, rhs_source, rhs_node):
+        score += 50
 
     # Check for transformative verbs (+60 points - strong signal of semantic value)
     var_lower = var_name.lower()
@@ -395,6 +547,39 @@ def should_report_violation(
     return semantic_score < 50
 
 
+def _estimate_inlined_line_length(
+    lifecycle: VariableLifecycle,
+    max_length: int = 79,
+) -> bool:
+    """Check if inlining would likely exceed max line length.
+
+    This is a conservative estimate based on the RHS length and variable name.
+    The actual check in apply_fixes() is more precise, but this prevents us
+    from marking things as fixable when they're clearly too long.
+
+    Args:
+        lifecycle: Variable lifecycle
+        max_length: Maximum line length (default: 79)
+
+    Returns:
+        True if inlining would likely exceed max length
+    """
+    assignment = lifecycle.assignment
+    var_name = assignment.var_name
+    rhs_source = assignment.rhs_source.strip()
+
+    # Calculate the change in length: we remove var_name and add rhs_source
+    len_diff = len(rhs_source) - len(var_name)
+
+    # If the RHS is significantly longer than the variable name (20+ chars difference),
+    # it's likely to cause line length issues
+    if len_diff > 20:
+        return True
+
+    # If the RHS itself is long (40+ chars), it's risky to inline
+    return len(rhs_source) >= 40
+
+
 def should_autofix(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
@@ -407,11 +592,15 @@ def should_autofix(
        - Semantic score ≤ 10 (extremely low semantic value)
        - Variable name ≤ 10 chars
        - RHS must be simple: constant, name, or simple attribute
+       - Inlining must not exceed line length
+       - RHS must not be multiline
 
     2. For SINGLE_USE patterns (more aggressive for function-scope single use):
        - NOT inside loops or control flow
        - Semantic score ≤ 20 (low semantic value)
        - RHS must be reasonably simple: constant, name, attribute, or simple call
+       - Inlining must not exceed line length
+       - RHS must not be multiline
 
     Args:
         lifecycle: Variable lifecycle
@@ -428,6 +617,15 @@ def should_autofix(
 
     # Never auto-fix inside control flow (conditional logic)
     if assignment.in_control_flow:
+        return False
+
+    # Check for multiline RHS (can't auto-fix)
+    rhs_source = assignment.rhs_source
+    if "\n" in rhs_source or "\r" in rhs_source:
+        return False
+
+    # Check if inlining would likely exceed line length
+    if _estimate_inlined_line_length(lifecycle):
         return False
 
     # Calculate semantic value

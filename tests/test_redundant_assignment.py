@@ -2693,3 +2693,318 @@ def test_lifecycle_is_immediate_use_with_closure() -> None:
     # because the use is in a different scope (closure)
     assert lifecycle.is_immediate_use is False
     assert lifecycle.is_single_use is True
+
+
+def test_verbose_variable_names_kwargs_get_not_flagged() -> None:
+    """Test that verbose variable names with kwargs.get() are not flagged.
+
+    Example from user request: raw_headers = kwargs.get("headers")
+    The variable name "raw_headers" is more descriptive than just "headers"
+    """
+    source = """
+async def request_json(
+    self,
+    url: str,
+    *,
+    method: str = "GET",
+    response_content_type: str = "application/json",
+    **kwargs,
+) -> dict:
+    raw_headers = kwargs.get("headers")
+    headers = CIMultiDict(raw_headers or {})
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag raw_headers - it adds verbosity/context
+    for v in violations:
+        assert "raw_headers" not in v.message, (
+            f"Should not flag 'raw_headers' - it adds verbosity: {v.message}"
+        )
+
+
+def test_verbose_variable_names_parsed_data_not_flagged() -> None:
+    """Test that variable names describing parsed data are not flagged.
+
+    Example from user request: translations = orjson.loads(f.read())
+    The variable name "translations" describes what the parsed data represents
+    """
+    source = """
+def load_translations(language, template_name):
+    path = TRANSLATIONS_DIR / f"{language}.json"
+    file_path = (
+        TRANSLATIONS_DIR / "eng.json"
+        if not path.exists() or language is None
+        else path
+    )
+    with open(file_path) as f:
+        translations = orjson.loads(f.read())
+        return {
+            k: v
+            for k, v in translations.items()
+            if k in {TRANSLATIONS_GENERAL, TEMPLATES_TO_TRANSLATIONS[template_name]}
+        }
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag translations - it adds context to what the data is
+    for v in violations:
+        assert "translations" not in v.message, (
+            f"Should not flag 'translations' - it adds context: {v.message}"
+        )
+
+
+def test_firestore_client_not_flagged() -> None:
+    """Test that more specific type names are not flagged.
+
+    Example: firestore_client = db.client()
+    The variable name is more specific than just "client"
+    """
+    source = """
+def get_firestore():
+    firestore_client = db.client()
+    return firestore_client
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag firestore_client - it's more specific than "client"
+    for v in violations:
+        assert "firestore_client" not in v.message, (
+            f"Should not flag 'firestore_client' - it's more specific: {v.message}"
+        )
+
+
+def test_user_email_dict_access_not_flagged() -> None:
+    """Test that more verbose dict access variable names are not flagged.
+
+    Example: user_email = data["email"]
+    The variable name is more verbose/specific than just "email"
+    """
+    source = """
+def process_user(data):
+    user_email = data["email"]
+    send_notification(user_email)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag user_email - it's more verbose than "email"
+    for v in violations:
+        assert "user_email" not in v.message, (
+            f"Should not flag 'user_email' - it adds verbosity: {v.message}"
+        )
+
+
+def test_descriptive_prefix_not_flagged() -> None:
+    """Test that descriptive prefixes are recognized.
+
+    Examples: raw_data, parsed_output, validated_input
+    """
+    source = """
+def process_input(data):
+    raw_data = fetch_from_api()
+    return raw_data
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag raw_data - "raw" is a descriptive prefix
+    for v in violations:
+        assert "raw_data" not in v.message, (
+            f"Should not flag 'raw_data' - 'raw' is descriptive: {v.message}"
+        )
+
+
+def test_adds_verbosity_or_context_function_directly() -> None:
+    """Test the _adds_verbosity_or_context function directly."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    # Test Pattern 1: Descriptive prefix
+    rhs_node = ast.parse("fetch_data()", mode="eval").body
+    assert _adds_verbosity_or_context("raw_data", "fetch_data()", rhs_node) is True
+
+    # Test Pattern 2: Variable contains RHS key but is more verbose
+    rhs_node = ast.parse('kwargs.get("headers")', mode="eval").body
+    assert (
+        _adds_verbosity_or_context("raw_headers", 'kwargs.get("headers")', rhs_node)
+        is True
+    )
+
+    # Test Pattern 3: .get() with more context
+    rhs_node = ast.parse('data.get("email")', mode="eval").body
+    assert (
+        _adds_verbosity_or_context("user_email", 'data.get("email")', rhs_node) is True
+    )
+
+    # Test Pattern 4: Generic parse functions with descriptive names
+    rhs_node = ast.parse("orjson.loads(data)", mode="eval").body
+    assert (
+        _adds_verbosity_or_context("translations", "orjson.loads(data)", rhs_node)
+        is True
+    )
+
+    # Test Pattern 4: Generic parse with multi-part name
+    rhs_node = ast.parse("json.load(f)", mode="eval").body
+    assert _adds_verbosity_or_context("user_config", "json.load(f)", rhs_node) is True
+
+    # Test Pattern 4: Parse function but generic variable name (should be False)
+    rhs_node = ast.parse("json.loads(data)", mode="eval").body
+    assert _adds_verbosity_or_context("data", "json.loads(data)", rhs_node) is False
+
+    # Test Pattern 4: Parse function as Name node
+    rhs_node = ast.parse("loads(data)", mode="eval").body
+    assert _adds_verbosity_or_context("configuration", "loads(data)", rhs_node) is True
+
+    # Test negative case: no verbosity added
+    rhs_node = ast.parse("42", mode="eval").body
+    assert _adds_verbosity_or_context("x", "42", rhs_node) is False
+
+
+def test_no_false_positive_on_multiline_rhs_fixable_marking() -> None:
+    """Test that multiline RHS is not marked as fixable.
+
+    This is a regression test for the bug where violations were marked as
+    [FIXABLE] even when --fix couldn't actually fix them.
+    """
+    source = """
+def func():
+    value = very_long_function_call(
+        arg1,
+        arg2
+    )
+    return value
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # If there are violations, they should NOT be marked as fixable
+    # because the RHS is multiline
+    for v in violations:
+        if "value" in v.message:
+            assert not v.fixable, (
+                f"Multiline RHS should not be marked fixable: {v.message}"
+            )
+
+
+def test_semantic_value_descriptive_boolean_prefix() -> None:
+    """Test that descriptive boolean prefixes increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test has_ prefix
+    rhs_node = ast.parse("check_something()", mode="eval").body
+    score = calculate_semantic_value(
+        "has_permission", "check_something()", rhs_node, False
+    )
+    assert score >= 50  # Should get +50 for has_ prefix
+
+
+def test_semantic_value_descriptive_suffix() -> None:
+    """Test that descriptive suffixes increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test _count suffix
+    rhs_node = ast.parse("len(items)", mode="eval").body
+    score = calculate_semantic_value("item_count", "len(items)", rhs_node, False)
+    assert score >= 40  # Should get +40 for _count suffix
+
+
+def test_semantic_value_list_comprehension() -> None:
+    """Test that list comprehensions increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test list comprehension
+    source = "[x for x in items]"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("result", source, rhs_node, False)
+    assert score >= 30  # Should get +30 for comprehension
+
+
+def test_semantic_value_unary_operation() -> None:
+    """Test that unary operations increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test unary operation
+    source = "-value"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("result", source, rhs_node, False)
+    assert score >= 10  # Should get +10 for unary op
+
+
+def test_semantic_value_lambda_expression() -> None:
+    """Test that lambda expressions increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test lambda
+    source = "lambda x: x * 2"
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("func", source, rhs_node, False)
+    assert score >= 25  # Should get +25 for lambda
+
+
+def test_semantic_value_very_long_expression() -> None:
+    """Test that very long expressions (80+ chars) increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test very long expression (85 chars)
+    source = "a" * 85
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("x", source, rhs_node, False)
+    assert score >= 35  # Should get +35 for very long expression
+
+
+def test_semantic_value_long_expression_60_plus() -> None:
+    """Test that long expressions (60-80 chars) increase semantic value."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    # Test long expression (65 chars)
+    source = "a" * 65
+    rhs_node = ast.parse(source, mode="eval").body
+    score = calculate_semantic_value("x", source, rhs_node, False)
+    assert score >= 25  # Should get +25 for long expression
+
+
+def test_no_false_positive_on_long_rhs_fixable_marking() -> None:
+    """Test that long RHS that would exceed line length is not marked fixable.
+
+    This is a regression test for the bug where violations were marked as
+    [FIXABLE] even when --fix couldn't actually fix them.
+    """
+    source = """
+def func():
+    value = very_long_func_that_would_exceed_line_length_when_inlined_here()
+    return value
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # If there are violations, they should NOT be marked as fixable
+    # because inlining would exceed line length
+    for v in violations:
+        if "value" in v.message:
+            msg = f"Long RHS should not be marked fixable: {v.message}"
+            assert not v.fixable, msg
