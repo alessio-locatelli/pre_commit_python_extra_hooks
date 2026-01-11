@@ -93,11 +93,21 @@ class VariableLifecycle:
 
     @property
     def is_immediate_use(self) -> bool:
-        """Check if first use is within 0-1 statements from assignment."""
+        """Check if first use is within 0-1 statements from assignment.
+
+        Uses in different scopes (closures) are never considered immediate,
+        even if their statement index appears close, because they're in
+        nested functions and the variable is captured by the closure.
+        """
         if not self.uses:
             return False
         first_use = self.uses[0]
-        # Immediate = same statement or next statement
+
+        # If the use is in a different scope, it's a closure - not immediate
+        if first_use.scope_id != self.assignment.scope_id:
+            return False
+
+        # Immediate = same statement or next statement, same scope
         return first_use.stmt_index <= self.assignment.stmt_index + 1
 
 
@@ -189,10 +199,20 @@ class VariableTracker(ast.NodeVisitor):
         # Track parent nodes for context detection
         self.parent_stack: list[ast.AST] = []
 
+        # Track parent-child scope relationships for closure detection
+        # Maps child_scope_id -> parent_scope_id
+        self.scope_parents: dict[int, int] = {}
+
     def _enter_scope(self) -> None:
         """Enter a new scope (function, class, etc.)."""
+        parent_scope_id = self._get_current_scope_id()
         self.current_scope_id += 1
-        self.scope_stack.append(self.current_scope_id)
+        child_scope_id = self.current_scope_id
+
+        # Track parent-child relationship
+        self.scope_parents[child_scope_id] = parent_scope_id
+
+        self.scope_stack.append(child_scope_id)
         self.stmt_index_stack.append(0)
 
     def _exit_scope(self) -> None:
@@ -214,6 +234,27 @@ class VariableTracker(ast.NodeVisitor):
     def _get_current_stmt_index(self) -> int:
         """Get the current statement index."""
         return self.stmt_index_stack[-1] if self.stmt_index_stack else 0
+
+    def _get_child_scopes(self, scope_id: int) -> list[int]:
+        """Get all direct and indirect child scopes of a given scope.
+
+        This is used to detect closures - variables assigned in an outer scope
+        but used in nested function scopes.
+
+        Args:
+            scope_id: Parent scope ID
+
+        Returns:
+            List of all descendant scope IDs
+        """
+        children = []
+        # Find all direct children
+        for child_id, parent_id in self.scope_parents.items():
+            if parent_id == scope_id:
+                children.append(child_id)
+                # Recursively get grandchildren
+                children.extend(self._get_child_scopes(child_id))
+        return children
 
     def _get_source_segment(self, node: ast.expr) -> str:
         """Get source code for an AST node.
@@ -646,6 +687,15 @@ class VariableTracker(ast.NodeVisitor):
                     use for use in all_uses if use.stmt_index >= assignment.stmt_index
                 ]
 
+                # CLOSURE DETECTION: Also check for uses in nested scopes
+                # Variables captured by closures should not be marked as redundant
+                child_scopes = self._get_child_scopes(scope_id)
+                for child_scope_id in child_scopes:
+                    child_key = (child_scope_id, var_name)
+                    child_uses = self.uses.get(child_key, [])
+                    # Add all uses from child scopes (closures)
+                    relevant_uses.extend(child_uses)
+
                 # If there's a subsequent assignment to the same variable,
                 # only include uses up to that assignment
                 next_assignment = None
@@ -658,10 +708,12 @@ class VariableTracker(ast.NodeVisitor):
 
                 if next_assignment:
                     # Only include uses before the next assignment
+                    # (but keep ALL child scope uses since they're closures)
                     relevant_uses = [
                         use
                         for use in relevant_uses
                         if use.stmt_index < next_assignment.stmt_index
+                        or use.scope_id in child_scopes
                     ]
 
                 # Create lifecycle
@@ -686,6 +738,13 @@ def detect_redundancy(lifecycle: VariableLifecycle) -> PatternType | None:
     # Must be single use
     if not lifecycle.is_single_use:
         return None
+
+    # Check if variable is used in a closure (different scope)
+    # Variables captured by closures should NEVER be considered redundant
+    for use in lifecycle.uses:
+        if use.scope_id != lifecycle.assignment.scope_id:
+            # This is a closure - variable is captured by nested function
+            return None
 
     # Pattern 3: Literal identity (e.g., foo = "foo")
     if _is_literal_identity(lifecycle):

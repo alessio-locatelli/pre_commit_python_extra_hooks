@@ -2523,3 +2523,173 @@ def test_should_not_autofix_single_use_complex_call() -> None:
     # Should NOT autofix - too many args
     result = should_autofix(lifecycle, PatternType.SINGLE_USE)
     assert result is False
+
+
+def test_closure_variable_not_flagged() -> None:
+    """Test that variables used in nested functions (closures) are not flagged."""
+    source = """
+async def test_func(faker):
+    return_value = faker.pystr()
+
+    @decorator
+    async def inner_func():
+        return return_value
+
+    await inner_func()
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag return_value - it's captured by the closure
+    assert len(violations) == 0
+
+
+def test_closure_with_mock_not_flagged() -> None:
+    """Test that Mock objects used in closures are not flagged as redundant."""
+    source = """
+async def test_func():
+    from unittest.mock import Mock
+    mock = Mock()
+
+    async def inner_func():
+        mock()
+        return "result"
+
+    await inner_func()
+    assert mock.call_count == 1
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag mock - it's used in the closure and in outer scope
+    assert len(violations) == 0
+
+
+def test_closure_single_use_in_nested_function() -> None:
+    """Test variables used only in nested function are not flagged."""
+    source = """
+def outer():
+    value = calculate()
+
+    def inner():
+        return value
+
+    return inner
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag value - used in nested function (closure)
+    assert len(violations) == 0
+
+
+def test_closure_multiple_nested_levels() -> None:
+    """Test variables captured by deeply nested closures are not flagged."""
+    source = """
+def level1():
+    x = 1
+
+    def level2():
+        y = x + 1
+
+        def level3():
+            return x + y
+
+        return level3()
+
+    return level2()
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag x - used in level2 and level3 (closures)
+    # Should NOT flag y - used in level3 (closure)
+    assert len(violations) == 0
+
+
+def test_closure_with_decorator() -> None:
+    """Test the exact scenario from the bug report."""
+    source = """
+async def test_rate_limited_decorator_exceeds_limit(
+    backend, faker, rate_limit_params
+):
+    mock = Mock()
+    limit, period = rate_limit_params
+    return_value = faker.pystr()
+
+    @rate_limited(backend=backend, limit=limit, period=period, ttl=period)
+    async def func():
+        mock()
+        return return_value
+
+    for _ in range(limit):
+        assert await func() == return_value
+    assert mock.call_count == limit
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag return_value - used in nested function and outer scope
+    # Should NOT flag mock - used in nested function and outer scope
+    assert len(violations) == 0
+
+
+def test_non_closure_still_detected() -> None:
+    """Test that non-closure single-use variables are still detected.
+
+    This is NOT a closure - just a redundant assignment in same scope.
+    """
+    source = """
+def test_func():
+    x = "foo"
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # SHOULD flag x - it's a simple single-use, not a closure
+    assert len(violations) >= 1
+    assert any("x" in v.message for v in violations)
+
+
+def test_lifecycle_is_immediate_use_with_closure() -> None:
+    """Test that is_immediate_use returns False for closures."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    # Create a lifecycle where the use is in a different scope (closure)
+    assignment = AssignmentInfo(
+        var_name="x",
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=ast.parse("1", mode="eval").body,
+        rhs_source="1",
+        scope_id=1,  # Outer scope
+        has_type_annotation=False,
+    )
+
+    usage = UsageInfo(
+        var_name="x",
+        line=3,
+        col=0,
+        stmt_index=1,  # Would normally be considered immediate
+        context="unknown",
+        scope_id=2,  # Nested scope (closure)
+    )
+
+    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
+
+    # Even though stmt_index suggests immediate use, it should return False
+    # because the use is in a different scope (closure)
+    assert lifecycle.is_immediate_use is False
+    assert lifecycle.is_single_use is True
