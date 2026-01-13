@@ -478,6 +478,53 @@ def _contains_nondeterministic_call(node: ast.expr) -> bool:
     return detector.has_nondeterministic_call
 
 
+def _is_named_constant_pattern(var_name: str, rhs_node: ast.expr) -> bool:
+    """Check if this is a "named constant" pattern avoiding magic numbers.
+
+    Magic numbers are raw numeric literals that lack context. Using a descriptive
+    variable name gives semantic meaning to the value.
+
+    Examples that should NOT be flagged:
+        max_search_depth = 10  # explains what 10 means
+        line_spacing = 1.2  # explains what 1.2 represents
+        user_id = 101749141  # gives meaning to the ID
+
+    Args:
+        var_name: Variable name
+        rhs_node: Right-hand side AST node
+
+    Returns:
+        True if this is a named constant pattern
+    """
+    # Only applies to numeric literals (int, float)
+    if not isinstance(rhs_node, ast.Constant):
+        return False
+
+    if not isinstance(rhs_node.value, int | float):
+        return False
+
+    # Variable name must provide semantic meaning
+    # Check for multi-part names (with underscore) or sufficiently descriptive names
+    var_parts = var_name.split("_")
+
+    # Multi-part names like "max_search_depth", "line_spacing", "user_id"
+    if len(var_parts) >= 2:
+        return True
+
+    # Single-part names that are descriptive (> 6 chars) and not generic
+    generic_names = {
+        "value",
+        "val",
+        "num",
+        "number",
+        "count",
+        "total",
+        "result",
+        "temp",
+    }
+    return len(var_name) > 6 and var_name.lower() not in generic_names
+
+
 def should_report_violation(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
@@ -503,16 +550,20 @@ def should_report_violation(
     if assignment.has_comment_above:
         return False
 
+    # Skip if there's an inline comment on the assignment line
+    # Inline comments (e.g., type: ignore) indicate intentional code
+    if assignment.has_inline_comment:
+        return False
+
     # Rule 1: Don't report global scope variables unless prefixed with `_`
     if assignment.in_global_scope and not assignment.var_name.startswith("_"):
         return False
 
-    # Rule 2: Don't report if RHS has await AND usage also has await
-    if (
-        assignment.rhs_has_await
-        and lifecycle.uses
-        and any(use.usage_has_await for use in lifecycle.uses)
-    ):
+    # Rule 2: Don't report if RHS has await expression
+    # Inlining await expressions requires parentheses which is bulky:
+    #   json_resp = await resp.json(); return json_resp['key']
+    # Would become: return (await resp.json())['key']  # ugly
+    if assignment.rhs_has_await:
         return False
 
     # Rule 3: Don't report if inlining would likely exceed 79 characters
@@ -532,6 +583,24 @@ def should_report_violation(
     # Functions like time.time(), random.random(), etc. return different values
     # on each call, so inlining them can change program semantics
     if _contains_nondeterministic_call(assignment.rhs_node):
+        return False
+
+    # Rule 7: Don't report "magic number" patterns - numeric/simple literals
+    # where the variable name provides semantic meaning
+    # Examples: max_search_depth = 10, line_spacing = 1.2, user_id = 101749141
+    if _is_named_constant_pattern(assignment.var_name, assignment.rhs_node):
+        return False
+
+    # Rule 8: Don't report when assignment is outside control flow but usage is inside
+    # This handles pytest.raises pattern where setup is intentionally separated:
+    #   sample_class = SampleClass()  # setup outside
+    #   with pytest.raises(Error):     # usage inside
+    #       sample_class.method()
+    if (
+        not assignment.in_control_flow
+        and lifecycle.uses
+        and all(use.in_control_flow for use in lifecycle.uses)
+    ):
         return False
 
     # Calculate semantic value

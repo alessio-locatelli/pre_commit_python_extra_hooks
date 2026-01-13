@@ -33,6 +33,7 @@ class AssignmentInfo:
         in_control_flow: Whether assignment is inside control flow (if/try/with)
         in_global_scope: Whether assignment is in global/module scope
         has_comment_above: Whether there's a comment right above the assignment
+        has_inline_comment: Whether there's an inline comment on the assignment line
         rhs_has_await: Whether the RHS contains an await expression
     """
 
@@ -48,6 +49,7 @@ class AssignmentInfo:
     in_control_flow: bool = False
     in_global_scope: bool = False
     has_comment_above: bool = False
+    has_inline_comment: bool = False
     rhs_has_await: bool = False
 
 
@@ -63,6 +65,7 @@ class UsageInfo:
         context: Usage context ('return', 'call', 'operation', etc.')
         scope_id: Scope identifier for isolation
         usage_has_await: Whether the usage is wrapped in an await expression
+        in_control_flow: Whether usage is inside control flow (if/try/with)
     """
 
     var_name: str
@@ -72,6 +75,7 @@ class UsageInfo:
     context: str
     scope_id: int
     usage_has_await: bool = False
+    in_control_flow: bool = False
 
 
 @dataclass
@@ -151,6 +155,40 @@ def _has_comment_above(line_number: int, source_lines: list[str]) -> bool:
 
     # Check if it's a comment line (starts with #)
     return prev_line.startswith("#")
+
+
+def _has_inline_comment(line_number: int, source_lines: list[str]) -> bool:
+    """Check if there's an inline comment on the given line.
+
+    Args:
+        line_number: Line number (1-indexed)
+        source_lines: List of source code lines
+
+    Returns:
+        True if there's an inline comment on the line
+    """
+    if line_number < 1 or line_number > len(source_lines):
+        return False
+
+    # Get the line (convert to 0-indexed)
+    line = source_lines[line_number - 1]
+
+    # Simple check: look for # that's not inside a string
+    # This is a heuristic - a full solution would need tokenization
+    # but for our purposes, checking if '#' appears after code is sufficient
+    in_string = False
+    string_char = None
+    for i, char in enumerate(line):
+        if char in ('"', "'") and (i == 0 or line[i - 1] != "\\"):
+            if not in_string:
+                in_string = True
+                string_char = char
+            elif char == string_char:
+                in_string = False
+        elif char == "#" and not in_string:
+            return True
+
+    return False
 
 
 class VariableTracker(ast.NodeVisitor):
@@ -449,6 +487,9 @@ class VariableTracker(ast.NodeVisitor):
                     has_comment_above=_has_comment_above(
                         node.lineno, self.source_lines
                     ),
+                    has_inline_comment=_has_inline_comment(
+                        node.lineno, self.source_lines
+                    ),
                     rhs_has_await=_has_await_expression(node.value),
                 )
 
@@ -505,6 +546,7 @@ class VariableTracker(ast.NodeVisitor):
                 stmt_index=stmt_index,
                 context="attribute_or_subscript_assignment",
                 scope_id=scope_id,
+                in_control_flow=self.control_flow_depth > 0,
             )
             key = (scope_id, var_name)
             if key not in self.uses:
@@ -549,6 +591,7 @@ class VariableTracker(ast.NodeVisitor):
                 in_control_flow=self.control_flow_depth > 0,
                 in_global_scope=(scope_id == 0),
                 has_comment_above=_has_comment_above(node.lineno, self.source_lines),
+                has_inline_comment=_has_inline_comment(node.lineno, self.source_lines),
                 rhs_has_await=_has_await_expression(node.value),
             )
 
@@ -604,6 +647,7 @@ class VariableTracker(ast.NodeVisitor):
                 stmt_index=stmt_index,
                 context="augmented_assignment",
                 scope_id=scope_id,
+                in_control_flow=self.control_flow_depth > 0,
             )
             key = (scope_id, var_name)
             if key not in self.uses:  # pragma: lax no cover
@@ -657,6 +701,7 @@ class VariableTracker(ast.NodeVisitor):
             context=context,
             scope_id=scope_id,
             usage_has_await=usage_has_await,
+            in_control_flow=self.control_flow_depth > 0,
         )
 
         # Store usage
@@ -690,6 +735,18 @@ class VariableTracker(ast.NodeVisitor):
                 # CLOSURE DETECTION: Also check for uses in nested scopes
                 # Variables captured by closures should not be marked as redundant
                 child_scopes = self._get_child_scopes(scope_id)
+
+                # Check if variable is declared nonlocal in any child scope
+                # This means the closure captures and potentially modifies it,
+                # so we should not flag the outer assignment as redundant
+                is_captured_by_nonlocal = any(
+                    (child_scope_id, var_name) in self.nonlocal_vars
+                    for child_scope_id in child_scopes
+                )
+                if is_captured_by_nonlocal:
+                    # Skip this assignment entirely - it's captured by a closure
+                    continue
+
                 for child_scope_id in child_scopes:
                     child_key = (child_scope_id, var_name)
                     child_uses = self.uses.get(child_key, [])

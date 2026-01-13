@@ -2148,8 +2148,15 @@ async def test_json(client):
     assert len(violations) == 0
 
 
-def test_await_only_on_assignment_flagged() -> None:
-    """Test that await only on assignment is still flagged."""
+def test_await_on_assignment_not_flagged() -> None:
+    """Test that await on assignment is NOT flagged.
+
+    Inlining await expressions often requires parentheses, making code bulky:
+        json_resp = await resp.json()
+        return json_resp['key']
+    Would become:
+        return (await resp.json())['key']  # ugly
+    """
     source = """
 async def test_func():
     x = await get_value()
@@ -2159,9 +2166,8 @@ async def test_func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # SHOULD flag 'x' because await is only on assignment, not usage
-    assert len(violations) >= 1
-    assert any("x" in v.message for v in violations)
+    # Should NOT flag 'x' because RHS has await
+    assert len(violations) == 0
 
 
 def test_await_only_on_usage_flagged() -> None:
@@ -3008,3 +3014,387 @@ def func():
         if "value" in v.message:
             msg = f"Long RHS should not be marked fixable: {v.message}"
             assert not v.fixable, msg
+
+
+def test_magic_number_not_flagged() -> None:
+    """Test that magic numbers with descriptive names are not flagged.
+
+    Variables like max_search_depth = 10 give semantic meaning to raw numbers.
+    """
+    source = """
+def find_project_root():
+    max_search_depth = 10
+    current_dir = Path.cwd()
+    for _ in range(max_search_depth):
+        if (current_dir / "pyproject.toml").is_file():
+            return current_dir
+        current_dir = current_dir.parent
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag max_search_depth - it's a named constant avoiding magic number
+    for v in violations:
+        assert "max_search_depth" not in v.message, (
+            f"Should not flag 'max_search_depth' - avoids magic number: {v.message}"
+        )
+
+
+def test_magic_number_float_not_flagged() -> None:
+    """Test that float constants with descriptive names are not flagged."""
+    source = """
+def calculate_spacing():
+    line_spacing = 1.2
+    coords = (x, y + height * line_spacing)
+    return coords
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag line_spacing - it's a named constant
+    for v in violations:
+        assert "line_spacing" not in v.message, (
+            f"Should not flag 'line_spacing' - avoids magic number: {v.message}"
+        )
+
+
+def test_magic_number_id_not_flagged() -> None:
+    """Test that ID constants with descriptive names are not flagged."""
+    source = """
+async def find_nicosia(database):
+    nicosia_in_cyprus_id = 101749141
+    place = await database.find_one({"_id": nicosia_in_cyprus_id})
+    return place
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag nicosia_in_cyprus_id - it's a named constant
+    for v in violations:
+        assert "nicosia_in_cyprus_id" not in v.message, (
+            f"Should not flag 'nicosia_in_cyprus_id' - avoids magic number: {v.message}"
+        )
+
+
+def test_pytest_raises_pattern_not_flagged() -> None:
+    """Test that variables used inside pytest.raises are not flagged.
+
+    Setup should be outside the context manager to keep the with block minimal.
+    """
+    source = """
+def test_rate_limit():
+    sample_class = SampleClass()
+    with pytest.raises(RateLimitError):
+        sample_class.sample_method()
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag sample_class - setup should be outside pytest.raises
+    for v in violations:
+        assert "sample_class" not in v.message, (
+            f"Should not flag 'sample_class' - pytest.raises pattern: {v.message}"
+        )
+
+
+def test_with_block_pattern_not_flagged() -> None:
+    """Test that variables set up before a with block are not flagged."""
+    source = """
+def test_retry():
+    decorated_mock_func = retry_service(mock_func)
+
+    with pytest.raises(ValueError, match=error_msg):
+        decorated_mock_func()
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag decorated_mock_func - setup outside with block is intentional
+    for v in violations:
+        assert "decorated_mock_func" not in v.message, (
+            f"Should not flag 'decorated_mock_func' - with block pattern: {v.message}"
+        )
+
+
+def test_inline_comment_not_flagged() -> None:
+    """Test that assignments with inline comments are not flagged.
+
+    Inline comments indicate intentional code (e.g., type: ignore).
+    """
+    source = """
+def get_cache_file(cache):
+    redirects_file = cache.redirects.filename  # type: ignore[attr-defined]
+
+    assert redirects_file.startswith(cache_dir)
+    return redirects_file
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag redirects_file - has inline comment
+    for v in violations:
+        assert "redirects_file" not in v.message, (
+            f"Should not flag 'redirects_file' - has inline comment: {v.message}"
+        )
+
+
+def test_nonlocal_in_nested_function_not_flagged() -> None:
+    """Test that variables captured by nonlocal in nested functions are not flagged.
+
+    This is a regression test for the bug where the linter would remove a variable
+    that was modified via nonlocal in a nested function.
+    """
+    source = """
+async def test_websocket():
+    cancelled = False
+    ping_started = loop.create_future()
+
+    async def delayed_send_frame():
+        nonlocal cancelled
+        ping_started.set_result(None)
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    await resp.close()
+    assert cancelled is True
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag 'cancelled' - it's captured by nonlocal in nested function
+    for v in violations:
+        assert "cancelled" not in v.message, (
+            f"Should not flag 'cancelled' - captured by nonlocal: {v.message}"
+        )
+
+
+def test_nonlocal_multiple_variables_not_flagged() -> None:
+    """Test multiple variables captured by nonlocal are not flagged."""
+    source = """
+def outer():
+    x = 0
+    y = 0
+
+    def inner():
+        nonlocal x, y
+        x = 1
+        y = 2
+
+    inner()
+    return x + y
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag x or y - they're captured by nonlocal
+    for v in violations:
+        msg = v.message
+        assert "'x'" not in msg, f"Should not flag 'x' - captured by nonlocal: {msg}"
+        assert "'y'" not in msg, f"Should not flag 'y' - captured by nonlocal: {msg}"
+
+
+def test_has_inline_comment_detection() -> None:
+    """Test the _has_inline_comment function."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        _has_inline_comment,
+    )
+
+    # Test with inline comment
+    lines = ["x = value  # this is a comment"]
+    assert _has_inline_comment(1, lines) is True
+
+    # Test without comment
+    lines = ["x = value"]
+    assert _has_inline_comment(1, lines) is False
+
+    # Test with # inside string (should NOT detect as comment)
+    lines = ['x = "hello # world"']
+    assert _has_inline_comment(1, lines) is False
+
+    # Test with # in both string and as comment
+    lines = ['x = "foo"  # comment']
+    assert _has_inline_comment(1, lines) is True
+
+    # Test out of bounds
+    assert _has_inline_comment(0, lines) is False
+    assert _has_inline_comment(5, lines) is False
+
+
+def test_is_named_constant_pattern() -> None:
+    """Test the _is_named_constant_pattern function."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _is_named_constant_pattern,
+    )
+
+    # Test with multi-part name and number
+    node = ast.parse("10", mode="eval").body
+    assert _is_named_constant_pattern("max_depth", node) is True
+
+    # Test with float
+    node = ast.parse("1.2", mode="eval").body
+    assert _is_named_constant_pattern("line_spacing", node) is True
+
+    # Test single-part long name
+    node = ast.parse("42", mode="eval").body
+    assert _is_named_constant_pattern("threshold", node) is True
+
+    # Test single-part short generic name (should NOT match)
+    node = ast.parse("10", mode="eval").body
+    assert _is_named_constant_pattern("value", node) is False
+    assert _is_named_constant_pattern("num", node) is False
+
+    # Test with non-numeric (should NOT match)
+    node = ast.parse('"hello"', mode="eval").body
+    assert _is_named_constant_pattern("msg", node) is False
+
+
+def test_while_loop_assignment_not_flagged() -> None:
+    """Test that assignments inside while loops are not flagged."""
+    source = """
+def process():
+    x = 0
+    while x < 10:
+        x = x + 1
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Assignments in loops should not be flagged
+    for v in violations:
+        assert "'x'" not in v.message, f"Should not flag 'x' in while loop: {v.message}"
+
+
+def test_async_for_loop_assignment_not_flagged() -> None:
+    """Test that assignments inside async for loops are not flagged."""
+    source = """
+async def process(items):
+    result = []
+    async for item in items:
+        result = result + [item]
+    return result
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Assignments in async for loops should not be flagged
+    for v in violations:
+        assert "'result'" not in v.message, f"Should not flag loop var: {v.message}"
+
+
+def test_async_with_assignment_not_flagged() -> None:
+    """Test that assignments inside async with blocks are handled."""
+    source = """
+async def process():
+    async with context() as ctx:
+        x = ctx.value
+        return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    # Just verify it doesn't crash - async with should be tracked
+    _ = check.check(Path("test.py"), tree, source)
+
+
+def test_global_attribute_assignment_not_tracked() -> None:
+    """Test that attribute assignments to global vars are skipped properly."""
+    source = """
+global_obj = None
+
+def modify_global():
+    global global_obj
+    global_obj.attr = "value"
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    # Should not crash when global var is base of attribute assignment
+    violations = check.check(Path("test.py"), tree, source)
+    assert len(violations) == 0
+
+
+def test_nondeterministic_call_not_flagged() -> None:
+    """Test that nondeterministic function calls are not flagged."""
+    source = """
+import time
+
+def measure():
+    start = time.time()
+    do_work()
+    return start
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag 'start' because time.time() is nondeterministic
+    for v in violations:
+        assert "start" not in v.message, (
+            f"Should not flag 'start' - nondeterministic: {v.message}"
+        )
+
+
+def test_multiple_assignment_targets_not_tracked() -> None:
+    """Test that multiple assignment targets (a = b = c = value) are skipped."""
+    source = """
+def func():
+    a = b = c = some_value()
+    return a + b + c
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    # Should not crash and should not flag these assignments
+    violations = check.check(Path("test.py"), tree, source)
+    # Multiple assignment targets are skipped entirely
+    assert all("'a'" not in v.message for v in violations)
+    assert all("'b'" not in v.message for v in violations)
+    assert all("'c'" not in v.message for v in violations)
+
+
+def test_inline_comment_with_string_containing_hash() -> None:
+    """Test inline comment detection with strings containing #."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        _has_inline_comment,
+    )
+
+    # String with # followed by actual comment
+    lines = ['x = "test#test"  # real comment']
+    assert _has_inline_comment(1, lines) is True
+
+    # Only string with # (no real comment)
+    lines = ['x = "test # not a comment"']
+    assert _has_inline_comment(1, lines) is False
+
+    # Empty string then comment
+    lines = ['x = ""  # comment']
+    assert _has_inline_comment(1, lines) is True
+
+
+def test_ternary_operator_ifexp_not_flagged() -> None:
+    """Test that ternary/if-else expressions are explicitly not flagged."""
+    source = """
+def func(condition):
+    result = "yes" if condition else "no"
+    return result
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag result because it's a ternary expression
+    for v in violations:
+        assert "result" not in v.message, (
+            f"Should not flag ternary expression: {v.message}"
+        )
