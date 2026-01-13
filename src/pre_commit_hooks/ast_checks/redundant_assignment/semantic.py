@@ -54,6 +54,15 @@ DESCRIPTIVE_SUFFIXES = {
     "_disabled",
     "_available",
     "_ready",
+    "_size",
+    "_length",
+    "_index",
+    "_offset",
+    "_id",
+    "_name",
+    "_path",
+    "_url",
+    "_key",
 }
 
 

@@ -3398,3 +3398,64 @@ def func(condition):
         assert "result" not in v.message, (
             f"Should not flag ternary expression: {v.message}"
         )
+
+
+def test_descriptive_suffix_size_not_flagged() -> None:
+    """Test that variables with _size suffix are not flagged.
+
+    Variables like large_payload_size = len(large_payload) clarify what
+    the value represents (the SIZE), making the code more readable.
+    """
+    source = """
+def test_flow_control_binary(protocol, out_low_limit, parser_low_limit):
+    large_payload = b"b" * (1 + 16 * 2)
+    large_payload_size = len(large_payload)
+    parser_low_limit._handle_frame(True, WSMsgType.BINARY, large_payload, 0)
+    res = out_low_limit._buffer[0]
+    assert res == WSMessageBinary(data=large_payload, size=large_payload_size, extra="")
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag large_payload_size - it has descriptive _size suffix
+    for v in violations:
+        assert "large_payload_size" not in v.message, (
+            f"Should not flag 'large_payload_size' - has _size suffix: {v.message}"
+        )
+
+
+def test_descriptive_suffix_length_not_flagged() -> None:
+    """Test that variables with _length suffix are not flagged."""
+    source = """
+def process(data):
+    buffer_length = len(data)
+    return process_with_length(data, buffer_length)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag buffer_length - it has descriptive _length suffix
+    for v in violations:
+        assert "buffer_length" not in v.message, (
+            f"Should not flag 'buffer_length' - has _length suffix: {v.message}"
+        )
+
+
+def test_descriptive_suffix_id_not_flagged() -> None:
+    """Test that variables with _id suffix are not flagged."""
+    source = """
+def get_user(data):
+    user_id = data.get("id")
+    return fetch_user(user_id)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag user_id - it has descriptive _id suffix
+    for v in violations:
+        assert "user_id" not in v.message, (
+            f"Should not flag 'user_id' - has _id suffix: {v.message}"
+        )
