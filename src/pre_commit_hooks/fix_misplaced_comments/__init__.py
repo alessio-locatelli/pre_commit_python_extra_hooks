@@ -46,8 +46,7 @@ _COMPILED_LINTER_PATTERNS = {re.compile(p) for p in LINTER_PRAGMA_PATTERNS}
 
 @functools.cache
 def is_linter_pragma(comment_text: str) -> bool:
-    """Check if a comment contains a linter pragma directive.
-
+    """
     Args:
         comment_text: The comment text (including # character)
 
@@ -61,8 +60,7 @@ def is_linter_pragma(comment_text: str) -> bool:
 def is_bracket_only_line(
     tokens: list[tokenize.TokenInfo], bracket_token_idx: int
 ) -> bool:
-    """Check if the line containing the bracket has only brackets/whitespace.
-
+    """
     Args:
         tokens: List of all tokens in the file
         bracket_token_idx: Index of the bracket token to check
@@ -105,8 +103,7 @@ class MisplacedComment(NamedTuple):
 
 
 def check_file(filename: str) -> list[tuple[int, str]]:
-    """Check file for misplaced comments.
-
+    """
     Args:
         filename: Path to Python file to check
 
@@ -161,8 +158,7 @@ def check_file(filename: str) -> list[tuple[int, str]]:
 
 
 def fix_file(filename: str) -> None:
-    """Fix misplaced comments in file.
-
+    """
     Args:
         filename: Path to Python file to fix
     """
@@ -257,8 +253,7 @@ def fix_file(filename: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Main entry point for the hook.
-
+    """
     Args:
         argv: Command line arguments (if None, uses sys.argv[1:])
 
