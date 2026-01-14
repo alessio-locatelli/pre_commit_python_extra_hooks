@@ -8,8 +8,7 @@ from .analysis import GET_PREFIX, is_decorator_override_or_abstract
 
 
 def derive_entity_from_name(func_name: str) -> str:
-    """Extract entity name by removing get_ prefix.
-
+    """
     Args:
         func_name: Function name (e.g., "get_users")
 
@@ -22,8 +21,7 @@ def derive_entity_from_name(func_name: str) -> str:
 
 
 def first_docstring_line(func_node: ast.FunctionDef) -> str | None:
-    """Extract first line of function docstring.
-
+    """
     Args:
         func_node: Function AST node
 
@@ -42,8 +40,7 @@ def first_docstring_line(func_node: ast.FunctionDef) -> str | None:
 
 
 def extract_first_verb(docstring_line: str) -> str | None:
-    """Extract the first verb from a docstring line.
-
+    """
     Args:
         docstring_line: First line of docstring
 
