@@ -152,7 +152,7 @@ def analyze_function(func_node: ast.FunctionDef) -> dict[str, bool]:
             flags["is_property"] = True
 
     # returns_bool: rely only on annotation (do not inspect return values)
-    if getattr(func_node, "returns", None) is not None:
+    if func_node.returns is not None:
         ann = func_node.returns
         if isinstance(ann, ast.Name) and ann.id == "bool":
             flags["returns_bool"] = True
