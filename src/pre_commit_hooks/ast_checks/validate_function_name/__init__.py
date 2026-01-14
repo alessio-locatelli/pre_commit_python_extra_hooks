@@ -244,16 +244,13 @@ def _make_check_class() -> type:
 
         @property
         def check_id(self) -> str:
-            """Return check identifier."""
             return "validate-function-name"
 
         @property
         def error_code(self) -> str:
-            """Return error code."""
             return ERROR_CODE
 
         def get_prefilter_pattern(self) -> str | None:
-            """Return pre-filter pattern."""
             return "def get_"
 
         def check(

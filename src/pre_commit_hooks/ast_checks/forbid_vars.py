@@ -659,19 +659,14 @@ class ForbidVarsCheck:
 
     @property
     def check_id(self) -> str:
-        """Return check identifier."""
         return "forbid-vars"
 
     @property
     def error_code(self) -> str:
-        """Return error code."""
         return "TRI001"
 
     def get_prefilter_pattern(self) -> str | None:
-        """Return pre-filter pattern.
-
-        Returns the first forbidden name as a simple pattern.
-        """
+        """Returns the first forbidden name as a simple pattern."""
         if self.forbidden_names:
             return next(iter(sorted(self.forbidden_names)))
         # pragma: no cover (constructor defaults to DEFAULT_FORBIDDEN_NAMES)

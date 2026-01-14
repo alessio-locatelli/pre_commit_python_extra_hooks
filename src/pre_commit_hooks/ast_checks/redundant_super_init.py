@@ -96,7 +96,6 @@ def _is_super_init_call(node: ast.Call) -> bool:
 
 
 def _forwards_kwargs(node: ast.Call) -> bool:
-    """Returns True if **kwargs is forwarded."""
     # Check keywords for **kwargs (Starred node)
     return any(keyword.arg is None for keyword in node.keywords)
 

@@ -104,12 +104,10 @@ class RedundantAssignmentCheck:
 
     @property
     def check_id(self) -> str:
-        """Return the check identifier."""
         return CHECK_ID
 
     @property
     def error_code(self) -> str:
-        """Return the error code."""
         return ERROR_CODE
 
     def get_prefilter_pattern(self) -> str | None:
