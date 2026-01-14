@@ -45,8 +45,7 @@ class CacheManager:
         hook_name: str = "",
         cache_version: str | None = None,
     ) -> None:
-        """Initialize cache manager.
-
+        """
         Args:
             cache_dir: Cache directory (default: .cache/pre_commit_hooks/)
             hook_name: Name of hook for logging/debugging
@@ -58,7 +57,6 @@ class CacheManager:
         self._ensure_cache_dir()
 
     def _ensure_cache_dir(self) -> None:
-        """Create cache directory with CACHEDIR.TAG marker."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Create CACHEDIR.TAG to mark this as a cache directory
@@ -74,9 +72,7 @@ class CacheManager:
     def get_cached_result(
         self, filepath: Path, hook_name: str
     ) -> dict[str, Any] | None:
-        """Get cached result for a file if valid.
-
-        Uses mtime fast-path: if mtime unchanged, skip expensive hash computation.
+        """Uses mtime fast-path: if mtime unchanged, skip expensive hash computation.
         If mtime changed, verify with content hash.
 
         Args:
@@ -132,8 +128,7 @@ class CacheManager:
     def set_cached_result(
         self, filepath: Path, hook_name: str, result: dict[str, Any]
     ) -> None:
-        """Store result in cache.
-
+        """
         Args:
             filepath: Path to Python file
             hook_name: Hook identifier (e.g., "forbid-vars")
@@ -168,9 +163,7 @@ class CacheManager:
             )
 
     def _get_cache_path(self, filepath: Path) -> Path:
-        """Get cache file path for a source file.
-
-        Uses two-level directory structure for better filesystem performance:
+        """Uses two-level directory structure for better filesystem performance:
         .cache/pre_commit_hooks/ab/abc123...def.json
 
         Args:
@@ -188,8 +181,7 @@ class CacheManager:
 
     @staticmethod
     def compute_file_hash(filepath: Path) -> str:
-        """Compute SHA-1 hash of file content.
-
+        """
         Args:
             filepath: Path to file
 
@@ -204,9 +196,7 @@ class CacheManager:
         return sha1.hexdigest()
 
     def _write_cache(self, cache_file: Path, data: dict[str, Any]) -> None:
-        """Atomically write cache file.
-
-        Uses temp file + rename for atomic write on POSIX systems.
+        """Uses temp file + rename for atomic write on POSIX systems.
 
         Args:
             cache_file: Cache file path
@@ -224,8 +214,7 @@ class CacheManager:
                 temp_file.unlink()
 
     def clear_cache(self, older_than_days: int = 30) -> None:
-        """Clear old cache entries.
-
+        """
         Args:
             older_than_days: Delete cache files older than this many days
         """
