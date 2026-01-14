@@ -77,7 +77,6 @@ flowchart TD
 ## **MUST NOT** Rules
 
 - Do not implement before clarifying the missing information and understanding existing patterns.
-- Never use `git commit --amend`, `git commit --no-verify`, `git add --all`, `git add .`, or `git add -A`.
 - Never modify test expectations to bypass failures.
 - Do not sacrifice using the latest Python features in favor of backward compatibility and supporting older versions.
 - Do not suppress linter warnings (e.g., by adding `# noqa` or `# type: ignore` code comments) before trying to understand and fix the root cause.
