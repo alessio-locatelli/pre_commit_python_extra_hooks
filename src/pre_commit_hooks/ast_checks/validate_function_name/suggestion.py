@@ -8,26 +8,12 @@ from .analysis import GET_PREFIX, is_decorator_override_or_abstract
 
 
 def derive_entity_from_name(func_name: str) -> str:
-    """
-    Args:
-        func_name: Function name (e.g., "get_users")
-
-    Returns:
-        Entity name without prefix (e.g., "users")
-    """
     if func_name.startswith(GET_PREFIX):
         return func_name[len(GET_PREFIX) :]
     return func_name
 
 
 def first_docstring_line(func_node: ast.FunctionDef) -> str | None:
-    """
-    Args:
-        func_node: Function AST node
-
-    Returns:
-        First line of docstring, or None if no docstring
-    """
     if (
         func_node.body
         and isinstance(func_node.body[0], ast.Expr)
@@ -41,12 +27,6 @@ def first_docstring_line(func_node: ast.FunctionDef) -> str | None:
 
 def extract_first_verb(docstring_line: str) -> str | None:
     """
-    Args:
-        docstring_line: First line of docstring
-
-    Returns:
-        First verb in lowercase, or None if no verb found
-
     Examples:
         "Combine the parameters..." -> "combine"
         "Build a new instance..." -> "build"
