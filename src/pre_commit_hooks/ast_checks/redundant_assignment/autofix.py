@@ -83,7 +83,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
         pattern = r"\b" + re.escape(var_name) + r"\b"
 
         # Find all matches to verify we're replacing the right one
-        matches = list(re.finditer(pattern, use_line))
+        matches = tuple(re.finditer(pattern, use_line))
 
         # Find the match closest to the column offset
         target_match = None

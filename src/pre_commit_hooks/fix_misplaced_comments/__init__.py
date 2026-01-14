@@ -51,7 +51,7 @@ def is_linter_pragma(comment_text: str) -> bool:
 
 
 def is_bracket_only_line(
-    tokens: list[tokenize.TokenInfo], bracket_token_idx: int
+    tokens: tuple[tokenize.TokenInfo, ...], bracket_token_idx: int
 ) -> bool:
     bracket_token = tokens[bracket_token_idx]
     line_num = bracket_token.start[0]
@@ -96,7 +96,7 @@ def check_file(filename: str) -> list[tuple[int, str]]:
         return []
 
     try:
-        tokens = list(tokenize.generate_tokens(StringIO(source).readline))
+        tokens = tuple(tokenize.generate_tokens(StringIO(source).readline))
     except tokenize.TokenError as token_error:
         logger.warning("File: %s, error: %s", filename, repr(token_error))
         return []
@@ -145,7 +145,7 @@ def fix_file(filename: str) -> None:
         return
 
     try:
-        tokens = list(tokenize.generate_tokens(StringIO(source).readline))
+        tokens = tuple(tokenize.generate_tokens(StringIO(source).readline))
     except tokenize.TokenError as token_error:
         logger.warning("File: %s, error: %s", filename, repr(token_error))
         return
@@ -257,9 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.fix:
             cached = cache.get_cached_result(filepath, "fix-misplaced-comments")
             if cached is not None:
-                violations = [
-                    tuple(v) for v in cached.get("violations", [])
-                ]  # Convert from list
+                violations = [tuple(v) for v in cached.get("violations", [])]
 
         # If cache miss, run check
         if violations is None:
@@ -270,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
                 cache.set_cached_result(
                     filepath,
                     "fix-misplaced-comments",
-                    {"violations": [list(v) for v in violations]},
+                    {"violations": violations},
                 )
 
         if violations:
