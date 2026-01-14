@@ -28,10 +28,6 @@ class SuperInitChecker(ast.NodeVisitor):
         self.classes: dict[str, ast.ClassDef] = {}  # Track class definitions
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """
-        Args:
-            node: ClassDef AST node
-        """
         # Store class for later lookup
         self.classes[node.name] = node
 
@@ -51,11 +47,6 @@ class SuperInitChecker(ast.NodeVisitor):
     def _check_init_method(
         self, class_node: ast.ClassDef, init_node: ast.FunctionDef
     ) -> None:
-        """
-        Args:
-            class_node: The class definition
-            init_node: The __init__ method
-        """
         # Check if __init__ has **kwargs parameter
         has_kwargs = init_node.args.kwarg is not None
         if not has_kwargs:
@@ -89,10 +80,6 @@ class SuperInitChecker(ast.NodeVisitor):
 
 
 def _is_super_init_call(node: ast.Call) -> bool:
-    """
-    Args:
-        node: Call AST node
-    """
     # Check if func is Attribute with value=Call(super) and attr='__init__'
     if not isinstance(node.func, ast.Attribute):
         return False
@@ -109,13 +96,7 @@ def _is_super_init_call(node: ast.Call) -> bool:
 
 
 def _forwards_kwargs(node: ast.Call) -> bool:
-    """
-    Args:
-        node: Call AST node
-
-    Returns:
-        True if **kwargs is forwarded
-    """
+    """Returns True if **kwargs is forwarded."""
     # Check keywords for **kwargs (Starred node)
     return any(keyword.arg is None for keyword in node.keywords)
 
@@ -126,12 +107,7 @@ def _parent_accepts_args(
     """Recursively traverses the inheritance chain to determine
     if any ancestor class accepts arguments through its __init__ method.
 
-    Args:
-        class_node: The parent class definition
-        classes: Dictionary mapping class names to their AST nodes
-
-    Returns:
-        True if __init__ accepts arguments beyond self
+    Returns True if __init__ accepts arguments beyond self.
     """
     for item in class_node.body:
         if isinstance(item, ast.FunctionDef) and item.name == "__init__":
@@ -180,15 +156,6 @@ class RedundantSuperInitCheck:
         return "super().__init__"
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
-        """
-        Args:
-            filepath: Path to file
-            tree: Parsed AST tree
-            source: Source code
-
-        Returns:
-            List of violations
-        """
         checker = SuperInitChecker(str(filepath))
         checker.visit(tree)
 
@@ -214,15 +181,5 @@ class RedundantSuperInitCheck:
         source: str,
         tree: ast.Module,
     ) -> bool:
-        """No autofix support.
-
-        Args:
-            filepath: Path to file
-            violations: Violations to fix
-            source: Source code
-            tree: Parsed AST tree
-
-        Returns:
-            False (no fixes applied)
-        """
+        """No autofix support."""
         return False
