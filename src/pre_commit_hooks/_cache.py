@@ -45,12 +45,6 @@ class CacheManager:
         hook_name: str = "",
         cache_version: str | None = None,
     ) -> None:
-        """
-        Args:
-            cache_dir: Cache directory (default: .cache/pre_commit_hooks/)
-            hook_name: Name of hook for logging/debugging
-            cache_version: Cache format version (default: 1.0.0)
-        """
         self.cache_dir = cache_dir or self.DEFAULT_CACHE_DIR
         self.hook_name = hook_name
         self.cache_version = cache_version or self.CACHE_VERSION
@@ -74,10 +68,6 @@ class CacheManager:
     ) -> dict[str, Any] | None:
         """Uses mtime fast-path: if mtime unchanged, skip expensive hash computation.
         If mtime changed, verify with content hash.
-
-        Args:
-            filepath: Path to Python file
-            hook_name: Hook identifier (e.g., "forbid-vars")
 
         Returns:
             Cached result dict or None if cache invalid/missing
@@ -128,12 +118,6 @@ class CacheManager:
     def set_cached_result(
         self, filepath: Path, hook_name: str, result: dict[str, Any]
     ) -> None:
-        """
-        Args:
-            filepath: Path to Python file
-            hook_name: Hook identifier (e.g., "forbid-vars")
-            result: Result dict to cache (e.g., {"violations": [...]})
-        """
         try:
             stat = filepath.stat()
             file_hash = self.compute_file_hash(filepath)
@@ -165,12 +149,6 @@ class CacheManager:
     def _get_cache_path(self, filepath: Path) -> Path:
         """Uses two-level directory structure for better filesystem performance:
         .cache/pre_commit_hooks/ab/abc123...def.json
-
-        Args:
-            filepath: Source file path
-
-        Returns:
-            Cache file path
         """
         # Hash the filepath (not content) to get stable cache location
         file_hash = hashlib.sha1(str(filepath.resolve()).encode()).hexdigest()
@@ -181,13 +159,7 @@ class CacheManager:
 
     @staticmethod
     def compute_file_hash(filepath: Path) -> str:
-        """
-        Args:
-            filepath: Path to file
-
-        Returns:
-            SHA-1 hex digest
-        """
+        """Returns SHA-1 hex digest."""
         sha1 = hashlib.sha1()
         with open(filepath, "rb") as f:
             # Read in 64KB chunks for large files
@@ -196,12 +168,7 @@ class CacheManager:
         return sha1.hexdigest()
 
     def _write_cache(self, cache_file: Path, data: dict[str, Any]) -> None:
-        """Uses temp file + rename for atomic write on POSIX systems.
-
-        Args:
-            cache_file: Cache file path
-            data: Cache data to write
-        """
+        """Uses temp file + rename for atomic write on POSIX systems."""
         temp_file = cache_file.with_suffix(".tmp")
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
@@ -214,10 +181,6 @@ class CacheManager:
                 temp_file.unlink()
 
     def clear_cache(self, older_than_days: int = 30) -> None:
-        """
-        Args:
-            older_than_days: Delete cache files older than this many days
-        """
         cutoff = time.time() - (older_than_days * 86400)
         for cache_file in self.cache_dir.rglob("*.json"):
             try:
