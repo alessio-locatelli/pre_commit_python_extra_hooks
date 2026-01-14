@@ -19,9 +19,7 @@ logger = logging.getLogger("excessive_blank_lines")
 
 
 def find_module_header_end(lines: list[str]) -> int:
-    """Find the line number where module header ends.
-
-    Module header includes: shebang, encoding, docstring, copyright/comments.
+    """Module header includes: shebang, encoding, docstring, copyright/comments.
 
     Args:
         lines: List of file lines
@@ -70,8 +68,7 @@ def find_module_header_end(lines: list[str]) -> int:
 
 
 def check_file_violations(source: str) -> list[tuple[int, str]]:
-    """Check file for excessive blank lines.
-
+    """
     Args:
         source: File source code
 
@@ -140,8 +137,7 @@ def check_file_violations(source: str) -> list[tuple[int, str]]:
 
 
 def _is_class_or_function_def(line: str) -> bool:
-    """Check if a line starts a class or function definition.
-
+    """
     Args:
         line: Source code line
 
@@ -153,8 +149,7 @@ def _is_class_or_function_def(line: str) -> bool:
 
 
 def fix_file_content(source: str) -> str:
-    """Fix excessive blank lines in source code.
-
+    """
     Args:
         source: Original source code
 
@@ -229,24 +224,18 @@ class ExcessiveBlankLinesCheck:
 
     @property
     def check_id(self) -> str:
-        """Return check identifier."""
         return "excessive-blank-lines"
 
     @property
     def error_code(self) -> str:
-        """Return error code."""
         return "TRI002"
 
     def get_prefilter_pattern(self) -> str | None:
-        """Return pre-filter pattern.
-
-        Returns None because all files should be checked.
-        """
+        """Returns None because all files should be checked."""
         return None
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
-        """Run check and return violations.
-
+        """
         Args:
             filepath: Path to file
             tree: Parsed AST tree (not used for this check)
@@ -279,8 +268,7 @@ class ExcessiveBlankLinesCheck:
         source: str,
         tree: ast.Module,
     ) -> bool:
-        """Apply fixes for excessive blank lines.
-
+        """
         Args:
             filepath: Path to file
             violations: Violations to fix
