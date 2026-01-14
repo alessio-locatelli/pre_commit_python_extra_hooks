@@ -21,9 +21,7 @@ logger = logging.getLogger("linter")
 def git_grep_filter(
     filepaths: Sequence[str], pattern: str, fixed_string: bool = False
 ) -> list[str]:
-    """Filter files using git grep for performance.
-
-    Uses git grep to quickly filter files containing a pattern. This is much
+    """Uses git grep to quickly filter files containing a pattern. This is much
     faster than parsing every file with Python. Falls back to Python substring
     search if git is unavailable.
 
@@ -96,8 +94,7 @@ def git_grep_filter(
 
 
 def _python_fallback_filter(filepaths: Sequence[str], pattern: str) -> list[str]:
-    """Fallback: simple Python substring search.
-
+    """
     Args:
         filepaths: List of file paths
         pattern: Pattern to search for (treated as substring)
@@ -122,8 +119,7 @@ def _python_fallback_filter(filepaths: Sequence[str], pattern: str) -> list[str]
 def batch_filter_files(
     filepaths: Sequence[str], patterns: list[str], match_any: bool = True
 ) -> list[str]:
-    """Filter files matching any/all patterns using git grep.
-
+    """
     Args:
         filepaths: List of file paths
         patterns: List of patterns to match
