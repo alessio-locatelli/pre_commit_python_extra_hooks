@@ -25,14 +25,6 @@ def git_grep_filter(
     faster than parsing every file with Python. Falls back to Python substring
     search if git is unavailable.
 
-    Args:
-        filepaths: List of file paths to filter
-        pattern: Pattern to search for (regex or fixed string)
-        fixed_string: If True, use -F (fixed string matching, faster)
-
-    Returns:
-        List of file paths containing the pattern
-
     Example:
         >>> # Find files with "def get_"
         >>> candidates = git_grep_filter(all_files, "def get_", fixed_string=True)
@@ -94,14 +86,6 @@ def git_grep_filter(
 
 
 def _python_fallback_filter(filepaths: Sequence[str], pattern: str) -> list[str]:
-    """
-    Args:
-        filepaths: List of file paths
-        pattern: Pattern to search for (treated as substring)
-
-    Returns:
-        List of file paths containing the pattern
-    """
     matches = []
     for filepath in filepaths:
         try:
@@ -120,14 +104,6 @@ def batch_filter_files(
     filepaths: Sequence[str], patterns: list[str], match_any: bool = True
 ) -> list[str]:
     """
-    Args:
-        filepaths: List of file paths
-        patterns: List of patterns to match
-        match_any: If True, match any pattern (OR); if False, match all (AND)
-
-    Returns:
-        Filtered file paths
-
     Example:
         >>> # Find files with "data" OR "result"
         >>> matches = batch_filter_files(files, ["data", "result"], match_any=True)
