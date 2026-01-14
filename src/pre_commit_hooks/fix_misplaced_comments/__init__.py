@@ -46,13 +46,6 @@ _COMPILED_LINTER_PATTERNS = {re.compile(p) for p in LINTER_PRAGMA_PATTERNS}
 
 @functools.cache
 def is_linter_pragma(comment_text: str) -> bool:
-    """
-    Args:
-        comment_text: The comment text (including # character)
-
-    Returns:
-        True if the comment matches any linter pragma pattern
-    """
     # Use pre-compiled patterns (performance optimization)
     return any(pattern.search(comment_text) for pattern in _COMPILED_LINTER_PATTERNS)
 
@@ -60,14 +53,6 @@ def is_linter_pragma(comment_text: str) -> bool:
 def is_bracket_only_line(
     tokens: list[tokenize.TokenInfo], bracket_token_idx: int
 ) -> bool:
-    """
-    Args:
-        tokens: List of all tokens in the file
-        bracket_token_idx: Index of the bracket token to check
-
-    Returns:
-        True if the line contains only closing brackets (and whitespace)
-    """
     bracket_token = tokens[bracket_token_idx]
     line_num = bracket_token.start[0]
 
@@ -103,13 +88,6 @@ class MisplacedComment(NamedTuple):
 
 
 def check_file(filename: str) -> list[tuple[int, str]]:
-    """
-    Args:
-        filename: Path to Python file to check
-
-    Returns:
-        List of (line_number, message) tuples for violations
-    """
     try:
         with tokenize.open(filename) as f:
             source = f.read()
@@ -158,10 +136,6 @@ def check_file(filename: str) -> list[tuple[int, str]]:
 
 
 def fix_file(filename: str) -> None:
-    """
-    Args:
-        filename: Path to Python file to fix
-    """
     try:
         with tokenize.open(filename) as f:
             source = f.read()
@@ -253,13 +227,6 @@ def fix_file(filename: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """
-    Args:
-        argv: Command line arguments (if None, uses sys.argv[1:])
-
-    Returns:
-        Exit code (0 if no violations, 1 if violations found/fixed)
-    """
     parser = argparse.ArgumentParser(
         description="Fix comments misplaced on closing brackets"
     )

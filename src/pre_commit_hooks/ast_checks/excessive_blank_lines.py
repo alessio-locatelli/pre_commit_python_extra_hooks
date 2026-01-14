@@ -21,11 +21,7 @@ logger = logging.getLogger("excessive_blank_lines")
 def find_module_header_end(lines: list[str]) -> int:
     """Module header includes: shebang, encoding, docstring, copyright/comments.
 
-    Args:
-        lines: List of file lines
-
-    Returns:
-        Index (0-based) where module header ends
+    Returns index (0-based) where module header ends.
     """
     in_docstring = False
     docstring_char = None
@@ -68,13 +64,6 @@ def find_module_header_end(lines: list[str]) -> int:
 
 
 def check_file_violations(source: str) -> list[tuple[int, str]]:
-    """
-    Args:
-        source: File source code
-
-    Returns:
-        List of (line_number, message) tuples
-    """
     lines = source.splitlines(keepends=True)
 
     if not lines:
@@ -137,25 +126,11 @@ def check_file_violations(source: str) -> list[tuple[int, str]]:
 
 
 def _is_class_or_function_def(line: str) -> bool:
-    """
-    Args:
-        line: Source code line
-
-    Returns:
-        True if line starts a class or function definition
-    """
     stripped = line.lstrip()
     return stripped.startswith(("class ", "def ", "async def "))
 
 
 def fix_file_content(source: str) -> str:
-    """
-    Args:
-        source: Original source code
-
-    Returns:
-        Fixed source code
-    """
     lines = source.splitlines(keepends=True)
 
     if not lines:
@@ -235,15 +210,6 @@ class ExcessiveBlankLinesCheck:
         return None
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
-        """
-        Args:
-            filepath: Path to file
-            tree: Parsed AST tree (not used for this check)
-            source: Source code
-
-        Returns:
-            List of violations
-        """
         file_violations = check_file_violations(source)
 
         violations = []
@@ -268,16 +234,6 @@ class ExcessiveBlankLinesCheck:
         source: str,
         tree: ast.Module,
     ) -> bool:
-        """
-        Args:
-            filepath: Path to file
-            violations: Violations to fix
-            source: Source code
-            tree: Parsed AST tree (not used)
-
-        Returns:
-            True if fixes were applied successfully
-        """
         if not violations:
             return False
 
