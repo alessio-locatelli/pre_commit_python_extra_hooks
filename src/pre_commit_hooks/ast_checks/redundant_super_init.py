@@ -28,8 +28,7 @@ class SuperInitChecker(ast.NodeVisitor):
         self.classes: dict[str, ast.ClassDef] = {}  # Track class definitions
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """Visit a class definition.
-
+        """
         Args:
             node: ClassDef AST node
         """
@@ -52,8 +51,7 @@ class SuperInitChecker(ast.NodeVisitor):
     def _check_init_method(
         self, class_node: ast.ClassDef, init_node: ast.FunctionDef
     ) -> None:
-        """Check if __init__ forwards kwargs to parent that doesn't accept them.
-
+        """
         Args:
             class_node: The class definition
             init_node: The __init__ method
@@ -91,8 +89,7 @@ class SuperInitChecker(ast.NodeVisitor):
 
 
 def _is_super_init_call(node: ast.Call) -> bool:
-    """Check if node is a super().__init__() call.
-
+    """
     Args:
         node: Call AST node
     """
@@ -112,8 +109,7 @@ def _is_super_init_call(node: ast.Call) -> bool:
 
 
 def _forwards_kwargs(node: ast.Call) -> bool:
-    """Check if call forwards **kwargs.
-
+    """
     Args:
         node: Call AST node
 
@@ -127,9 +123,7 @@ def _forwards_kwargs(node: ast.Call) -> bool:
 def _parent_accepts_args(
     class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]
 ) -> bool:
-    """Check if parent's __init__ accepts any arguments.
-
-    This method recursively traverses the inheritance chain to determine
+    """Recursively traverses the inheritance chain to determine
     if any ancestor class accepts arguments through its __init__ method.
 
     Args:
@@ -176,21 +170,17 @@ class RedundantSuperInitCheck:
 
     @property
     def check_id(self) -> str:
-        """Return check identifier."""
         return "redundant-super-init"
 
     @property
     def error_code(self) -> str:
-        """Return error code."""
         return "TRI003"
 
     def get_prefilter_pattern(self) -> str | None:
-        """Return pre-filter pattern."""
         return "super().__init__"
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
-        """Run check and return violations.
-
+        """
         Args:
             filepath: Path to file
             tree: Parsed AST tree
@@ -224,7 +214,7 @@ class RedundantSuperInitCheck:
         source: str,
         tree: ast.Module,
     ) -> bool:
-        """No autofix support for this check.
+        """No autofix support.
 
         Args:
             filepath: Path to file
