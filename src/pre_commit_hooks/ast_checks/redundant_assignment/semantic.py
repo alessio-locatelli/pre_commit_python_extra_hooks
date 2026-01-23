@@ -3,8 +3,46 @@
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 
 from .analysis import PatternType, VariableLifecycle
+
+
+def _is_test_file(filepath: Path | None) -> bool:
+    """Check if a file is a test file.
+
+    Args:
+        filepath: Path to the file being analyzed
+
+    Returns:
+        True if this is a test file
+    """
+    if filepath is None:
+        return False
+
+    # Check if file is in a test directory
+    parts = filepath.parts
+    if "tests" in parts or "test" in parts:
+        return True
+
+    # Check if filename follows test naming convention
+    filename = filepath.name
+    return filename.startswith("test_") or filename.endswith("_test.py")
+
+
+def _is_test_function(scope_node: ast.AST | None) -> bool:
+    """Check if code is inside a test function.
+
+    Args:
+        scope_node: AST node representing the current scope
+
+    Returns:
+        True if inside a test function
+    """
+    if isinstance(scope_node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return scope_node.name.startswith("test_")
+    return False
+
 
 # Transformative verbs that indicate semantic value
 TRANSFORMATIVE_VERBS = {
@@ -251,6 +289,8 @@ def calculate_semantic_value(
     rhs_source: str,
     rhs_node: ast.expr,
     has_type_annotation: bool = False,
+    is_test_context: bool = False,
+    filepath: Path | None = None,
 ) -> int:
     """Calculate semantic value score for a variable name.
 
@@ -264,11 +304,71 @@ def calculate_semantic_value(
         rhs_source: Right-hand side source code
         rhs_node: Right-hand side AST node
         has_type_annotation: Whether assignment has type annotation
+        is_test_context: Whether this is in a test file/function
+        filepath: Path to file being analyzed (for test detection)
 
     Returns:
         Semantic value score (0-100)
     """
     score = 0
+
+    # In test contexts, apply higher semantic value to descriptive variables
+    # Test code benefits more from named intermediate variables for clarity
+    if is_test_context or (filepath and _is_test_file(filepath)):
+        # Multi-part names in tests are highly valuable for test readability
+        var_parts = var_name.split("_")
+        if len(var_parts) >= 2:
+            # Variables like "camel_case_sample", "duffel_route", "mock_image"
+            # provide essential context in test code
+            score += 30
+
+        # Variables that clearly describe test data or results
+        test_semantic_words = {
+            "mock",
+            "fake",
+            "sample",
+            "expected",
+            "actual",
+            "result",
+            "fixture",
+            "data",
+            "template",
+            "response",
+            "request",
+            "some",
+            "example",
+            "test",
+        }
+        var_lower = var_name.lower()
+        if any(word in var_lower for word in test_semantic_words):
+            score += 25
+
+        # Variables storing function/method call results before assertions
+        # Example: result = landmark.__eq__(None); assert result is NotImplemented
+        if isinstance(rhs_node, ast.Call) and var_lower in {
+            "result",
+            "output",
+            "value",
+            "response",
+            "landmark",
+        }:
+            # If variable is called "result", "output", "value" in test context,
+            # it's a common pattern for making assertions clearer
+            score += 30
+
+        # List/dict literals with semantic names in tests
+        # Example: some_european_airports = ["AES", "BYJ", "BTS"]
+        if isinstance(rhs_node, ast.List | ast.Dict | ast.Set):
+            score += 25
+
+        # Range objects with descriptive names
+        # Example: days_with_routes_in_a_row = range(70)
+        if (
+            isinstance(rhs_node, ast.Call)
+            and isinstance(rhs_node.func, ast.Name)
+            and rhs_node.func.id == "range"
+        ):
+            score += 25
 
     # Check if variable adds verbosity or context (+50 points)
     # This catches cases like "raw_headers = kwargs.get('headers')"
@@ -537,12 +637,14 @@ def _is_named_constant_pattern(var_name: str, rhs_node: ast.expr) -> bool:
 def should_report_violation(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
+    filepath: Path | None = None,
 ) -> bool:
     """Determine if a violation should be reported based on semantic analysis.
 
     Args:
         lifecycle: Variable lifecycle
         pattern: Detected pattern type
+        filepath: Path to file being analyzed (for test detection)
 
     Returns:
         True if violation should be reported
@@ -618,6 +720,7 @@ def should_report_violation(
         rhs_source=assignment.rhs_source,
         rhs_node=assignment.rhs_node,
         has_type_annotation=assignment.has_type_annotation,
+        filepath=filepath,
     )
 
     # Report violations with low semantic value (< 50)
@@ -661,6 +764,7 @@ def _estimate_inlined_line_length(
 def should_autofix(
     lifecycle: VariableLifecycle,
     pattern: PatternType,
+    filepath: Path | None = None,
 ) -> bool:
     """Determine if a violation should be auto-fixed.
 
@@ -683,6 +787,7 @@ def should_autofix(
     Args:
         lifecycle: Variable lifecycle
         pattern: Detected pattern type
+        filepath: Path to file being analyzed (for test detection)
 
     Returns:
         True if should auto-fix
@@ -712,6 +817,7 @@ def should_autofix(
         rhs_source=assignment.rhs_source,
         rhs_node=assignment.rhs_node,
         has_type_annotation=assignment.has_type_annotation,
+        filepath=filepath,
     )
 
     rhs_node = assignment.rhs_node

@@ -162,11 +162,11 @@ class RedundantAssignmentCheck:
                 continue
 
             # Apply semantic filtering
-            if not should_report_violation(lifecycle, pattern):
+            if not should_report_violation(lifecycle, pattern, filepath):
                 continue
 
             # Determine if fixable (very conservative - only simplest cases)
-            fixable = should_autofix(lifecycle, pattern)
+            fixable = should_autofix(lifecycle, pattern, filepath)
 
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)

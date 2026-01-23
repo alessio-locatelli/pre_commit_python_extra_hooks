@@ -11,6 +11,10 @@ from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
     VariableTracker,
     detect_redundancy,
 )
+from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+    _is_test_file,
+    _is_test_function,
+)
 
 
 def test_immediate_single_use_detected() -> None:
@@ -3459,3 +3463,218 @@ def get_user(data):
         assert "user_id" not in v.message, (
             f"Should not flag 'user_id' - has _id suffix: {v.message}"
         )
+
+
+def test_test_file_detection_by_path() -> None:
+    """Test that files in tests/ directory are recognized as test files."""
+    source = """
+def test_camel_to_under():
+    camel_case_sample = "RandomClassName"
+    assert camel_to_under(camel_case_sample) == "random_class_name"
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    # File in tests/ directory should not flag test setup variables
+    violations = check.check(Path("tests/test_utils.py"), tree, source)
+
+    # Should NOT flag camel_case_sample - test setup variable in test file
+    for v in violations:
+        assert "camel_case_sample" not in v.message, (
+            f"Should not flag test setup variable in test file: {v.message}"
+        )
+
+
+def test_test_file_detection_by_name() -> None:
+    """Test that files with test_ prefix are recognized as test files."""
+    source = """
+def test_translate_templates():
+    templates = ["Hello", "Goodbye"]
+    translator = MockTranslator(templates)
+    assert translator.templates == templates
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    # File with test_ prefix should not flag test variables
+    violations = check.check(Path("test_translator.py"), tree, source)
+
+    # Should NOT flag templates - descriptive test data in test file
+    for v in violations:
+        assert "templates" not in v.message, (
+            f"Should not flag test data variable in test file: {v.message}"
+        )
+
+
+def test_test_result_variable_not_flagged() -> None:
+    """Test that result variables in test files are not flagged."""
+    source = """
+def test_landmark_equal_to_none():
+    landmark = Landmark(name="Tower", long_lat=(2.0, 48.0), score=0.9)
+    result = landmark.__eq__(None)
+    assert result is NotImplemented
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    violations = check.check(Path("tests/test_model.py"), tree, source)
+
+    # Should NOT flag result - common test pattern for assertion clarity
+    for v in violations:
+        assert "result" not in v.message, (
+            f"Should not flag 'result' in test file: {v.message}"
+        )
+
+
+def test_test_mock_object_not_flagged() -> None:
+    """Test that mock objects with descriptive names are not flagged."""
+    source = """
+def test_prepare_photo():
+    mock_image = MagicMock()
+    mock_vision.Image.return_value = mock_image
+    result = gcp_vision._prepare_photo(file_obj)
+    assert result == mock_image
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    violations = check.check(Path("tests/test_vision.py"), tree, source)
+
+    # Should NOT flag mock_image - named mock object in test file
+    for v in violations:
+        assert "mock_image" not in v.message, (
+            f"Should not flag mock object in test file: {v.message}"
+        )
+
+
+def test_semantic_test_data_list_not_flagged() -> None:
+    """Test that semantic test data lists are not flagged in test files."""
+    source = """
+def test_airport_connectivity():
+    some_european_airports = ["AES", "BYJ", "BTS"]
+    assert all(
+        iata in airport_connectivity.airports_by_continent
+        for iata in some_european_airports
+    )
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    violations = check.check(Path("tests/test_kiwi_api.py"), tree, source)
+
+    # Should NOT flag some_european_airports - semantic test data
+    for v in violations:
+        assert "some_european_airports" not in v.message, (
+            f"Should not flag semantic test data in test file: {v.message}"
+        )
+
+
+def test_range_with_descriptive_name_not_flagged() -> None:
+    """Test that range objects with descriptive names are not flagged in test files."""
+    source = """
+def generate_price_data():
+    days_with_routes_in_a_row = range(70)
+    return [
+        faker.pyint(min_value=50, max_value=MAX_PRICE_EUR)
+        for _ in days_with_routes_in_a_row
+    ]
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    violations = check.check(Path("tests/test_flight_prices.py"), tree, source)
+
+    # Should NOT flag days_with_routes_in_a_row - descriptive range in test file
+    for v in violations:
+        assert "days_with_routes_in_a_row" not in v.message, (
+            f"Should not flag descriptive range in test file: {v.message}"
+        )
+
+
+def test_non_test_file_still_flags_simple_assignments() -> None:
+    """Test that non-test files still flag simple redundant assignments."""
+    source = """
+def process_data():
+    x = "foo"
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+
+    # Non-test file should still flag simple redundant assignments
+    violations = check.check(Path("src/processor.py"), tree, source)
+
+    # Should flag x - simple redundant assignment in non-test file
+    msg = "Should flag simple redundant assignment in non-test file"
+    assert len(violations) > 0, msg
+    assert any("x" in v.message for v in violations), (
+        "Should flag variable 'x' in non-test file"
+    )
+
+
+def test_is_test_file_detects_tests_directory() -> None:
+    """Test that _is_test_file correctly identifies files in tests directory."""
+    assert _is_test_file(Path("tests/test_something.py")) is True
+    assert _is_test_file(Path("tests/utils/test_helpers.py")) is True
+    assert _is_test_file(Path("test/test_foo.py")) is True
+
+
+def test_is_test_file_detects_test_prefix() -> None:
+    """Test that _is_test_file correctly identifies files with test_ prefix."""
+    assert _is_test_file(Path("test_example.py")) is True
+    assert _is_test_file(Path("src/test_module.py")) is True
+
+
+def test_is_test_file_detects_test_suffix() -> None:
+    """Test that _is_test_file correctly identifies files with _test.py suffix."""
+    assert _is_test_file(Path("example_test.py")) is True
+    assert _is_test_file(Path("src/module_test.py")) is True
+
+
+def test_is_test_file_rejects_non_test_files() -> None:
+    """Test that _is_test_file correctly rejects non-test files."""
+    assert _is_test_file(Path("src/module.py")) is False
+    assert _is_test_file(Path("main.py")) is False
+    assert _is_test_file(Path("setup.py")) is False
+
+
+def test_is_test_file_handles_none() -> None:
+    """Test that _is_test_file handles None input."""
+    assert _is_test_file(None) is False
+
+
+def test_is_test_function_detects_test_functions() -> None:
+    """Test that _is_test_function correctly identifies test functions."""
+    source = "def test_something(): pass"
+    tree = ast.parse(source)
+    func_node = tree.body[0]
+    assert _is_test_function(func_node) is True
+
+
+def test_is_test_function_detects_async_test_functions() -> None:
+    """Test that _is_test_function correctly identifies async test functions."""
+    source = "async def test_async_something(): pass"
+    tree = ast.parse(source)
+    func_node = tree.body[0]
+    assert _is_test_function(func_node) is True
+
+
+def test_is_test_function_rejects_non_test_functions() -> None:
+    """Test that _is_test_function correctly rejects non-test functions."""
+    source = "def helper_function(): pass"
+    tree = ast.parse(source)
+    func_node = tree.body[0]
+    assert _is_test_function(func_node) is False
+
+
+def test_is_test_function_handles_non_function_nodes() -> None:
+    """Test that _is_test_function handles non-function nodes."""
+    source = "x = 5"
+    tree = ast.parse(source)
+    assign_node = tree.body[0]
+    assert _is_test_function(assign_node) is False
+
+
+def test_is_test_function_handles_none() -> None:
+    """Test that _is_test_function handles None input."""
+    assert _is_test_function(None) is False
