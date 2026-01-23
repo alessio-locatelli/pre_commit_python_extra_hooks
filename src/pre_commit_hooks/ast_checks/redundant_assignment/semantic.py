@@ -714,6 +714,19 @@ def should_report_violation(
     ):
         return False
 
+    # Rule 9: Don't report when assignment is inside control flow but usage is outside
+    # This handles context manager pattern to reduce nesting:
+    #   with file.open() as f:
+    #       config = load(f)  # assignment inside
+    #   # Use config outside to avoid deep nesting
+    #   data = config.get(...)
+    if (
+        assignment.in_control_flow
+        and lifecycle.uses
+        and all(not use.in_control_flow for use in lifecycle.uses)
+    ):
+        return False
+
     # Calculate semantic value
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,

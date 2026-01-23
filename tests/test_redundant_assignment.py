@@ -3678,3 +3678,119 @@ def test_is_test_function_handles_non_function_nodes() -> None:
 def test_is_test_function_handles_none() -> None:
     """Test that _is_test_function handles None input."""
     assert _is_test_function(None) is False
+
+
+def test_context_manager_assignment_inside_usage_outside_not_flagged() -> None:
+    """Test that assignments inside context managers with usage outside are not flagged.
+
+    This pattern is used to reduce nesting - load data inside the context manager,
+    use it outside to avoid deep indentation.
+    """
+    source = """
+def load_config():
+    with open("config.toml", "rb") as file:
+        config = tomllib.load(file)
+    # Use config outside to reduce nesting
+    value = config.get("key", {})
+    return value
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag config - intentional pattern to reduce nesting
+    for v in violations:
+        assert "config" not in v.message, (
+            f"Should not flag context manager pattern: {v.message}"
+        )
+
+
+def test_context_manager_with_block_pattern_not_flagged() -> None:
+    """Test the specific pattern from load_paths_to_ignore."""
+    source = """
+def load_paths_to_ignore(project_root, src_dir):
+    pyproject_path = project_root / "pyproject.toml"
+    with pyproject_path.open("rb") as file:
+        config = tomllib.load(file)
+
+    paths_to_ignore = set()
+    expressions = (
+        config.get("tool", {})
+        .get("test_linter", {})
+        .get("ignore_path_by_expression", [])
+    )
+    for pattern in expressions:
+        paths_to_ignore |= set(src_dir.glob(pattern))
+    return paths_to_ignore
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag config - used outside with block to reduce nesting
+    for v in violations:
+        assert "config" not in v.message, (
+            f"Should not flag config in context manager pattern: {v.message}"
+        )
+
+
+def test_database_connection_pattern_not_flagged() -> None:
+    """Test database connection pattern where data is loaded inside, used outside."""
+    source = """
+def fetch_user(user_id):
+    with get_db_connection() as conn:
+        result = conn.execute("SELECT * FROM users WHERE id = ?", user_id)
+        user_data = result.fetchone()
+    # Process user_data outside connection to avoid holding it open
+    return process_user(user_data)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag user_data - intentional pattern to close connection quickly
+    for v in violations:
+        assert "user_data" not in v.message, (
+            f"Should not flag database pattern: {v.message}"
+        )
+
+
+def test_if_block_assignment_inside_usage_outside_not_flagged() -> None:
+    """Test that assignments inside if blocks with usage outside are not flagged."""
+    source = """
+def process():
+    if condition:
+        data = load_expensive_data()
+    # Use data outside if block
+    result = transform(data)
+    return result
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag data - used outside if block
+    for v in violations:
+        assert "data" not in v.message, f"Should not flag if block pattern: {v.message}"
+
+
+def test_try_block_assignment_inside_usage_outside_not_flagged() -> None:
+    """Test that assignments inside try blocks with usage outside are not flagged."""
+    source = """
+def load_with_fallback():
+    try:
+        data = load_from_api()
+    except Exception:
+        data = load_from_cache()
+    # Use data outside try block
+    return process(data)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag data - used outside try block
+    for v in violations:
+        assert "data" not in v.message, (
+            f"Should not flag try block pattern: {v.message}"
+        )
