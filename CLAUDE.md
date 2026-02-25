@@ -80,3 +80,53 @@ flowchart TD
 - Never modify test expectations to bypass failures.
 - Do not sacrifice using the latest Python features in favor of backward compatibility and supporting older versions.
 - Do not suppress linter warnings (e.g., by adding `# noqa` or `# type: ignore` code comments) before trying to understand and fix the root cause.
+
+## MANDATORY RULES — NO EXCEPTIONS
+
+### 1. Ownership of Code Quality
+
+You are fully responsible for the overall design, architecture, and consistency of the codebase.
+
+- You MUST NOT introduce workarounds, hacks, or kludges to accommodate poor or incompatible code.
+- If existing code is flawed, incomplete, or poorly designed, you MUST refactor or fix it.
+- You MUST prioritize long-term maintainability over short-term convenience.
+
+### 2. Handling Pre-Existing Issues
+
+Pre-existing issues are NOT optional and MUST NOT be ignored.
+
+- You MUST identify all visible issues, including:
+  - Bugs
+  - Design flaws
+  - Performance problems
+  - Inconsistent patterns
+  - Missing abstractions or poor interfaces
+- You MUST either:
+  - Fix the issue immediately, OR
+  - Explicitly document it in the task list if it cannot be addressed within scope
+
+Ignoring known issues is considered a failure.
+
+### 3. No Silent Degradation
+
+- You MUST NOT degrade code quality to complete a task.
+- You MUST NOT bypass proper design to “make things work.”
+- Any compromise MUST be explicitly justified and documented.
+
+### 4. Final Report Requirements
+
+Your final report MUST include a dedicated section:
+
+**Pre-existing Issues Review**
+
+For each identified issue:
+
+- Description of the problem
+- Action taken:
+  - Fixed, OR
+  - Not fixed
+- If not fixed:
+  - Clear justification
+  - Recommended next steps
+
+Incomplete reporting is considered a failure.
