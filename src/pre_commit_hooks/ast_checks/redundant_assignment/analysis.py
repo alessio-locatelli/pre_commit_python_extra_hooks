@@ -76,6 +76,7 @@ class UsageInfo:
     scope_id: int
     usage_has_await: bool = False
     in_control_flow: bool = False
+    in_comprehension: bool = False
 
 
 @dataclass
@@ -233,6 +234,9 @@ class VariableTracker(ast.NodeVisitor):
 
         # Track if we're inside control flow (if, try, with)
         self.control_flow_depth = 0
+
+        # Track if we're inside a comprehension (list/set/dict/generator)
+        self.comprehension_depth = 0
 
         # Track parent nodes for context detection
         self.parent_stack: list[ast.AST] = []
@@ -419,6 +423,51 @@ class VariableTracker(ast.NodeVisitor):
         self.control_flow_depth += 1
         self.generic_visit(node)
         self.control_flow_depth -= 1
+
+    def _visit_comprehension(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+    ) -> None:
+        """Visit a comprehension node (track comprehension depth).
+
+        Args:
+            node: Comprehension node (list, set, dict, or generator)
+        """
+        self.comprehension_depth += 1
+        self.generic_visit(node)
+        self.comprehension_depth -= 1
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        """Visit list comprehension.
+
+        Args:
+            node: List comprehension node
+        """
+        self._visit_comprehension(node)
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:  # noqa: N815
+        """Visit set comprehension.
+
+        Args:
+            node: Set comprehension node
+        """
+        self._visit_comprehension(node)
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:  # noqa: N815
+        """Visit generator expression.
+
+        Args:
+            node: Generator expression node
+        """
+        self._visit_comprehension(node)
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:  # noqa: N815
+        """Visit dict comprehension.
+
+        Args:
+            node: Dict comprehension node
+        """
+        self._visit_comprehension(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit class definition (enter new scope).
@@ -702,6 +751,7 @@ class VariableTracker(ast.NodeVisitor):
             scope_id=scope_id,
             usage_has_await=usage_has_await,
             in_control_flow=self.control_flow_depth > 0,
+            in_comprehension=self.comprehension_depth > 0,
         )
 
         # Store usage

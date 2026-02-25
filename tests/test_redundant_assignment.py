@@ -3794,3 +3794,262 @@ def load_with_fallback():
         assert "data" not in v.message, (
             f"Should not flag try block pattern: {v.message}"
         )
+
+
+def test_variable_used_in_list_comprehension_condition_not_flagged() -> None:
+    """Test the reported false-positive: attribute cached for a comprehension filter.
+
+    depot_iso_country = depot_data.iso_country  # cached once
+    result = [x for x in depots if x.country == depot_iso_country]
+
+    Inlining re-evaluates depot_data.iso_country on every iteration.
+    """
+    source = """
+def find_routes(depot_data, depots):
+    depot_iso_country = depot_data.iso_country
+    return [x for x in depots if x.country == depot_iso_country]
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "depot_iso_country" not in v.message, (
+            f"Should not flag comprehension-cached variable: {v.message}"
+        )
+
+
+def test_variable_used_only_in_list_comprehension_element_not_flagged() -> None:
+    """Test variable used in the element expression of a list comprehension."""
+    source = """
+def transform(multiplier, items):
+    factor = multiplier.value
+    return [x * factor for x in items]
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "factor" not in v.message, (
+            f"Should not flag comprehension element variable: {v.message}"
+        )
+
+
+def test_variable_used_only_in_dict_comprehension_not_flagged() -> None:
+    """Test variable cached for use inside a dict comprehension."""
+    source = """
+def build_map(source_obj, keys):
+    prefix = source_obj.namespace
+    return {k: f"{prefix}_{k}" for k in keys}
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "prefix" not in v.message, (
+            f"Should not flag dict-comprehension-cached variable: {v.message}"
+        )
+
+
+def test_variable_used_only_in_set_comprehension_not_flagged() -> None:
+    """Test variable cached for use inside a set comprehension."""
+    source = """
+def unique_suffixes(config, items):
+    suffix = config.default_suffix
+    return {item + suffix for item in items}
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "suffix" not in v.message, (
+            f"Should not flag set-comprehension-cached variable: {v.message}"
+        )
+
+
+def test_variable_used_only_in_generator_expression_not_flagged() -> None:
+    """Test variable cached for use inside a generator expression."""
+    source = """
+def total_score(config, players):
+    bonus = config.bonus_points
+    return sum(p.score + bonus for p in players)
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "bonus" not in v.message, (
+            f"Should not flag generator-expression-cached variable: {v.message}"
+        )
+
+
+def test_variable_used_inside_and_outside_comprehension_not_flagged() -> None:
+    """Test that the new rule does not interfere with multi-use variables.
+
+    A variable used both inside AND outside a comprehension has multiple uses,
+    so detect_redundancy returns None and it is never flagged regardless.
+    """
+    source = """
+def example(obj, items):
+    val = obj.attr
+    result = [x for x in items if x == val]
+    return val
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # val is used twice (inside comprehension + return), so it is not single-use
+    # and must not be flagged by detect_redundancy at all.
+    for v in violations:
+        assert "val" not in v.message, (
+            f"Multi-use variable should not be flagged: {v.message}"
+        )
+
+
+def test_in_comprehension_flag_set_correctly() -> None:
+    """Test that UsageInfo.in_comprehension is set for comprehension usages."""
+    source = """
+def func(obj, items):
+    cached = obj.attr
+    result = [x for x in items if x == cached]
+    return result
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    cached_lifecycle = next(
+        lc for lc in lifecycles if lc.assignment.var_name == "cached"
+    )
+    assert len(cached_lifecycle.uses) == 1
+    assert cached_lifecycle.uses[0].in_comprehension is True
+
+
+def test_in_comprehension_flag_false_for_normal_usage() -> None:
+    """Test that UsageInfo.in_comprehension is False for non-comprehension usages."""
+    source = """
+def func():
+    x = "foo"
+    print(x)
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    x_lifecycle = next(lc for lc in lifecycles if lc.assignment.var_name == "x")
+    assert all(not use.in_comprehension for use in x_lifecycle.uses)
+
+
+def test_calculate_semantic_value_test_context_list_literal() -> None:
+    """Test that list/dict/set literals get a bonus in test-context scoring.
+
+    Rule 10 now intercepts variables used solely inside comprehensions before
+    they reach calculate_semantic_value, so this branch needs a direct test.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_source = '["AES", "BYJ", "BTS"]'
+    rhs_node = ast.parse(rhs_source, mode="eval").body
+
+    score = calculate_semantic_value(
+        "some_european_airports",
+        rhs_source,
+        rhs_node,
+        has_type_annotation=False,
+        is_test_context=True,
+    )
+    # multi-part name (+30) + "some" in test_semantic_words (+25) + list bonus (+25)
+    assert score >= 25
+
+
+def test_calculate_semantic_value_test_context_dict_literal() -> None:
+    """Test that dict literals get a bonus in test-context scoring."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_source = '{"key": "value"}'
+    rhs_node = ast.parse(rhs_source, mode="eval").body
+
+    score = calculate_semantic_value(
+        "my_mapping",
+        rhs_source,
+        rhs_node,
+        has_type_annotation=False,
+        is_test_context=True,
+    )
+    assert score >= 25  # dict literal bonus in test context
+
+
+def test_calculate_semantic_value_test_context_range_call() -> None:
+    """Test that range() calls get a bonus in test-context scoring.
+
+    Rule 10 now intercepts 'days_with_routes_in_a_row' used in comprehension
+    before it reaches calculate_semantic_value, so this needs a direct test.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_source = "range(70)"
+    rhs_node = ast.parse(rhs_source, mode="eval").body
+
+    score = calculate_semantic_value(
+        "days_with_routes_in_a_row",
+        rhs_source,
+        rhs_node,
+        has_type_annotation=False,
+        is_test_context=True,
+    )
+    # multi-part name (+30) + no test_semantic_words match (+0) + range bonus (+25)
+    assert score >= 25
+
+
+def test_calculate_semantic_value_test_context_no_semantic_word() -> None:
+    """Test test-context scoring for a variable name without test semantic words.
+
+    Covers the False branch of the test_semantic_words check (line 343->348).
+    Before Rule 10, 'days_with_routes_in_a_row' (no semantic test words) covered
+    this branch, but it is now intercepted by Rule 10.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_source = "42"
+    rhs_node = ast.parse(rhs_source, mode="eval").body
+
+    # "flight_count" contains no test semantic words
+    score = calculate_semantic_value(
+        "flight_count",
+        rhs_source,
+        rhs_node,
+        has_type_annotation=False,
+        is_test_context=True,
+    )
+    # multi-part name (+30) + no test_semantic_words match (+0)
+    assert score >= 0  # just verifying the False branch is exercised
+
+
+def test_pytriage_ignore_still_suppresses_comprehension_false_positive() -> None:
+    """Test that the pytriage ignore comment works for comprehension cases too."""
+    source = """
+def func(depot_data, depots):
+    depot_iso_country = depot_data.iso_country  # pytriage: ignore=TRI005
+    return [x for x in depots if x.country == depot_iso_country]
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Both the new rule (Rule 10) and the ignore comment suppress this warning.
+    assert len(violations) == 0

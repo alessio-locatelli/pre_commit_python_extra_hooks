@@ -727,6 +727,15 @@ def should_report_violation(
     ):
         return False
 
+    # Rule 10: Don't report when all usages are inside a comprehension
+    # Inlining would re-evaluate the RHS expression on every iteration,
+    # causing a performance regression. For example:
+    #   iso_country = obj.iso_country          # cached once
+    #   result = [x for x in items if x.country == iso_country]  # O(1) lookup
+    # Inlining would become O(n) attribute lookups inside the comprehension.
+    if lifecycle.uses and all(use.in_comprehension for use in lifecycle.uses):
+        return False
+
     # Calculate semantic value
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,
