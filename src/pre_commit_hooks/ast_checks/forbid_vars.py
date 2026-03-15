@@ -399,13 +399,16 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         self.current_scope.pop()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """Don't descend into class definitions.
+        """Visit class body but only descend into method definitions.
 
-        Class attributes, NamedTuple fields, and dataclass fields are excluded
-        from analysis because the class name provides sufficient context.
+        Class-level attribute assignments (NamedTuple fields, dataclass fields,
+        plain class attributes) are excluded because the class name provides
+        sufficient context.  Method bodies ARE analysed — a 'result =' inside
+        a test method is just as meaningless as one in a standalone function.
         """
-        # Don't visit the class body - skip class attribute analysis
-        pass
+        for stmt in node.body:
+            if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                self.visit(stmt)
 
     def _check_function_args(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef

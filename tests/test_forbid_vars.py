@@ -451,6 +451,28 @@ def compute():
     assert "result" in violations[0].message
 
 
+def test_result_variable_in_class_method_detected() -> None:
+    """Regression test: 'result =' inside a class method must be detected.
+
+    Previously, visit_ClassDef() did 'pass', skipping the entire class body
+    including all method definitions. Variables like 'result =' inside test
+    class methods were silently missed.
+    """
+    source = """
+class TestSomething:
+    def test_query(self, conn):
+        result = conn.execute("SELECT COUNT(*) FROM t").fetchone()
+        assert result is not None
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 1
+    assert "result" in violations[0].message
+
+
 def test_custom_forbidden_names() -> None:
     """Test that custom forbidden names can be configured."""
     check = ForbidVarsCheck(forbidden_names={"foo", "bar"})
