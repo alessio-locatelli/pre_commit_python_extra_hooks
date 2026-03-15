@@ -151,8 +151,8 @@ class RedundantSuperInitCheck:
     def error_code(self) -> str:
         return "TRI003"
 
-    def get_prefilter_pattern(self) -> str | None:
-        return "super().__init__"
+    def get_prefilter_pattern(self) -> list[str] | None:
+        return ["super().__init__"]
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
         checker = SuperInitChecker(str(filepath))

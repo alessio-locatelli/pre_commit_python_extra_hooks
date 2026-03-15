@@ -110,13 +110,13 @@ class RedundantAssignmentCheck:
     def error_code(self) -> str:
         return ERROR_CODE
 
-    def get_prefilter_pattern(self) -> str | None:
+    def get_prefilter_pattern(self) -> list[str] | None:
         """Return pattern for git grep pre-filtering.
 
         Returns:
             Pattern to match assignment statements
         """
-        return " = "
+        return [" = "]
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
         """Run redundancy check on a file.

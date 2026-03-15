@@ -665,10 +665,10 @@ class ForbidVarsCheck:
     def error_code(self) -> str:
         return "TRI001"
 
-    def get_prefilter_pattern(self) -> str | None:
-        """Returns the first forbidden name as a simple pattern."""
+    def get_prefilter_pattern(self) -> list[str] | None:
+        """Returns all forbidden names as prefilter patterns."""
         if self.forbidden_names:
-            return next(iter(sorted(self.forbidden_names)))
+            return sorted(self.forbidden_names)
         # pragma: no cover (constructor defaults to DEFAULT_FORBIDDEN_NAMES)
         return None
 

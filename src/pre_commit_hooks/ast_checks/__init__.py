@@ -136,9 +136,9 @@ class CheckOrchestrator:
         # Step 1: Aggregate pre-filter patterns from all checks
         patterns = []
         for check in self.checks:
-            pattern = check.get_prefilter_pattern()
-            if pattern:
-                patterns.append(pattern)
+            check_patterns = check.get_prefilter_pattern()
+            if check_patterns:
+                patterns.extend(check_patterns)
 
         # Step 2: Pre-filter files (OR logic: file matches if it contains ANY pattern)
         if patterns:

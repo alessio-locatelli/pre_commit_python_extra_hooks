@@ -259,8 +259,8 @@ def test_check_id_and_error_code() -> None:
 def test_prefilter_pattern() -> None:
     """Test that prefilter pattern is defined."""
     check = RedundantAssignmentCheck()
-    pattern = check.get_prefilter_pattern()
-    assert pattern == " = "
+    patterns = check.get_prefilter_pattern()
+    assert patterns == [" = "]
 
 
 def test_fixable_marked_correctly() -> None:
