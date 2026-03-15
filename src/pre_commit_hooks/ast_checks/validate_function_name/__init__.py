@@ -250,8 +250,8 @@ def _make_check_class() -> type:
         def error_code(self) -> str:
             return ERROR_CODE
 
-        def get_prefilter_pattern(self) -> str | None:
-            return "def get_"
+        def get_prefilter_pattern(self) -> list[str] | None:
+            return ["def get_"]
 
         def check(
             self, filepath: Path, tree: ast.Module, source: str

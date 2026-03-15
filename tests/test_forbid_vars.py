@@ -419,12 +419,36 @@ def test_no_violations_when_all_suppressed() -> None:
 
 
 def test_prefilter_pattern() -> None:
-    """Test that prefilter pattern is returned."""
+    """Test that prefilter pattern includes all forbidden names."""
     check = ForbidVarsCheck()
-    pattern = check.get_prefilter_pattern()
+    patterns = check.get_prefilter_pattern()
 
-    # Should return one of the forbidden names
-    assert pattern in {"data", "result"}
+    # Should return ALL forbidden names so that files with only 'result ='
+    # are not silently skipped during pre-filtering
+    assert patterns is not None
+    assert "data" in patterns
+    assert "result" in patterns
+
+
+def test_result_variable_detected() -> None:
+    """Regression test: files containing only 'result =' must be detected.
+
+    Previously, get_prefilter_pattern() returned only 'data' (the first
+    sorted forbidden name), so files with only 'result =' were silently
+    skipped by the prefilter and never reached the AST check.
+    """
+    source = """
+def compute():
+    result = get_value()
+    return result
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 1
+    assert "result" in violations[0].message
 
 
 def test_custom_forbidden_names() -> None:
@@ -534,8 +558,10 @@ def test_different_forbidden_names() -> None:
     assert len(violations) == 1, "Should only flag the configured names"
     assert "temp" in violations[0].message
 
-    # Prefilter should return one of the configured names
-    assert check.get_prefilter_pattern() in {"temp", "tmp"}
+    # Prefilter should return ALL configured names
+    patterns = check.get_prefilter_pattern()
+    assert patterns is not None
+    assert set(patterns) == {"temp", "tmp"}
 
 
 def test_keyword_only_parameters() -> None:

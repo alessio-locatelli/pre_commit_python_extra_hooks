@@ -61,19 +61,21 @@ class ASTCheck(Protocol):
         """
         ...
 
-    def get_prefilter_pattern(self) -> str | None:
-        """Pattern for git grep pre-filtering.
+    def get_prefilter_pattern(self) -> list[str] | None:
+        """Patterns for git grep pre-filtering.
 
-        Return a fixed string pattern that identifies files that might
+        Return fixed string patterns that identify files that might
         contain violations for this check. If None, all files will be
-        checked (no pre-filtering).
+        checked (no pre-filtering). Multiple patterns are combined with
+        OR logic — a file is a candidate if it contains ANY of the patterns.
 
         Returns:
-            Pattern string for git grep, or None for no filtering
+            List of pattern strings for git grep, or None for no filtering
 
         Examples:
-            - "def get_" for validate-function-name
-            - "super().__init__" for redundant-super-init
+            - ["def get_"] for validate-function-name
+            - ["super().__init__"] for redundant-super-init
+            - ["data", "result"] for forbid-vars
             - None for excessive-blank-lines (check all files)
         """
         ...
