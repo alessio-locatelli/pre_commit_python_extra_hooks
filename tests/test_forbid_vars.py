@@ -67,6 +67,94 @@ class Config:
     assert len(violations) == 0, "Regular class attributes should not be analyzed"
 
 
+def test_pydantic_model_validator_data_param_not_flagged() -> None:
+    """Test that 'data' in a @model_validator parameter is not flagged.
+
+    Pydantic's @model_validator(mode="before") requires the parameter to be
+    named 'data'; flagging it would produce a false positive.
+    """
+    source = """
+from pydantic import BaseModel, model_validator
+from typing import Any
+
+class Email(BaseModel):
+
+    @model_validator(mode="before")
+    @classmethod
+    def content_is_provided(cls, data: Any) -> Any:
+        return data
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 0
+
+
+def test_pydantic_model_validator_bare_not_flagged() -> None:
+    """Test that bare @model_validator (without call) also suppresses the check."""
+    source = """
+from pydantic import BaseModel, model_validator
+from typing import Any
+
+class MyModel(BaseModel):
+
+    @model_validator
+    @classmethod
+    def validate_all(cls, data: Any) -> Any:
+        return data
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 0
+
+
+def test_pydantic_model_validator_body_still_checked() -> None:
+    """Test that the body of a @model_validator is still analysed for violations."""
+    source = """
+from pydantic import BaseModel, model_validator
+from typing import Any
+
+class MyModel(BaseModel):
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_all(cls, data: Any) -> Any:
+        result = do_something(data)  # 'result =' in body should still be flagged
+        return result
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 1
+    assert "result" in violations[0].message
+
+
+def test_non_validator_method_data_param_still_flagged() -> None:
+    """Test that 'data' is still flagged in regular (non-validator) methods."""
+    source = """
+from pydantic import BaseModel
+
+class MyModel(BaseModel):
+
+    def process(self, data: dict) -> dict:
+        return data
+"""
+
+    tree = ast.parse(source)
+    check = ForbidVarsCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    assert len(violations) == 1
+    assert "data" in violations[0].message
+
+
 def test_function_variables_are_analyzed() -> None:
     """Test that function-level variables ARE still analyzed."""
     source = """
