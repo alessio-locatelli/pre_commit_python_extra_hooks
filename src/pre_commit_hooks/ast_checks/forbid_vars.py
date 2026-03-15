@@ -380,9 +380,30 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
+    @staticmethod
+    def _has_decorator_named(
+        node: ast.FunctionDef | ast.AsyncFunctionDef, name: str
+    ) -> bool:
+        """Return True if the function has a decorator identified by *name*.
+
+        Handles both bare decorators (``@model_validator``) and called
+        decorators (``@model_validator(mode="before")``).
+        """
+        for dec in node.decorator_list:
+            if isinstance(dec, ast.Name) and dec.id == name:
+                return True
+            if (
+                isinstance(dec, ast.Call)
+                and isinstance(dec.func, ast.Name)
+                and dec.func.id == name
+            ):
+                return True
+        return False
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Visit function definition nodes: def foo(data):."""
-        self._check_function_args(node)
+        if not self._has_decorator_named(node, "model_validator"):
+            self._check_function_args(node)
         # Push scope before visiting function body
         self.current_scope.append(node)
         self.generic_visit(node)
@@ -391,7 +412,8 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         """Visit async function definition nodes: async def foo(data):."""
-        self._check_function_args(node)
+        if not self._has_decorator_named(node, "model_validator"):
+            self._check_function_args(node)
         # Push scope before visiting function body
         self.current_scope.append(node)
         self.generic_visit(node)
