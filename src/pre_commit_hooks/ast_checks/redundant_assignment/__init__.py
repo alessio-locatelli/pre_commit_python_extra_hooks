@@ -170,8 +170,6 @@ class RedundantAssignmentCheck:
 
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)
-            if fixable:
-                message = f"[FIXABLE] {message} Run with --fix to inline automatically."
 
             violation = Violation(
                 check_id=self.check_id,

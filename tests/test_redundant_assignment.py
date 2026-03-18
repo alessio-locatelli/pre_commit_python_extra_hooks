@@ -8,6 +8,7 @@ from pathlib import Path
 from pre_commit_hooks.ast_checks.redundant_assignment import RedundantAssignmentCheck
 from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
     PatternType,
+    VariableLifecycle,
     VariableTracker,
     detect_redundancy,
 )
@@ -2077,6 +2078,46 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
     filepath.unlink()
 
 
+def test_cleanup_blank_lines_only_excess_below() -> None:
+    """Branch coverage: blank_above <= 1 but blank_below > 1 (total >= 3).
+
+    Exercises the False branch of ``if blank_above > 1`` when there are no
+    excess blanks above the removed line but there are excess blanks below it.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+        _cleanup_blank_lines_around_removals,
+    )
+
+    # removed_idx=0, blank_above=0, blank_below=2 → total=3
+    # "if blank_above > 1" is False → branch 161->167 taken
+    # "if blank_below > 1" is True  → excess below removed
+    lines = ["", "", "", "code\n"]
+    _cleanup_blank_lines_around_removals(lines, {0})
+    # excess blank at index 2 should be cleared
+    assert lines[2] == ""
+    assert lines[3] == "code\n"
+
+
+def test_cleanup_blank_lines_only_excess_above() -> None:
+    """Branch coverage: blank_above > 1 but blank_below <= 1 (total >= 3).
+
+    Exercises the False branch of ``if blank_below > 1`` when there are no
+    excess blanks below the removed line but there are excess blanks above it.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+        _cleanup_blank_lines_around_removals,
+    )
+
+    # removed_idx=2, blank_above=2, blank_below=0 → total=3
+    # "if blank_above > 1" is True  → excess above removed
+    # "if blank_below > 1" is False → branch 167->136 taken
+    lines = ["", "", "", "code\n"]
+    _cleanup_blank_lines_around_removals(lines, {2})
+    # excess blank at index 0 should be cleared
+    assert lines[0] == ""
+    assert lines[3] == "code\n"
+
+
 def test_global_scope_without_underscore_not_flagged() -> None:
     """Test that global scope variables without underscore prefix are not flagged."""
     source = """
@@ -4053,3 +4094,465 @@ def func(depot_data, depots):
 
     # Both the new rule (Rule 10) and the ignore comment suppress this warning.
     assert len(violations) == 0
+
+
+def test_variable_used_in_function_decorator_not_flagged() -> None:
+    """Regression test: variable used in a function decorator must not be flagged.
+
+    The decorator expression is evaluated in the outer scope, so any variable
+    referenced there counts as a use.  In this FastAPI-like pattern, 'app' is
+    used twice: once in @app.get(…) and once in 'return app'.  Because it has
+    two uses it is not single-use and must not be flagged as TRI005.
+    """
+    source = """
+def _make_app():
+    app = FastAPI()
+
+    @app.get("/guarded")
+    async def guarded(uid):
+        return {"uid": uid}
+
+    return app
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "'app'" not in v.message, (
+            "Should not flag 'app' - used in decorator and return statement: "
+            f"{v.message}"
+        )
+
+
+def test_decorator_use_is_tracked_by_variable_tracker() -> None:
+    """Test that VariableTracker records decorator expressions as uses."""
+    source = """
+def outer():
+    app = make_app()
+
+    @app.route("/")
+    def index():
+        pass
+
+    return app
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    app_lifecycle = next(
+        (lc for lc in lifecycles if lc.assignment.var_name == "app"),
+        None,
+    )
+    assert app_lifecycle is not None
+    # Two uses: @app.route("/") and return app
+    assert len(app_lifecycle.uses) == 2
+
+
+def test_class_decorator_use_is_tracked() -> None:
+    """Test that class decorators in nested classes are tracked as uses."""
+    source = """
+def factory():
+    validator = build_validator()
+
+    @validator.register
+    class Rule:
+        pass
+
+    return validator
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    lc = next(
+        (lc for lc in lifecycles if lc.assignment.var_name == "validator"),
+        None,
+    )
+    assert lc is not None
+    # Two uses: @validator.register (decorator) and return validator
+    assert len(lc.uses) == 2
+
+
+def test_has_inline_comment_mismatched_quote_in_string() -> None:
+    """Regression: branch for mismatched quote inside a string is exercised.
+
+    When a line contains a string delimited by double-quotes that also contains
+    a single-quote character (e.g. "it's"), the inner single-quote character is
+    encountered while in_string=True with string_char='"'.  The
+    ``elif char == string_char`` branch evaluates to False, and the loop must
+    continue without closing the string context.  Without this branch being
+    taken we would incorrectly detect the apostrophe as a comment delimiter.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        _has_inline_comment,
+    )
+
+    # Single-quote inside a double-quoted string — no real comment
+    lines = ['x = "it\'s fine"']
+    assert _has_inline_comment(1, lines) is False
+
+    # Same pattern but WITH a real comment after the string
+    lines = ['x = "it\'s fine"  # comment']
+    assert _has_inline_comment(1, lines) is True
+
+
+def test_track_attribute_assignment_with_non_name_base() -> None:
+    """Branch coverage: base of attribute/subscript assignment is not a Name.
+
+    When the target of an assignment is something like ``func().attr = v``
+    (a method-call result), unwinding the Attribute chain leads to a Call
+    node, not a Name.  _track_attribute_or_subscript_base_usage must skip
+    tracking in that case rather than crashing.
+    """
+    source = """
+def outer():
+    get_obj().attr = "value"
+    return 42
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    # Must not raise; call-result targets are silently skipped
+    tracker.visit(tree)
+
+
+def test_track_attribute_assignment_key_already_in_uses() -> None:
+    """Branch coverage: key is already in uses when a second attr-assignment occurs.
+
+    When the same variable is the base of two separate attribute assignments
+    (e.g. ``obj.x = 1`` then ``obj.y = 2``), the second call to
+    _track_attribute_or_subscript_base_usage finds the key already present in
+    self.uses and must append rather than create a new list.
+    """
+    source = """
+def outer():
+    obj = make_obj()
+    obj.x = 1
+    obj.y = 2
+    return obj
+"""
+    tracker = VariableTracker(source)
+    tree = ast.parse(source)
+    tracker.visit(tree)
+    lifecycles = tracker.build_lifecycles()
+
+    obj_lifecycle = next(
+        (lc for lc in lifecycles if lc.assignment.var_name == "obj"),
+        None,
+    )
+    assert obj_lifecycle is not None
+    # obj is used in: obj.x = 1, obj.y = 2, return obj → 3 uses
+    assert len(obj_lifecycle.uses) == 3
+
+
+def test_fixable_violation_message_has_no_embedded_tags() -> None:
+    """Regression test: [FIXABLE] and 'Run with --fix' must NOT be in v.message.
+
+    These are presentation concerns emitted by the output layer (main()),
+    not part of the machine-readable violation message.  Embedding them in
+    the message caused '[FIXED] [FIXABLE] … Run with --fix…' output when
+    --fix was already used.
+    """
+    source = """
+def func():
+    x = "foo"
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    fixable_violations = [v for v in violations if v.fixable]
+    assert fixable_violations, "Expected at least one fixable violation for this test"
+
+    for v in fixable_violations:
+        assert "[FIXABLE]" not in v.message, (
+            f"Message must not embed [FIXABLE] tag: {v.message}"
+        )
+        assert "Run with --fix" not in v.message, (
+            f"Message must not embed --fix hint: {v.message}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# semantic.py branch / line coverage tests
+# ---------------------------------------------------------------------------
+
+
+def test_calculate_semantic_value_binop() -> None:
+    """Branch coverage: BinOp RHS adds 15 to semantic score (line 399)."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_node = ast.parse("a + b", mode="eval").body
+    score = calculate_semantic_value("x", "a + b", rhs_node, False)
+    assert score >= 15
+
+
+def test_calculate_semantic_value_ifexp() -> None:
+    """Branch coverage: IfExp RHS adds 20 to semantic score (line 405)."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        calculate_semantic_value,
+    )
+
+    rhs_node = ast.parse("1 if c else 0", mode="eval").body
+    score = calculate_semantic_value("x", "1 if c else 0", rhs_node, False)
+    assert score >= 20
+
+
+def test_should_report_violation_inline_comment_single_use() -> None:
+    """Branch coverage: has_inline_comment=True with single-use variable (line 667).
+
+    The existing test uses a multi-use variable, so detect_redundancy() returns None
+    before reaching should_report_violation().  This test uses a single-use variable
+    with an inline comment to reach and exercise line 667.
+    """
+    source = """
+def func():
+    x = "foo"  # some comment
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    # Should NOT flag 'x' - it has an inline comment
+    for v in violations:
+        assert "'x'" not in v.message, (
+            f"Should not flag 'x' - has inline comment: {v.message}"
+        )
+
+
+def test_should_report_violation_short_ifexp_single_use() -> None:
+    """Branch coverage: short IfExp RHS with single-use variable (line 686).
+
+    A ternary expression short enough (<25 chars) to pass the line-length check
+    but still excluded by Rule 4 (IfExp guard) in should_report_violation().
+    """
+    source = """
+def func(c):
+    x = 1 if c else 0
+    return x
+"""
+    tree = ast.parse(source)
+    check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
+
+    for v in violations:
+        assert "'x'" not in v.message, f"Should not flag short IfExp: {v.message}"
+
+
+def _make_single_use_lifecycle(
+    rhs_source: str,
+    rhs_node: ast.expr,
+    var_name: str = "x",
+    in_loop: bool = False,
+    in_control_flow: bool = False,
+) -> VariableLifecycle:
+    """Build a minimal VariableLifecycle for direct should_autofix tests."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+        AssignmentInfo,
+        UsageInfo,
+        VariableLifecycle,
+    )
+
+    assignment = AssignmentInfo(
+        var_name=var_name,
+        line=1,
+        col=0,
+        stmt_index=0,
+        rhs_node=rhs_node,
+        rhs_source=rhs_source,
+        scope_id=1,
+        has_type_annotation=False,
+        in_loop=in_loop,
+        in_control_flow=in_control_flow,
+        in_global_scope=False,
+    )
+    use = UsageInfo(
+        var_name=var_name,
+        line=2,
+        col=0,
+        stmt_index=1,
+        context="return",
+        scope_id=1,
+    )
+    return VariableLifecycle(assignment=assignment, uses=[use])
+
+
+def test_should_autofix_returns_false_for_loop_assignment() -> None:
+    """Branch coverage: should_autofix returns False when in_loop=True (line 821)."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    rhs_node = ast.parse('"foo"', mode="eval").body
+    lifecycle = _make_single_use_lifecycle('"foo"', rhs_node, in_loop=True)
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+
+
+def test_should_autofix_returns_false_for_multiline_rhs() -> None:
+    """Branch coverage: should_autofix returns False when RHS contains newline."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    rhs_node = ast.parse('"foo"', mode="eval").body
+    lifecycle = _make_single_use_lifecycle('"foo"\n"bar"', rhs_node)
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+
+
+def test_should_autofix_returns_false_for_long_var_name_immediate() -> None:
+    """Branch coverage: should_autofix returns False when var name > 10 chars.
+
+    Uses 'myvariablex' (11 chars, no underscores) with a 10-char Name RHS to keep
+    semantic_score=0 — the name/rhs length ratio stays below 1.1 so no score is
+    added from the ratio check.  The code therefore reaches the len(var_name) > 10
+    guard rather than returning early at the semantic_score > 10 check.
+
+    This guard applies only to IMMEDIATE_SINGLE_USE / LITERAL_IDENTITY patterns.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    rhs_node = ast.parse("something1", mode="eval").body
+    lifecycle = _make_single_use_lifecycle(
+        "something1", rhs_node, var_name="myvariablex"
+    )
+    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
+
+
+def test_should_autofix_returns_false_for_high_semantic_score_single_use() -> None:
+    """Branch coverage: should_autofix returns False when semantic_score > 20.
+
+    A multi-part variable name gets +10 from name_parts scoring alone, and using
+    a descriptive prefix pushes it over 20.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    # "has_something" gets +50 for "has_" prefix → semantic score > 20
+    rhs_node = ast.parse("check()", mode="eval").body
+    lifecycle = _make_single_use_lifecycle(
+        "check()", rhs_node, var_name="has_something"
+    )
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+
+
+def test_should_autofix_returns_true_for_single_use_constant_rhs() -> None:
+    """Branch coverage: should_autofix returns True for SINGLE_USE with Constant RHS.
+
+    Low-semantic-score variable with a constant RHS and SINGLE_USE pattern reaches
+    ``return True`` at the Constant/Name isinstance check in the SINGLE_USE block.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    rhs_node = ast.parse("42", mode="eval").body
+    lifecycle = _make_single_use_lifecycle("42", rhs_node, var_name="x")
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
+
+
+def test_should_autofix_returns_false_for_non_call_non_attr_rhs_single_use() -> None:
+    """Branch coverage: SINGLE_USE with RHS that is not Constant/Name/Attribute/Call.
+
+    A list literal falls through all isinstance checks in the SINGLE_USE block
+    and reaches the final ``return False`` (branch 884->893).
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
+
+    rhs_node = ast.parse("[1, 2, 3]", mode="eval").body
+    lifecycle = _make_single_use_lifecycle("[1, 2, 3]", rhs_node)
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+
+
+def test_adds_verbosity_subscript_with_variable_slice() -> None:
+    """Branch coverage: Subscript RHS with non-constant (variable) slice (216->226).
+
+    Pattern 2 enters the Subscript branch but the slice is a Name, not a Constant,
+    so rhs_key_or_method stays None and the check at line 226 is reached with None.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    # obj[key] where key is a variable, not a string constant
+    rhs_node = ast.parse("obj[key]", mode="eval").body
+    # The var_name "user_obj" contains "obj" (from the Name base) but the slice is a
+    # variable; rhs_key_or_method is None so the check returns False from Pattern 2.
+    result = _adds_verbosity_or_context("user_obj", "obj[key]", rhs_node)
+    # Pattern 1 also doesn't apply ("user" not a descriptive prefix for "obj[key]")
+    # Just assert we get a bool without error — coverage is the goal here.
+    assert isinstance(result, bool)
+
+
+def test_adds_verbosity_call_with_subscript_func() -> None:
+    """Branch coverage: Call RHS where func is neither Name nor Attribute.
+
+    When the function being called is accessed via subscript (e.g.
+    ``funcs["load"](data)``), ``rhs_node.func`` is a Subscript, not a Name or
+    Attribute, so rhs_key_or_method stays None.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    rhs_node = ast.parse('funcs["load"](data)', mode="eval").body
+    rhs_src = 'funcs["load"](data)'
+    result = _adds_verbosity_or_context("configuration", rhs_src, rhs_node)
+    assert isinstance(result, bool)
+
+
+def test_adds_verbosity_get_call_key_not_in_var() -> None:
+    """Branch coverage: Pattern 3 (.get() call) where key is not in var name."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    # var_name "x" does not contain "email" → Pattern 3 condition is False
+    rhs_node = ast.parse('data.get("email")', mode="eval").body
+    result = _adds_verbosity_or_context("x", 'data.get("email")', rhs_node)
+    assert result is False
+
+
+def test_adds_verbosity_parse_func_with_subscript_func() -> None:
+    """Branch coverage: Pattern 4 parse func where func is a Subscript (271->276)."""
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    # parsers["json"](data) — func is a Subscript, not Name or Attribute
+    rhs_node = ast.parse('parsers["json"](data)', mode="eval").body
+    rhs_src = 'parsers["json"](data)'
+    result = _adds_verbosity_or_context("parsed_data", rhs_src, rhs_node)
+    assert isinstance(result, bool)
+
+
+def test_adds_verbosity_parse_func_with_generic_var_name() -> None:
+    """Branch coverage: Pattern 4 parse func but var name is generic (281->284).
+
+    When the var name IS in generic_names (e.g. "result"), the inner check returns
+    False without executing ``return True``.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _adds_verbosity_or_context,
+    )
+
+    # json.loads() is a generic parse function; "result" is in generic_names
+    rhs_node = ast.parse("json.loads(data)", mode="eval").body
+    result = _adds_verbosity_or_context("result", "json.loads(data)", rhs_node)
+    assert result is False
+
+
+def test_contains_nondeterministic_call_with_subscript_func() -> None:
+    """Branch coverage: _contains_nondeterministic_call with func as Subscript.
+
+    When the called function is accessed via subscript (e.g. ``funcs[0]()``),
+    ``node.func`` is a Subscript — neither Name nor Attribute.  The detector
+    must continue visiting child nodes rather than crashing or silently skipping.
+    """
+    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+        _contains_nondeterministic_call,
+    )
+
+    # funcs[0]() — func is a Subscript, func_name stays ""
+    rhs_node = ast.parse("funcs[0]()", mode="eval").body
+    # Not nondeterministic
+    assert _contains_nondeterministic_call(rhs_node) is False

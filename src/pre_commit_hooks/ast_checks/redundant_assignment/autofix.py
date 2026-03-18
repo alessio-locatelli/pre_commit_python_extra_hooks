@@ -160,14 +160,12 @@ def _cleanup_blank_lines_around_removals(
             # Remove excess blanks from above
             if blank_above > 1:
                 for i in range(removed_idx - blank_above, removed_idx - 1):
-                    if i >= 0:
-                        source_lines[i] = ""
+                    source_lines[i] = ""
 
             # Remove excess blanks from below
             if blank_below > 1:
                 for i in range(removed_idx + 2, removed_idx + 1 + blank_below):
-                    if i < len(source_lines):
-                        source_lines[i] = ""
+                    source_lines[i] = ""
 
 
 def _can_safely_inline(

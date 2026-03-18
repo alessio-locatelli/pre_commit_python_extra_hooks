@@ -506,9 +506,19 @@ def main(argv: list[str] | None = None) -> int:
     for filepath, violations in sorted(all_violations.items()):
         for v in violations:
             fixed = bool(v.fix_data and v.fix_data.get("fixed", False))
-            prefix = "[FIXED]" if fixed else ""
+            if fixed:
+                tag = "[FIXED] "
+            elif v.fixable:
+                tag = "[FIXABLE] "
+            else:
+                tag = ""
+            hint = (
+                " Run with --fix to inline automatically."
+                if v.fixable and not fixed
+                else ""
+            )
             print(
-                f"{filepath}:{v.line}: {v.error_code}: {prefix} {v.message}",
+                f"{filepath}:{v.line}: {v.error_code}: {tag}{v.message}{hint}",
                 file=sys.stderr,
             )
             exit_code = 1

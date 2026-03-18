@@ -213,7 +213,8 @@ def _adds_verbosity_or_context(
             # For subscript: obj["key"] or obj[key]
             if isinstance(rhs_node.slice, ast.Constant):
                 rhs_key_or_method = str(rhs_node.slice.value).lower()
-        elif isinstance(rhs_node, ast.Call):
+        else:
+            # Must be ast.Call — the outer guard ensures Subscript | Call
             # For calls: obj.method() or obj.method(args)
             if isinstance(rhs_node.func, ast.Attribute):
                 rhs_key_or_method = rhs_node.func.attr.lower()
@@ -271,15 +272,15 @@ def _adds_verbosity_or_context(
         elif isinstance(rhs_node.func, ast.Name):
             func_name = rhs_node.func.id.lower()
 
-        # If it's a generic parse function and variable name is multi-part or long
-        # Variable should be descriptive (not just "data" or "result")
-        if func_name in generic_parse_functions and (
-            len(var_parts) >= 2 or len(var_name) >= 8
+        # If it's a generic parse function and variable name is multi-part or long,
+        # and not a generic placeholder name like "data" or "result"
+        generic_names = {"data", "result", "value", "output", "obj", "dict"}
+        if (
+            func_name in generic_parse_functions
+            and (len(var_parts) >= 2 or len(var_name) >= 8)
+            and var_lower not in generic_names
         ):
-            # Don't flag generic names like "data", "result", "value"
-            generic_names = {"data", "result", "value", "output", "obj", "dict"}
-            if var_lower not in generic_names:
-                return True
+            return True
 
     return False
 
@@ -864,32 +865,30 @@ def should_autofix(
             rhs_node.value, ast.Name
         )
 
-    # More aggressive auto-fix for single-use variables (used once in entire function)
-    if pattern == PatternType.SINGLE_USE:
-        # Only auto-fix if semantic value is low (≤ 20)
-        # This allows slightly more meaningful names to be inlined
-        if semantic_score > 20:
-            return False
-
-        # Allow simple expressions
-        if isinstance(rhs_node, ast.Constant | ast.Name):
-            return True
-
-        # Allow: attribute access (obj.attr or obj.x.y.z)
-        if isinstance(rhs_node, ast.Attribute):
-            return True
-
-        # Allow: simple calls with no complex arguments
-        # Example: datetime.now(UTC), str(value), len(items)
-        if isinstance(rhs_node, ast.Call):
-            # Only allow calls with simple arguments (no keyword unpacking, etc.)
-            # and no more than 2 positional args
-            if len(rhs_node.args) <= 2 and not rhs_node.keywords:
-                return True
-            # Also allow calls with only simple keyword arguments
-            if len(rhs_node.args) == 0 and len(rhs_node.keywords) <= 2:
-                return True
-
+    # More aggressive auto-fix for single-use variables (used once in entire function).
+    # All other patterns already returned above, so we are always in SINGLE_USE here.
+    # Only auto-fix if semantic value is low (≤ 20)
+    # This allows slightly more meaningful names to be inlined
+    if semantic_score > 20:
         return False
+
+    # Allow simple expressions
+    if isinstance(rhs_node, ast.Constant | ast.Name):
+        return True
+
+    # Allow: attribute access (obj.attr or obj.x.y.z)
+    if isinstance(rhs_node, ast.Attribute):
+        return True
+
+    # Allow: simple calls with no complex arguments
+    # Example: datetime.now(UTC), str(value), len(items)
+    if isinstance(rhs_node, ast.Call):
+        # Only allow calls with simple arguments (no keyword unpacking, etc.)
+        # and no more than 2 positional args
+        if len(rhs_node.args) <= 2 and not rhs_node.keywords:
+            return True
+        # Also allow calls with only simple keyword arguments
+        if len(rhs_node.args) == 0 and len(rhs_node.keywords) <= 2:
+            return True
 
     return False

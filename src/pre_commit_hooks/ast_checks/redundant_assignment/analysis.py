@@ -340,9 +340,16 @@ class VariableTracker(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Visit function definition (enter new scope).
 
+        Decorators are evaluated in the outer (enclosing) scope before the
+        function body, so they must be visited before entering the new scope.
+
         Args:
             node: Function definition node
         """
+        # Visit decorators in the OUTER scope — they're evaluated there
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+
         self._enter_scope()
 
         # Visit function body
@@ -473,10 +480,15 @@ class VariableTracker(ast.NodeVisitor):
         """Visit class definition (enter new scope).
 
         We skip class-level assignments as they're attributes, not local variables.
+        Decorators are evaluated in the outer scope before the class body.
 
         Args:
             node: Class definition node
         """
+        # Visit decorators in the OUTER scope — they're evaluated there
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+
         self._enter_scope()
 
         # Visit class body but don't track assignments at class level
