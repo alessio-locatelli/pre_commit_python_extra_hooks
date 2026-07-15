@@ -8,14 +8,13 @@ Custom pre-commit hooks for code quality enforcement.
 
 ## Registered Hooks
 
-This repository registers exactly two hooks in `.pre-commit-hooks.yaml`:
+This repository registers exactly one hook in `.pre-commit-hooks.yaml`:
 
-| Hook id                  | What it runs                                                                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ast-checks`             | A grouped orchestrator that runs several AST-based checks (TRI001–TRI005) against each file in a single parse pass. Individual checks are toggled with `--enable`/`--disable`. |
-| `fix-misplaced-comments` | STYLE-001: moves trailing comments on closing brackets to the expression line.                                                                                                 |
+| Hook id      | What it runs                                                                                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ast-checks` | A grouped orchestrator that runs several AST-based checks (TRI001–TRI005, STYLE-001) against each file in a single parse pass. Individual checks are toggled with `--enable`/`--disable`. |
 
-There are no other installable hook ids and no console-script entry points (`[project.scripts]` in `pyproject.toml` is intentionally empty) — every check runs via `python -m pre_commit_hooks.<package>`.
+There are no other installable hook ids and no console-script entry points (`[project.scripts]` in `pyproject.toml` is intentionally empty) — every check runs via `python -m pre_commit_hooks.ast_checks`.
 
 ## Performance
 
@@ -25,26 +24,26 @@ All checks are optimized for speed with:
 - **Batch pre-filtering**: Fast git grep pre-filtering before Python processing
 - **Code-level optimizations**: Single AST parse, scope caching, pre-compiled regex patterns
 
-**Benchmark results (92 Python files, this repo's own `src/`+`tests/`, 3 iterations):**
+**Benchmark results (97 Python files, this repo's own `src/`+`tests/`, 3 iterations):**
 
-| Metric                   | Time    | Change     |
-| ------------------------ | ------- | ---------- |
-| Cold cache (first run)   | ~4.80 s | Baseline   |
-| Warm cache (incremental) | ~4.69 s | ~2% faster |
+| Metric                   | Time    | Change       |
+| ------------------------ | ------- | ------------ |
+| Cold cache (first run)   | ~6.11 s | Baseline     |
+| Warm cache (incremental) | ~6.09 s | ~0.3% faster |
 
 **Per-check performance (cold cache averages):**
 
 | Check                               | Time    |
 | ----------------------------------- | ------- |
-| `ast-checks` (all checks, one pass) | ~1.55 s |
-| `forbid-vars`                       | ~1.34 s |
+| `ast-checks` (all checks, one pass) | ~2.81 s |
 | `redundant-assignment`              | ~1.43 s |
-| `validate-function-name`            | ~0.21 s |
-| `excessive-blank-lines`             | ~0.12 s |
+| `forbid-vars`                       | ~1.30 s |
+| `misplaced-comment`                 | ~0.18 s |
+| `validate-function-name`            | ~0.19 s |
+| `excessive-blank-lines`             | ~0.13 s |
 | `redundant-super-init`              | ~0.06 s |
-| `fix-misplaced-comments`            | ~0.10 s |
 
-Each measurement pays Python interpreter startup once per subprocess invocation, so the cache mainly saves the per-file re-analysis cost, not process startup — the warm-cache improvement is modest for that reason. These numbers come from actually running the current `ast_checks`/`fix_misplaced_comments` packages against this repo, not a stand-in.
+Each measurement pays Python interpreter startup once per subprocess invocation, so the cache mainly saves the per-file re-analysis cost, not process startup — the warm-cache improvement is modest for that reason. `ast-checks (all checks, one pass)` now runs every check by default (`redundant-assignment` and `misplaced-comment` included), so it isn't directly comparable to pre-merge numbers. These numbers come from actually running the current `ast_checks` package against this repo, not a stand-in.
 
 **Cache location**: `.cache/pre_commit_hooks/` (automatically managed, safe to delete)
 
@@ -60,7 +59,7 @@ uv run python scripts/benchmark.py --iterations=3
 
 ### ast-checks (grouped)
 
-The `ast-checks` hook runs the checks below in a single AST parse pass per file. Select which ones run with `--enable=<id>,<id>` or `--disable=<id>,<id>` (comma-separated check ids); by default all checks run except `redundant-assignment` (see `.pre-commit-hooks.yaml`).
+The `ast-checks` hook runs the checks below in a single AST parse pass per file, with every check enabled by default. Select which ones run with `--enable=<id>,<id>` or `--disable=<id>,<id>` (comma-separated check ids).
 
 ```bash
 # List available check ids
@@ -284,18 +283,6 @@ def get_user(id: int) -> User:  # pytriage: ignore=TRI004
 
 #### redundant-assignment
 
-> **⚠️ Opt-in (Experimental)**: This check is disabled by default in `.pre-commit-hooks.yaml` as it's in early development and may have false positives. To enable it, override the default args in your `.pre-commit-config.yaml`:
->
-> ```yaml
-> - repo: https://github.com/YOUR_USERNAME/pre-commit-extra-hooks
->   rev: v1.0.0
->   hooks:
->     - id: ast-checks
->       args: [] # Remove --disable=redundant-assignment to enable all checks
->       # Or explicitly enable only this check:
->       # args: [--enable=redundant-assignment]
-> ```
-
 **TRI005**: Detects and optionally auto-fixes redundant variable assignments where the variable doesn't add meaningful clarity or simplification to the code.
 
 **Why?** Unnecessary intermediate variables add cognitive load without providing value. However, variables that add semantic meaning (transformative verbs like "formatted", "validated") or break down complex expressions are preserved.
@@ -384,7 +371,7 @@ return result
 
 ---
 
-### fix-misplaced-comments
+#### misplaced-comment
 
 **STYLE-001**: Automatically fixes trailing comments on closing brackets by moving them to the expression line.
 
@@ -409,8 +396,14 @@ result = func(
 - Automatically moves comments from closing bracket lines to expression lines
 - Places comments inline if they fit within 88 characters
 - Otherwise places them as preceding comments on their own line
-- Preserves file encoding and line endings
-- Gracefully handles syntax errors in source files
+- Never moves linter pragma comments (`noqa`, `type: ignore`, `pragma:`, etc.)
+- Inline suppression with `# pytriage: ignore=STYLE-001`
+- Gracefully handles syntax errors in source files (reads and writes UTF-8, matching every other check)
+
+```yaml
+- id: ast-checks
+  args: [--enable=misplaced-comment, --fix]
+```
 
 ---
 
@@ -426,7 +419,6 @@ repos:
     rev: v1.0.0 # Use the latest version tag
     hooks:
       - id: ast-checks
-      - id: fix-misplaced-comments
 ```
 
 Then install the pre-commit hooks:
@@ -553,7 +545,7 @@ def legacy_code():
 
 ## Adding New Checks
 
-Want to contribute a new check to this repository? See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough of the `register_check`/`ASTCheck` protocol used by the `ast_checks` package.
+Want to contribute a new check to this repository? See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough of the `ASTCheck` protocol used by the `ast_checks` package.
 
 ## Testing
 
@@ -613,25 +605,28 @@ uv run coverage report
 
 ```text
 pre_commit_python_extra_hooks/
-├── .pre-commit-hooks.yaml     # Hook definitions (ast-checks, fix-misplaced-comments)
+├── .pre-commit-hooks.yaml     # Hook definition (ast-checks)
 ├── .pre-commit-config.yaml    # Self-dogfooding configuration
 ├── README.md                  # This file
 ├── CONTRIBUTING.md            # Guide for adding new checks
+├── CONTEXT.md                 # Domain glossary
+├── docs/adr/                  # Architecture decision records
 ├── LICENSE                    # MIT license
 ├── pyproject.toml             # Python project metadata
 │
 ├── src/pre_commit_hooks/
 │   ├── _cache.py               # Shared disk cache (SHA-1 + mtime)
 │   ├── _prefilter.py           # git-grep based candidate-file filtering
-│   ├── ast_checks/             # Grouped orchestrator + individual checks
-│   │   ├── __init__.py          # CheckOrchestrator, register_check, CLI
-│   │   ├── _base.py             # ASTCheck protocol, Violation dataclass
-│   │   ├── forbid_vars.py       # TRI001
-│   │   ├── excessive_blank_lines.py  # TRI002
-│   │   ├── redundant_super_init.py   # TRI003
-│   │   ├── validate_function_name/   # TRI004
-│   │   └── redundant_assignment/     # TRI005 (opt-in)
-│   └── fix_misplaced_comments/  # STYLE-001
+│   └── ast_checks/             # Grouped orchestrator + individual checks
+│       ├── __init__.py          # CheckOrchestrator, ALL_CHECKS, CLI
+│       ├── _base.py             # ASTCheck protocol, Violation dataclass
+│       ├── _scope.py            # Shared lexical-scope traversal
+│       ├── forbid_vars.py       # TRI001
+│       ├── excessive_blank_lines.py  # TRI002
+│       ├── redundant_super_init.py   # TRI003
+│       ├── validate_function_name/   # TRI004
+│       ├── redundant_assignment/     # TRI005
+│       └── misplaced_comment.py      # STYLE-001
 │
 └── tests/                     # Test suite
     ├── fixtures/               # Test data per check

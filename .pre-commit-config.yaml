@@ -22,7 +22,7 @@ repos:
         language: system
         types: [python]
         files: ^src/
-        args: [--disable=redundant-assignment, misplaced-comment]
+        args: [--disable=misplaced-comment]
       - id: ast-checks
         name: Fix misplaced comments (self-check)
         description: Move trailing comments on closing brackets to expression lines
