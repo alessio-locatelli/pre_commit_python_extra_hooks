@@ -4,4 +4,3 @@
   entry: python -m pre_commit_hooks.ast_checks
   language: python
   types: [python]
-  args: [--disable=redundant-assignment]

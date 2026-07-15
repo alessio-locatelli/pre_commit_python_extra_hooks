@@ -184,13 +184,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from . import register_check
 from ._base import Violation
 
 ERROR_CODE = "TRI00N"
 
 
-@register_check
 class YourCheck:
     """One-line description."""
 
@@ -229,17 +227,26 @@ class YourCheck:
         return False  # implement if the check supports --fix
 ```
 
-Register the module so the `@register_check` decorator runs at import time by adding it to the import list at the bottom of `src/pre_commit_hooks/ast_checks/__init__.py`:
+Register the check by adding its class to `ALL_CHECKS` in `src/pre_commit_hooks/ast_checks/__init__.py`:
 
 ```python
-from . import (
-    excessive_blank_lines,
-    forbid_vars,
-    redundant_assignment,
-    redundant_super_init,
-    validate_function_name,
-    your_check,  # add this
-)
+from .excessive_blank_lines import ExcessiveBlankLinesCheck
+from .forbid_vars import ForbidVarsCheck
+from .misplaced_comment import MisplacedCommentCheck
+from .redundant_assignment import RedundantAssignmentCheck
+from .redundant_super_init import RedundantSuperInitCheck
+from .validate_function_name import ValidateFunctionNameCheck
+from .your_check import YourCheck  # add this import
+
+ALL_CHECKS: list[type[ASTCheck]] = [
+    ForbidVarsCheck,
+    ExcessiveBlankLinesCheck,
+    RedundantSuperInitCheck,
+    ValidateFunctionNameCheck,
+    RedundantAssignmentCheck,
+    MisplacedCommentCheck,
+    YourCheck,  # add this
+]
 ```
 
 That's it — no `.pre-commit-hooks.yaml` entry and no `[project.scripts]` entry needed. The check is now selectable via `--enable=your-check`/`--disable=your-check` on the existing `ast-checks` hook, and shows up in `python -m pre_commit_hooks.ast_checks --list-checks`.
@@ -249,11 +256,11 @@ That's it — no `.pre-commit-hooks.yaml` entry and no `[project.scripts]` entry
 - Use only the Python standard library (no external runtime dependencies)
 - Never touch text inside string/byte literals or comments when writing an autofix — locate targets via AST node positions (`node.lineno`/`node.col_offset`/`node.end_lineno`/`node.end_col_offset`), not blind regex substitution over the whole file. See `validate_function_name/autofix.py` for a worked example of AST-scoped renaming.
 - Support inline suppression: `# pytriage: ignore=TRI00N`
-- If the check is experimental or prone to false positives, keep it out of the default enabled set (see how `redundant-assignment` is excluded via `args: [--disable=redundant-assignment]` in `.pre-commit-hooks.yaml`)
+- If the check is experimental or prone to false positives, keep it out of the default enabled set by adding `args: [--disable=your-check-id]` to `.pre-commit-hooks.yaml`
 
 ### 3. Write Tests
 
-Create `tests/test_your_check.py` using `tmp_path` and `pytest.mark.parametrize` (see `tests/test_fix_misplaced_comments.py` for the idiomatic pattern used in this repo):
+Create `tests/test_your_check.py` using `tmp_path` and `pytest.mark.parametrize` (see `tests/test_misplaced_comment.py` for the idiomatic pattern used in this repo):
 
 ```python
 """Tests for your-check (TRI00N)."""
@@ -372,7 +379,7 @@ This repository follows [Semantic Versioning 2.0.0](https://semver.org/).
 - Remove a check id or CLI argument
 - Change default forbidden names in `forbid-vars`
 - Change error message format in a breaking way
-- Remove a hook (`ast-checks`/`fix-misplaced-comments`) entirely
+- Remove the `ast-checks` hook entirely
 
 ### Deprecation Process
 
@@ -389,7 +396,7 @@ Before removing features (MAJOR version bump):
 ### Guidelines
 
 1. **CLI Interface Stability:**
-   - Hook IDs never change (`ast-checks`, `fix-misplaced-comments` are permanent)
+   - The `ast-checks` hook id is permanent
    - Check ids passed via `--enable`/`--disable` never change once shipped
    - New arguments are optional with sensible defaults
    - Deprecated arguments show warnings before removal
@@ -422,7 +429,7 @@ All checks must meet performance requirements.
 uv run python scripts/benchmark.py --iterations=3
 ```
 
-`scripts/benchmark.py` invokes the real, currently-registered `ast_checks`/`fix_misplaced_comments` packages against this repo's own `src/`+`tests/` and reports per-check cold/warm timings — see the "Performance" section in `README.md` for the latest numbers.
+`scripts/benchmark.py` invokes the real, currently-registered `ast_checks` package against this repo's own `src/`+`tests/` and reports per-check cold/warm timings — see the "Performance" section in `README.md` for the latest numbers.
 
 ### Profiling
 
@@ -486,7 +493,9 @@ pre-commit autoupdate
 
 ## CI/CD Configuration
 
-This repository does not currently ship a CI workflow. If you add one (GitHub Actions is the natural choice given the repo is hosted there), run the full command sequence from this project's own `CLAUDE.md`/README on every PR:
+This repository is developed locally by a single maintainer and intentionally ships no CI workflow — the full command sequence below is run locally (via `pre-commit`/`prek` and by hand) before every commit, not in a hosted pipeline. This is a deliberate choice, not a gap to fill: don't add a badge or other claim implying automated CI checks run on this repo unless a workflow is actually added.
+
+If that changes and a CI workflow is added (GitHub Actions is the natural choice given the repo is hosted there), run the full command sequence from this project's own `CLAUDE.md`/README on every PR:
 
 ```bash
 uv run ruff check --fix .
