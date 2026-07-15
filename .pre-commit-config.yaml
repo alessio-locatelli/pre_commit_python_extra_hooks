@@ -4,12 +4,14 @@ repos:
   # under tests/fixtures/ are deliberately "bad" example code for our own
   # test suite, and the test suite itself idiomatically uses forbidden names
   # like `result` far more than production code does.
+  #
+  # Two separate hook ids sharing one implementation: the naming/structure
+  # checks (TRI00x) are report-only here so renames get a human review
+  # before landing, while misplaced-comment's fix is a purely mechanical
+  # text move (never changes semantics) safe to always auto-apply — see its
+  # own default args in .pre-commit-hooks.yaml.
   - repo: local
     hooks:
-      # Same hook id invoked twice with different args: the naming/structure
-      # checks (TRI00x) are report-only here so renames get a human review
-      # before landing, while misplaced-comment's fix is a purely mechanical
-      # text move (never changes semantics) safe to always auto-apply.
       - id: ast-checks
         name: Python AST checks (grouped, self-check)
         description: Run our own AST-based checks against src/
@@ -23,9 +25,8 @@ repos:
         types: [python]
         files: ^src/
         args: [--disable=misplaced-comment]
-      - id: ast-checks
+      - id: misplaced-comment
         name: Fix misplaced comments (self-check)
-        description: Move trailing comments on closing brackets to expression lines
         entry: uv run python -m pre_commit_hooks.ast_checks
         language: system
         types: [python]

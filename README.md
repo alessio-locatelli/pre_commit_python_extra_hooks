@@ -8,11 +8,12 @@ Custom pre-commit hooks for code quality enforcement.
 
 ## Registered Hooks
 
-This repository registers exactly one hook in `.pre-commit-hooks.yaml`:
+This repository registers two hooks in `.pre-commit-hooks.yaml`, both backed by the same `ast_checks` implementation (there's one orchestrator, one cache, one prefilter — not a duplicated pipeline):
 
-| Hook id      | What it runs                                                                                                                                                                              |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ast-checks` | A grouped orchestrator that runs several AST-based checks (TRI001–TRI005, STYLE-001) against each file in a single parse pass. Individual checks are toggled with `--enable`/`--disable`. |
+| Hook id             | What it runs                                                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ast-checks`        | A grouped orchestrator that runs every AST-based check (TRI001–TRI005, STYLE-001) against each file in a single parse pass, report-only by default. Individual checks are toggled with `--enable`/`--disable`. |
+| `misplaced-comment` | The same orchestrator restricted to STYLE-001 with `--fix` on by default — moving a comment off a closing-bracket-only line never changes semantics, so it's safe to auto-apply without a human review step.   |
 
 There are no other installable hook ids and no console-script entry points (`[project.scripts]` in `pyproject.toml` is intentionally empty) — every check runs via `python -m pre_commit_hooks.ast_checks`.
 
@@ -400,9 +401,10 @@ result = func(
 - Inline suppression with `# pytriage: ignore=STYLE-001`
 - Gracefully handles syntax errors in source files (reads and writes UTF-8, matching every other check)
 
+Registered as its own hook id with `--fix` on by default (see [Registered Hooks](#registered-hooks)):
+
 ```yaml
-- id: ast-checks
-  args: [--enable=misplaced-comment, --fix]
+- id: misplaced-comment
 ```
 
 ---
@@ -419,6 +421,7 @@ repos:
     rev: v1.0.0 # Use the latest version tag
     hooks:
       - id: ast-checks
+      - id: misplaced-comment
 ```
 
 Then install the pre-commit hooks:
@@ -605,7 +608,7 @@ uv run coverage report
 
 ```text
 pre_commit_python_extra_hooks/
-├── .pre-commit-hooks.yaml     # Hook definition (ast-checks)
+├── .pre-commit-hooks.yaml     # Hook definitions (ast-checks, misplaced-comment)
 ├── .pre-commit-config.yaml    # Self-dogfooding configuration
 ├── README.md                  # This file
 ├── CONTRIBUTING.md            # Guide for adding new checks
