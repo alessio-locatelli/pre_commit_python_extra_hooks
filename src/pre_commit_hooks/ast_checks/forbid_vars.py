@@ -268,16 +268,15 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
     ) -> None:
         """Check if a variable name is forbidden and record violation."""
         if name in self.forbidden_names:
-            # Get current scope for scope-aware processing
-            scope_node = self.current_scope[-1] if self.current_scope else None
-
-            violation = {
+            # fix_data (built from this dict) must stay serializable, so it
+            # can't carry an AST node — fix() re-resolves the enclosing
+            # scope from the fresh tree it's given instead (see
+            # _find_enclosing_function).
+            violation: dict[str, Any] = {
                 "name": name,
                 "line": lineno,
                 "col": col_offset,
                 "suggestion": None,
-                "scope_id": id(scope_node) if scope_node else None,
-                "scope_node": scope_node,
             }
             if match:
                 suggested_name = match["name"]
@@ -411,6 +410,27 @@ def _collect_scope_replacements(
     ]
 
 
+def _find_enclosing_function(
+    tree: ast.Module, line: int
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """Find the innermost function containing `line`, resolved fresh against `tree`.
+
+    CheckOrchestrator re-reads and re-parses the file before every check's
+    fix() call (an earlier check's fix may have already changed it), so a
+    scope captured during check() could belong to a different, stale tree
+    object by the time fix() runs. Resolving from `line` against the tree
+    fix() was actually given avoids that.
+    """
+    best: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        end = node.end_lineno or node.lineno
+        if node.lineno <= line <= end and (best is None or node.lineno > best.lineno):
+            best = node
+    return best
+
+
 def _apply_fixes(
     filepath: Path, violations: list[dict[str, Any]], source: str, tree: ast.Module
 ) -> None:
@@ -427,14 +447,16 @@ def _apply_fixes(
     """
     lines = source.splitlines(keepends=True)
 
-    # Step 1: Group violations by scope
+    # Step 1: Group violations by their enclosing scope
     violations_by_scope: dict[int | None, list[dict[str, Any]]] = {}
+    scope_nodes: dict[int | None, ast.AST] = {}
     for v in violations:
-        if v.get("suggestion"):
-            scope_id = v.get("scope_id")
-            if scope_id not in violations_by_scope:
-                violations_by_scope[scope_id] = []
-            violations_by_scope[scope_id].append(v)
+        if not v.get("suggestion"):  # pragma: no cover (fix() already filters these)
+            continue
+        scope_node = _find_enclosing_function(tree, v["line"])
+        scope_id = id(scope_node) if scope_node else None
+        violations_by_scope.setdefault(scope_id, []).append(v)
+        scope_nodes[scope_id] = scope_node or tree
 
     if not violations_by_scope:  # pragma: no cover (caller filters for fixable ones)
         return
@@ -454,10 +476,8 @@ def _apply_fixes(
     # Step 3: Collect replacements for each scope
     all_replacements: list[tuple[int, int, str, str]] = []
     for scope_id, replacements in scope_replacements.items():
-        # Scope node is the same for every violation sharing this scope_id
-        scope_node = violations_by_scope[scope_id][0].get("scope_node")
         all_replacements.extend(
-            _collect_scope_replacements(scope_node or tree, replacements)
+            _collect_scope_replacements(scope_nodes[scope_id], replacements)
         )
 
     # Step 4: Sort reverse and apply replacements

@@ -153,6 +153,13 @@ class RedundantAssignmentCheck:
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)
 
+            # fix_data must stay serializable (no AST nodes/lifecycle objects):
+            # apply_fixes() only ever needs these primitives. detect_redundancy()
+            # only returns a pattern for single-use lifecycles (see its
+            # `is_single_use` precondition), so this always holds here.
+            assert len(lifecycle.uses) == 1
+            single_use = lifecycle.uses[0]
+
             violation = Violation(
                 check_id=self.check_id,
                 error_code=self.error_code,
@@ -161,8 +168,12 @@ class RedundantAssignmentCheck:
                 message=message,
                 fixable=fixable,
                 fix_data={
-                    "lifecycle": lifecycle,
                     "pattern": pattern.name,
+                    "assign_line": lifecycle.assignment.line,
+                    "var_name": lifecycle.assignment.var_name,
+                    "rhs_source": lifecycle.assignment.rhs_source,
+                    "use_line": single_use.line,
+                    "use_col": single_use.col,
                 },
             )
             violations.append(violation)
