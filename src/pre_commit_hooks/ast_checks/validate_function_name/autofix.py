@@ -135,8 +135,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
 
     # Parse file and find the function
     try:
-        source = read_source(filepath)
-        tree = ast.parse(source)
+        tree = ast.parse(read_source(filepath))
     except (OSError, SyntaxError, UnicodeDecodeError) as error:
         logger.warning("Filepath: %s. Error: %s", filepath, repr(error))
         return False
