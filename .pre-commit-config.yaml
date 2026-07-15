@@ -1,5 +1,33 @@
 # Self-dogfooding: use our own hooks + standard quality tools
 repos:
+  # Our own hooks, run against src/ only. tests/ is excluded: its fixtures
+  # under tests/fixtures/ are deliberately "bad" example code for our own
+  # test suite, and the test suite itself idiomatically uses forbidden names
+  # like `result` far more than production code does.
+  - repo: local
+    hooks:
+      - id: ast-checks
+        name: Python AST checks (grouped, self-check)
+        description: Run our own AST-based checks against src/
+        # `uv run` resolves this project's own managed venv regardless of
+        # the ambient shell's PATH, since `language: system` hooks run
+        # outside any pre-commit-managed environment (a plain `git commit`,
+        # not wrapped in `uv run`, would otherwise use whatever `python` is
+        # on PATH, which won't have this src-layout package installed).
+        entry: uv run python -m pre_commit_hooks.ast_checks
+        language: system
+        types: [python]
+        files: ^src/
+        args: [--disable=redundant-assignment]
+      - id: fix-misplaced-comments
+        name: Fix misplaced comments (self-check)
+        description: Move trailing comments on closing brackets to expression lines
+        entry: uv run python -m pre_commit_hooks.fix_misplaced_comments
+        language: system
+        types: [python]
+        files: ^src/
+        args: [--fix]
+
   # Standard pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
