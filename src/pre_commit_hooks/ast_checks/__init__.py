@@ -276,8 +276,11 @@ class CheckOrchestrator:
             List of violations, or None if file couldn't be processed
         """
         try:
-            # Read file
-            source = filepath.read_text(encoding="utf-8")
+            # utf-8-sig transparently strips a leading BOM if present (and is
+            # identical to utf-8 otherwise) — without it, a BOM decodes as a
+            # literal U+FEFF character that ast.parse rejects as a syntax
+            # error, silently dropping the file from every check.
+            source = filepath.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError) as error:
             logger.error("Failed to read %s: %s", filepath, repr(error))
             return None
@@ -336,7 +339,7 @@ class CheckOrchestrator:
             if check_violations:
                 try:
                     # Re-read source in case previous fix modified it
-                    current_source = filepath.read_text(encoding="utf-8")
+                    current_source = filepath.read_text(encoding="utf-8-sig")
                     current_tree = ast.parse(current_source, filename=str(filepath))
 
                     success = check.fix(
