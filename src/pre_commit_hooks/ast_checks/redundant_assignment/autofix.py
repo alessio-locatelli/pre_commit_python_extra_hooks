@@ -43,24 +43,16 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
     removed_lines: set[int] = set()  # Track which lines we removed
 
     for violation in fixable_violations:
-        # Extract lifecycle data
+        # Extract fix data. use_line/use_col are None when the violation
+        # didn't have exactly one use (see RedundantAssignmentCheck.check) —
+        # that's the only shape this can safely auto-fix.
         fix_data = violation.fix_data
-        if not fix_data or "lifecycle" not in fix_data:
+        if not fix_data or fix_data.get("use_line") is None:
             continue
 
-        lifecycle = fix_data["lifecycle"]
-        assignment = lifecycle.assignment
-        uses = lifecycle.uses
-
-        # Safety check: should have exactly one use
-        if len(uses) != 1:
-            continue
-
-        use = uses[0]
-
-        # Get assignment and use lines (convert to 0-indexed)
-        assign_line_idx = assignment.line - 1
-        use_line_idx = use.line - 1
+        assign_line_idx = fix_data["assign_line"] - 1
+        use_line_idx = fix_data["use_line"] - 1
+        use_col = fix_data["use_col"]
 
         if assign_line_idx < 0 or assign_line_idx >= len(source_lines):
             continue
@@ -68,8 +60,8 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
             continue
 
         # Get the RHS expression
-        rhs_source = assignment.rhs_source.strip()
-        var_name = assignment.var_name
+        rhs_source = fix_data["rhs_source"].strip()
+        var_name = fix_data["var_name"]
 
         # Check if inlining is safe
         if not _can_safely_inline(var_name, rhs_source, use_line_idx, source_lines):
@@ -88,7 +80,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
         # Find the match closest to the column offset
         target_match = None
         for match in matches:
-            if match.start() == use.col:
+            if match.start() == use_col:
                 target_match = match
                 break
 

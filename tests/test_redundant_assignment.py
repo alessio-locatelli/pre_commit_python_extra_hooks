@@ -391,7 +391,7 @@ def test_autofix_skips_violation_with_invalid_fix_data() -> None:
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
 
-    # Create a violation with invalid fix_data (missing 'lifecycle')
+    # Create a violation with invalid fix_data (missing 'use_line')
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -462,11 +462,6 @@ def test_autofix_with_invalid_assignment_line() -> None:
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
     )
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -477,30 +472,6 @@ def test_autofix_with_invalid_assignment_line() -> None:
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
-    rhs_node = ast.parse("1", mode="eval").body
-
-    # Create a lifecycle with invalid assignment line (line 100, which doesn't exist)
-    assignment = AssignmentInfo(
-        var_name="x",
-        line=100,  # Invalid line number
-        col=0,
-        stmt_index=0,
-        rhs_node=rhs_node,
-        rhs_source="1",
-        scope_id=0,
-        has_type_annotation=False,
-    )
-
-    usage = UsageInfo(
-        var_name="x",
-        line=2,
-        col=6,
-        stmt_index=1,
-        context="unknown",
-        scope_id=0,
-    )
-
-    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
 
     violations = [
         Violation(
@@ -510,7 +481,14 @@ def test_autofix_with_invalid_assignment_line() -> None:
             col=0,
             message="test",
             fixable=True,
-            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+            fix_data={
+                "pattern": "IMMEDIATE_SINGLE_USE",
+                "assign_line": 100,  # Invalid line number
+                "var_name": "x",
+                "rhs_source": "1",
+                "use_line": 2,
+                "use_col": 6,
+            },
         )
     ]
 
@@ -528,11 +506,6 @@ def test_autofix_with_invalid_usage_line() -> None:
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
     )
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -543,30 +516,6 @@ def test_autofix_with_invalid_usage_line() -> None:
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
-    rhs_node = ast.parse("1", mode="eval").body
-
-    # Create a lifecycle with invalid usage line (line 100, which doesn't exist)
-    assignment = AssignmentInfo(
-        var_name="x",
-        line=1,
-        col=0,
-        stmt_index=0,
-        rhs_node=rhs_node,
-        rhs_source="1",
-        scope_id=0,
-        has_type_annotation=False,
-    )
-
-    usage = UsageInfo(
-        var_name="x",
-        line=100,  # Invalid line number
-        col=6,
-        stmt_index=1,
-        context="unknown",
-        scope_id=0,
-    )
-
-    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
 
     violations = [
         Violation(
@@ -576,7 +525,14 @@ def test_autofix_with_invalid_usage_line() -> None:
             col=0,
             message="test",
             fixable=True,
-            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+            fix_data={
+                "pattern": "IMMEDIATE_SINGLE_USE",
+                "assign_line": 1,
+                "var_name": "x",
+                "rhs_source": "1",
+                "use_line": 100,  # Invalid line number
+                "use_col": 6,
+            },
         )
     ]
 
@@ -594,11 +550,6 @@ def test_autofix_with_multiple_uses() -> None:
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
     )
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     source = "x = 1\nprint(x)\nprint(x)\n"
 
@@ -609,40 +560,9 @@ def test_autofix_with_multiple_uses() -> None:
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
-    rhs_node = ast.parse("1", mode="eval").body
 
-    # Create a lifecycle with multiple uses
-    assignment = AssignmentInfo(
-        var_name="x",
-        line=1,
-        col=0,
-        stmt_index=0,
-        rhs_node=rhs_node,
-        rhs_source="1",
-        scope_id=0,
-        has_type_annotation=False,
-    )
-
-    usage1 = UsageInfo(
-        var_name="x",
-        line=2,
-        col=6,
-        stmt_index=1,
-        context="unknown",
-        scope_id=0,
-    )
-
-    usage2 = UsageInfo(
-        var_name="x",
-        line=3,
-        col=6,
-        stmt_index=2,
-        context="unknown",
-        scope_id=0,
-    )
-
-    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage1, usage2])
-
+    # RedundantAssignmentCheck.check() leaves use_line/use_col unset
+    # whenever a lifecycle doesn't have exactly one use.
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -651,7 +571,14 @@ def test_autofix_with_multiple_uses() -> None:
             col=0,
             message="test",
             fixable=True,
-            fix_data={"lifecycle": lifecycle, "pattern": "SINGLE_USE"},
+            fix_data={
+                "pattern": "SINGLE_USE",
+                "assign_line": 1,
+                "var_name": "x",
+                "rhs_source": "1",
+                "use_line": None,
+                "use_col": None,
+            },
         )
     ]
 
@@ -669,11 +596,6 @@ def test_autofix_with_unsafe_inlining() -> None:
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
     )
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     # Create a case where inlining would exceed 88 characters
     # Line is already 60 chars, adding 40 char value would exceed 88
@@ -688,31 +610,8 @@ def test_autofix_with_unsafe_inlining() -> None:
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
-    rhs_node = ast.parse("a" * 40, mode="eval").body
 
     # Manually create a fixable violation with a long RHS
-    assignment = AssignmentInfo(
-        var_name="x",
-        line=1,
-        col=0,
-        stmt_index=0,
-        rhs_node=rhs_node,
-        rhs_source="a" * 40,
-        scope_id=0,
-        has_type_annotation=False,
-    )
-
-    usage = UsageInfo(
-        var_name="x",
-        line=2,
-        col=41,  # Position of 'x' in the usage line
-        stmt_index=1,
-        context="unknown",
-        scope_id=0,
-    )
-
-    lifecycle = VariableLifecycle(assignment=assignment, uses=[usage])
-
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -721,7 +620,14 @@ def test_autofix_with_unsafe_inlining() -> None:
             col=0,
             message="test",
             fixable=True,
-            fix_data={"lifecycle": lifecycle, "pattern": "IMMEDIATE_SINGLE_USE"},
+            fix_data={
+                "pattern": "IMMEDIATE_SINGLE_USE",
+                "assign_line": 1,
+                "var_name": "x",
+                "rhs_source": "a" * 40,
+                "use_line": 2,
+                "use_col": 41,  # Position of 'x' in the usage line
+            },
         )
     ]
 
