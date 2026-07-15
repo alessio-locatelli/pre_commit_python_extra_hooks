@@ -49,7 +49,13 @@ class CacheManager:
     # enabled-checks cache key are unchanged (e.g. TRI004 gained async def
     # support: a file cached "no violations" before that fix would otherwise
     # stay stale until its content changes or the cache is cleared).
-    CACHE_VERSION = "1.1.0"
+    #
+    # 1.2.0: forbid-vars' scope-collision detection moved from a hand-rolled
+    # walker to _scope.collect_scope_names, which now correctly treats
+    # lambdas/comprehensions as separate scopes (the old walker leaked their
+    # names into the enclosing scope) — a cached suggestion/fixability from
+    # before this change could differ from what the check would compute now.
+    CACHE_VERSION = "1.2.0"
     DEFAULT_CACHE_DIR = Path(".cache/pre_commit_hooks")
 
     def __init__(
