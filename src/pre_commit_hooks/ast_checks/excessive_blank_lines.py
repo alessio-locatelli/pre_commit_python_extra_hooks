@@ -36,9 +36,8 @@ def find_module_header_end(lines: list[str], tree: ast.Module) -> int:
         and isinstance(tree.body[0].value, ast.Constant)
         and isinstance(tree.body[0].value.value, str)
     ):
-        docstring_node = tree.body[0]
         # end_lineno is 1-indexed, so it's already the 0-indexed line after it
-        start_idx = docstring_node.end_lineno or 0
+        start_idx = tree.body[0].end_lineno or 0
 
     for i in range(start_idx, len(lines)):
         stripped = lines[i].strip()
@@ -116,8 +115,7 @@ def check_file_violations(source: str, tree: ast.Module) -> list[tuple[int, str]
 
 
 def _is_class_or_function_def(line: str) -> bool:
-    stripped = line.lstrip()
-    return stripped.startswith(("class ", "def ", "async def "))
+    return line.lstrip().startswith(("class ", "def ", "async def "))
 
 
 def fix_file_content(source: str, tree: ast.Module) -> str:

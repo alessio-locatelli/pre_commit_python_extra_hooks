@@ -206,8 +206,7 @@ class CacheManager:
         """
         # Hash the filepath (not content) to get stable cache location
         file_hash = hashlib.sha1(str(filepath.resolve()).encode()).hexdigest()
-        prefix = file_hash[:2]
-        cache_subdir = self.cache_dir / prefix
+        cache_subdir = self.cache_dir / file_hash[:2]  # first 2 hex chars as prefix
         cache_subdir.mkdir(exist_ok=True)
         return cache_subdir / f"{file_hash}.json"
 
