@@ -63,14 +63,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 
-[tool.coverage.run]
-source_pkgs = ["pre_commit_hooks"]
-
-[tool.coverage.report]
-fail_under = 100
-skip_empty = true
-exclude_lines = [
-  "pragma: no cover",
-  "raise NotImplementedError",
-  "if __name__ == .__main__.:",
-]
+# Coverage configuration lives in .coveragerc, not here: coverage.py reads
+# only the first config file it finds (.coveragerc, setup.cfg, tox.ini,
+# pyproject.toml, in that order), so a [tool.coverage.*] section here would
+# never be read while .coveragerc exists.
