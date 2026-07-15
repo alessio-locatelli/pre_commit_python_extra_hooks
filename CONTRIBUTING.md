@@ -379,7 +379,7 @@ This repository follows [Semantic Versioning 2.0.0](https://semver.org/).
 - Remove a check id or CLI argument
 - Change default forbidden names in `forbid-vars`
 - Change error message format in a breaking way
-- Remove the `ast-checks` hook entirely
+- Remove the `ast-checks` or `misplaced-comment` hook entirely
 
 ### Deprecation Process
 
@@ -396,7 +396,7 @@ Before removing features (MAJOR version bump):
 ### Guidelines
 
 1. **CLI Interface Stability:**
-   - The `ast-checks` hook id is permanent
+   - The `ast-checks` and `misplaced-comment` hook ids are permanent
    - Check ids passed via `--enable`/`--disable` never change once shipped
    - New arguments are optional with sensible defaults
    - Deprecated arguments show warnings before removal
