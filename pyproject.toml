@@ -64,6 +64,10 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 
+[tool.vulture]
+exclude = ["tests/fixtures"]
+paths = ["src", "tests"]
+
 # Coverage configuration lives in .coveragerc, not here: coverage.py reads
 # only the first config file it finds (.coveragerc, setup.cfg, tox.ini,
 # pyproject.toml, in that order), so a [tool.coverage.*] section here would
