@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import tempfile
 from pathlib import Path
 
 from pre_commit_hooks.ast_checks.validate_function_name import ValidateFunctionNameCheck
@@ -216,7 +215,7 @@ def get_cached_item(key):
     )
 
 
-def test_process_file_with_get_or_create_cache_pattern() -> None:
+def test_process_file_with_get_or_create_cache_pattern(tmp_path: Path) -> None:
     source = """
 _cache = {}
 
@@ -227,21 +226,16 @@ def get_or_create_item(key):
     return _cache[key]
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
-    try:
-        suggestions = process_file(filepath)
+    suggestions = process_file(filepath)
 
-        for suggestion in suggestions:
-            assert not suggestion.suggested_name.startswith("update_"), (
-                f"Should not suggest update_ for cache pattern, "
-                f"got: {suggestion.suggested_name}"
-            )
-    finally:
-        filepath.unlink()
+    for suggestion in suggestions:
+        assert not suggestion.suggested_name.startswith("update_"), (
+            f"Should not suggest update_ for cache pattern, "
+            f"got: {suggestion.suggested_name}"
+        )
 
 
 def test_parameter_detection_with_all_arg_types() -> None:
@@ -301,7 +295,7 @@ def get_config(settings):
     assert analysis["mutates_args"], "Nested attribute mutation should be flagged"
 
 
-def test_get_returning_class_not_flagged() -> None:
+def test_get_function_returning_class_is_not_flagged(tmp_path: Path) -> None:
     source = """
 def get_placeholder_backend(original_exception):
     '''Create a placeholder backend class.'''
@@ -311,20 +305,15 @@ def get_placeholder_backend(original_exception):
     return PlaceholderBackend
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
-    try:
-        suggestions = process_file(filepath)
-    finally:
-        filepath.unlink()
+    suggestions = process_file(filepath)
 
-    assert len(suggestions) == 0, "Functions returning classes should keep get_ prefix"
+    assert suggestions == [], "Functions returning classes should keep get_ prefix"
 
 
-def test_docstring_verb_combine_detected() -> None:
+def test_docstring_verb_combine_detected(tmp_path: Path) -> None:
     source = """
 def get_combined_revision(*functions):
     '''Combine the parameters of all revisions into a single revision.'''
@@ -334,22 +323,17 @@ def get_combined_revision(*functions):
     return params
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
-    try:
-        suggestions = process_file(filepath)
-    finally:
-        filepath.unlink()
+    suggestions = process_file(filepath)
 
     assert len(suggestions) == 1
     assert suggestions[0].suggested_name == "combine_combined_revision"
     assert "combine" in suggestions[0].reason.lower()
 
 
-def test_mock_creation_suggests_create() -> None:
+def test_mock_creation_suggests_create(tmp_path: Path) -> None:
     source = """
 from unittest.mock import MagicMock
 
@@ -360,22 +344,17 @@ def get_mock_response(**kwargs):
     return MagicMock(spec=object, **response_kwargs)
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
-    try:
-        suggestions = process_file(filepath)
-    finally:
-        filepath.unlink()
+    suggestions = process_file(filepath)
 
     assert len(suggestions) == 1
     assert suggestions[0].suggested_name == "create_mock_response"
     assert "mock" in suggestions[0].reason.lower()
 
 
-def test_async_get_function_is_flagged() -> None:
+def test_async_get_function_is_flagged(tmp_path: Path) -> None:
     """Async get_* functions must be flagged, not just sync ones."""
     source = """
 import requests
@@ -386,15 +365,10 @@ class Fetcher:
         return requests.get(url).json()
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
-    try:
-        suggestions = process_file(filepath)
-    finally:
-        filepath.unlink()
+    suggestions = process_file(filepath)
 
     assert len(suggestions) == 1
     assert suggestions[0].func_name == "get_api_data"
