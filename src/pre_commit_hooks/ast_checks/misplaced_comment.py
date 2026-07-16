@@ -183,6 +183,7 @@ class MisplacedCommentCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         try:
             tokens = tuple(tokenize.generate_tokens(StringIO(source).readline))
@@ -226,6 +227,6 @@ class MisplacedCommentCheck:
             fixed_any = True
 
         if fixed_any:
-            filepath.write_text("".join(lines), encoding="utf-8")
+            filepath.write_text("".join(lines), encoding=encoding, newline="")
 
         return fixed_any

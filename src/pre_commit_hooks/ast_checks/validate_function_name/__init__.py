@@ -107,8 +107,14 @@ class ValidateFunctionNameCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         """Apply fixes for function naming violations.
+
+        Note: apply_fix() re-reads the file itself (and detects its own
+        encoding via read_source_with_encoding) rather than using `source`/
+        `encoding` here — see analysis.process_file, which check() also
+        routes through independently of CheckOrchestrator's own read.
 
         Args:
             filepath: Path to file

@@ -121,6 +121,7 @@ class ASTCheck(Protocol):
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         """Apply fixes for the given violations.
 
@@ -129,11 +130,40 @@ class ASTCheck(Protocol):
             violations: List of violations to fix (all from this check)
             source: Original source code as string
             tree: Parsed AST tree of the file
+            encoding: Encoding to write the file back with (matching what it
+                was read as, so a PEP 263 declaration round-trips correctly)
 
         Returns:
             True if fixes were successfully applied, False otherwise
         """
         ...
+
+
+def read_source_with_encoding(filepath: Path) -> tuple[str, str]:
+    """Read a file's content, honoring a PEP 263 encoding declaration.
+
+    Reads raw bytes and decodes them manually (rather than opening in text
+    mode) so line endings are never touched — a CRLF file's decoded string
+    keeps its literal "\\r\\n" sequences, which ast.parse and tokenize both
+    tolerate. tokenize.detect_encoding also handles a leading UTF-8 BOM
+    (returning "utf-8-sig").
+
+    Args:
+        filepath: Path to file
+
+    Returns:
+        (source, encoding), so a fix can write back in the same encoding
+
+    Raises:
+        OSError: if the file can't be read
+        SyntaxError: if the PEP 263 encoding cookie itself is malformed
+        UnicodeDecodeError: if the content isn't valid in the declared/
+            detected encoding
+        LookupError: if the declared encoding name is unknown
+    """
+    raw = filepath.read_bytes()
+    encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+    return raw.decode(encoding), encoding
 
 
 def find_ignored_lines(source: str, pattern: re.Pattern[str]) -> set[int]:

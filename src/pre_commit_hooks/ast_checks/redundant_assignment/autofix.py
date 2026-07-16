@@ -8,7 +8,12 @@ from pathlib import Path
 from .._base import Violation
 
 
-def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> bool:
+def apply_fixes(
+    filepath: Path,
+    violations: list[Violation],
+    source: str,
+    encoding: str = "utf-8",
+) -> bool:
     """Apply auto-fixes for redundant assignment violations.
 
     This is a VERY conservative implementation that only fixes violations marked
@@ -23,6 +28,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
         filepath: Path to file to fix
         violations: List of violations to fix
         source: Original source code
+        encoding: Encoding to write the file back with
 
     Returns:
         True if fixes were successfully applied, False otherwise
@@ -107,7 +113,7 @@ def apply_fixes(filepath: Path, violations: list[Violation], source: str) -> boo
 
         # Write the fixed source back to file
         new_source = "".join(source_lines)
-        filepath.write_text(new_source)
+        filepath.write_text(new_source, encoding=encoding, newline="")
         return True
 
     return False

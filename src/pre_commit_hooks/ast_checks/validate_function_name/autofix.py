@@ -7,6 +7,7 @@ import logging
 import re
 from pathlib import Path
 
+from .._base import read_source_with_encoding
 from .._scope import iter_within_scope
 from .analysis import Suggestion, attach_parents, read_source
 
@@ -136,7 +137,7 @@ def should_autofix(filepath: Path, suggestion: Suggestion) -> bool:
     # Parse file and find the function
     try:
         tree = ast.parse(read_source(filepath))
-    except (OSError, SyntaxError, UnicodeDecodeError) as error:
+    except (OSError, SyntaxError, UnicodeDecodeError, LookupError) as error:
         logger.warning("Filepath: %s. Error: %s", filepath, repr(error))
         return False
 
@@ -403,8 +404,8 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
         True if fix was applied successfully, False otherwise
     """
     try:
-        source = read_source(filepath)
-    except (OSError, UnicodeDecodeError) as error:
+        source, encoding = read_source_with_encoding(filepath)
+    except (OSError, SyntaxError, UnicodeDecodeError, LookupError) as error:
         logger.warning("Filepath: %s. Error: %s", filepath, repr(error))
         return False
 
@@ -468,7 +469,7 @@ def apply_fix(filepath: Path, suggestion: Suggestion) -> bool:
         return False
 
     try:
-        filepath.write_text(new_source, encoding="utf8")
+        filepath.write_text(new_source, encoding=encoding, newline="")
         return True
     except OSError as os_error:
         logger.warning("Filepath: %s. Error: %s", filepath, repr(os_error))

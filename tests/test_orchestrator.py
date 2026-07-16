@@ -27,7 +27,12 @@ def test_process_files_handles_utf8_bom(tmp_path: Path) -> None:
 
 
 def test_apply_fixes_handles_utf8_bom(tmp_path: Path) -> None:
-    """The re-read before each check's fix() call must also strip a BOM."""
+    """The re-read before each check's fix() call must also strip a BOM.
+
+    The fixed file keeps its original BOM on write (detected encoding is
+    "utf-8-sig", the same encoding used to write back) — reading it back
+    with "utf-8-sig" strips it again, same as the original read.
+    """
     filepath = tmp_path / "with_bom.py"
     filepath.write_bytes(b"\xef\xbb\xbfdata = requests.get(url)\n")
 
@@ -37,7 +42,8 @@ def test_apply_fixes_handles_utf8_bom(tmp_path: Path) -> None:
 
     assert fix_data is not None
     assert fix_data["fixed"] is True
-    assert filepath.read_text(encoding="utf-8") == "response = requests.get(url)\n"
+    assert filepath.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert filepath.read_text(encoding="utf-8-sig") == "response = requests.get(url)\n"
 
 
 def test_apply_fixes_recomputes_stale_positions(tmp_path: Path) -> None:
@@ -125,3 +131,39 @@ def test_tokenize_only_check_fixes_ast_invalid_file(tmp_path: Path) -> None:
     assert "x  # comment" in result
     assert ")\n" in result
     assert 'print "invalid"' in result  # still Python-2-invalid, untouched
+
+
+def test_fix_honors_pep263_encoding_declaration(tmp_path: Path) -> None:
+    """A file with a non-UTF-8 PEP 263 encoding cookie must be read, fixed,
+    and written back in its declared encoding, not assumed to be UTF-8.
+    """
+    source = "# -*- coding: latin-1 -*-\nresult = func(\n    x\n)  # caf\xe9\n"
+    filepath = tmp_path / "latin1.py"
+    filepath.write_bytes(source.encode("latin-1"))
+
+    checks = load_checks(enabled={"misplaced-comment"})
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    assert violations[str(filepath)][0].fix_data == {"fixed": True}
+    result = filepath.read_bytes().decode("latin-1")
+    assert "x  # caf\xe9" in result
+    assert ")\n" in result
+
+
+def test_fix_preserves_crlf_line_endings(tmp_path: Path) -> None:
+    """Lines untouched by a fix must keep their original CRLF endings."""
+    filepath = tmp_path / "crlf.py"
+    filepath.write_bytes(
+        b"result = func(\r\n    x\r\n)  # comment\r\n\r\nother = 1\r\n"
+    )
+
+    checks = load_checks(enabled={"misplaced-comment"})
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    assert violations[str(filepath)][0].fix_data == {"fixed": True}
+    result = filepath.read_bytes()
+    # Untouched lines keep their original CRLF endings.
+    assert b"\r\nother = 1\r\n" in result
+    assert b"x  # comment" in result
