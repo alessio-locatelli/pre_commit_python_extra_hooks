@@ -1184,8 +1184,10 @@ def find_place_document(place_id):
 
 
 def test_autofix_respects_line_length(tmp_path: Path) -> None:
-    source = """x = "a_very_long_string_that_when_inlined_would_make_the_line_too_long"
-result = some_function(x, another_param, yet_another_param)
+    source = """
+def func():
+    some_result = "data"
+    return some_result
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -1194,18 +1196,17 @@ result = some_function(x, another_param, yet_another_param)
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    # May or may not have violations depending on semantic scoring
-    # But if there are violations, they should NOT be fixable due to line length
-    for v in violations:
-        if v.fixable:  # pragma: no cover - autofix disabled
-            result = check.fix(filepath, [v], source, tree)
-            fixed = filepath.read_text()
-            assert len(fixed.splitlines()[1]) <= 88 or result is False
+    # Long variable names (>10 chars) are excluded from autofix as a
+    # conservative proxy for lines that would grow too long when inlined.
+    assert violations
+    assert all(not v.fixable for v in violations)
 
 
 def test_autofix_handles_word_boundaries(tmp_path: Path) -> None:
-    source = """x = 5
-result = x + max(x, index)
+    source = """
+def func(index):
+    x = 5
+    return max(x, index)
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -1214,15 +1215,12 @@ result = x + max(x, index)
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    if violations and any(
-        v.fixable for v in violations
-    ):  # pragma: no cover - autofix disabled
-        check.fix(filepath, violations, source, tree)
-        fixed = filepath.read_text()
+    assert any(v.fixable for v in violations)
+    check.fix(filepath, violations, source, tree)
+    fixed = filepath.read_text()
 
-        # Should only replace the standalone 'x', not 'max' or 'index'
-        assert "max" in fixed
-        assert "index" in fixed
+    # Should only replace the standalone 'x', not 'max' or 'index'
+    assert "max(5, index)" in fixed
 
 
 def test_chained_operations_scoring() -> None:
@@ -1339,9 +1337,8 @@ use(very_long_descriptive_name)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not be fixable due to long variable name (> 10 chars)
-    for v in violations:
-        assert not v.fixable
+    # Should not be fixable due to long variable name (> 10 chars).
+    assert all(not v.fixable for v in violations)
 
 
 def test_autofix_only_simple_rhs() -> None:
@@ -1359,8 +1356,10 @@ def example():
 
 
 def test_autofix_simple_constant(tmp_path: Path) -> None:
-    source = """y = 42
-result = y + 10
+    source = """def f():
+    y = 42
+    result = y + 10
+    return result
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -1369,20 +1368,21 @@ result = y + 10
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    # Simple constant should be fixable
+    # Simple constant should be fixable.
     fixable_violations = [v for v in violations if v.fixable]
-    if fixable_violations:
-        result = check.fix(filepath, fixable_violations, source, tree)
-        assert result is True
+    assert fixable_violations
+    result = check.fix(filepath, fixable_violations, source, tree)
+    assert result is True
 
-        fixed_content = filepath.read_text()
-        assert "y = 42" not in fixed_content
-        assert "result = 42 + 10" in fixed_content
+    fixed_content = filepath.read_text()
+    assert "y = 42" not in fixed_content
+    assert "result = 42 + 10" in fixed_content
 
 
 def test_autofix_simple_attribute(tmp_path: Path) -> None:
-    source = """v = obj.attr
-use(v)
+    source = """def f():
+    v = obj.attr
+    use(v)
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -1391,20 +1391,22 @@ use(v)
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    # Simple attribute access should be fixable
+    # Simple attribute access should be fixable.
     fixable_violations = [v for v in violations if v.fixable]
-    if fixable_violations:
-        result = check.fix(filepath, fixable_violations, source, tree)
-        assert result is True
+    assert fixable_violations
+    result = check.fix(filepath, fixable_violations, source, tree)
+    assert result is True
 
-        fixed_content = filepath.read_text()
-        assert "v = obj.attr" not in fixed_content
-        assert "use(obj.attr)" in fixed_content
+    fixed_content = filepath.read_text()
+    assert "v = obj.attr" not in fixed_content
+    assert "use(obj.attr)" in fixed_content
 
 
 def test_autofix_word_boundaries(tmp_path: Path) -> None:
-    source = """x = 5
-result = max(x, 10)
+    source = """def f():
+    x = 5
+    result = max(x, 10)
+    return result
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -1414,14 +1416,14 @@ result = max(x, 10)
     violations = check.check(filepath, tree, source)
 
     fixable_violations = [v for v in violations if v.fixable]
-    if fixable_violations:
-        result = check.fix(filepath, fixable_violations, source, tree)
-        assert result is True
+    assert fixable_violations
+    result = check.fix(filepath, fixable_violations, source, tree)
+    assert result is True
 
-        fixed_content = filepath.read_text()
-        # Should replace 'x' but not affect 'max'
-        assert "result = max(5, 10)" in fixed_content
-        assert "max" in fixed_content  # 'max' should still be present
+    fixed_content = filepath.read_text()
+    # Should replace 'x' but not affect 'max'
+    assert "result = max(5, 10)" in fixed_content
+    assert "max" in fixed_content  # 'max' should still be present
 
 
 # === Bug Reproduction Tests ===
@@ -1441,10 +1443,8 @@ def test_problem_1_loop_reassignment() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "latest_datetime" not in v.message, (
-            f"Should not flag latest_datetime in loop reassignment: {v.message}"
-        )
+    # Should not flag latest_datetime in loop reassignment.
+    assert all("latest_datetime" not in v.message for v in violations)
 
 
 def test_problem_2_boolean_descriptive_names() -> None:
@@ -1459,13 +1459,11 @@ def test_problem_2_boolean_descriptive_names() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "has_cycle" not in v.message, (
-            f"Should not flag descriptive boolean variable has_cycle: {v.message}"
-        )
+    # Should not flag descriptive boolean variable has_cycle.
+    assert all("has_cycle" not in v.message for v in violations)
 
 
-def test_problem_4_multiple_exception_assignments(tmp_path: Path) -> None:
+def test_problem_4_multiple_exception_assignments() -> None:
     source = """def fetch_data():
     error = None
     try:
@@ -1480,29 +1478,15 @@ def test_problem_4_multiple_exception_assignments(tmp_path: Path) -> None:
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
 
-    filepath = tmp_path / "source.py"
-    filepath.write_text(source)
-
-    violations = check.check(filepath, tree, source)
-
-    # If there are fixable violations, applying the fix should NOT create
-    # concatenated nonsense like "value_errortype_errorkey_error"
-    if any(v.fixable for v in violations):  # pragma: no cover - autofix disabled
-        check.fix(filepath, violations, source, tree)
-        fixed_content = filepath.read_text()
-
-        assert "value_errortype_error" not in fixed_content
-        assert "type_errorkey_error" not in fixed_content
-
-        try:
-            ast.parse(fixed_content)
-        except SyntaxError as e:
-            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
-            raise AssertionError(msg) from e
+    # `error` is assigned multiple times (once per except branch), so it is
+    # skipped entirely rather than risk autofix producing concatenated
+    # nonsense like "value_errortype_errorkey_error".
+    assert violations == []
 
 
-def test_problem_5_conditional_assignment_logic_change(tmp_path: Path) -> None:
+def test_problem_5_conditional_assignment_logic_change() -> None:
     source = """def configure(service_name=None):
     if not service_name:
         service_name = get_caller_module_name()
@@ -1510,22 +1494,12 @@ def test_problem_5_conditional_assignment_logic_change(tmp_path: Path) -> None:
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
+    violations = check.check(Path("test.py"), tree, source)
 
-    filepath = tmp_path / "source.py"
-    filepath.write_text(source)
-
-    violations = check.check(filepath, tree, source)
-
-    if any(v.fixable for v in violations):  # pragma: no cover - autofix disabled
-        check.fix(filepath, violations, source, tree)
-        fixed_content = filepath.read_text()
-
-        # The fixed code should NOT change the logic
-        # Original: assigns get_caller_module_name() to service_name, then uses it
-        # WRONG: if not get_caller_module_name(): ...
-        assert "if not get_caller_module_name():" not in fixed_content, (
-            f"Autofix changed program logic!\n{fixed_content}"
-        )
+    # `service_name` is assigned inside an `if` block but used outside it, so
+    # it is skipped entirely rather than risk autofix changing program logic
+    # (e.g. turning it into "if not get_caller_module_name():").
+    assert violations == []
 
 
 def test_same_variable_different_scopes() -> None:
@@ -1545,13 +1519,12 @@ def test_same_variable_different_scopes() -> None:
     # 1. It's assigned in different branches
     # 2. It's used after the if/else block
     # 3. Both assignments are needed for the final return
-    for v in violations:
-        should_skip = (
-            "result" not in v.message
-            or "positive" not in source
-            or "negative" not in source
-        )
-        assert should_skip
+    assert all(
+        "result" not in v.message
+        or "positive" not in source
+        or "negative" not in source
+        for v in violations
+    )
 
 
 def test_autofix_preserves_blank_lines_across_file(tmp_path: Path) -> None:
@@ -1594,41 +1567,36 @@ class ThirdClass:
 
     violations = check.check(filepath, tree, source)
 
-    # If there are fixable violations, verify blank lines are preserved
-    if any(v.fixable for v in violations):
-        check.fix(filepath, violations, source, tree)
-        fixed_content = filepath.read_text()
+    # This source always yields a fixable violation for `x`.
+    assert any(v.fixable for v in violations)
+    check.fix(filepath, violations, source, tree)
+    fixed_content = filepath.read_text()
 
-        # Verify blank lines between classes/functions are preserved
-        # These blank lines should NOT be affected by autofix
-        expected_pattern_1 = (
-            "class FirstClass:\n    def method_one(self):\n        pass\n\n\n"
-            "class SecondClass:"
-        )
-        assert expected_pattern_1 in fixed_content, (
-            "Blank lines between FirstClass and SecondClass were removed!"
-        )
+    # Verify blank lines between classes/functions are preserved
+    # These blank lines should NOT be affected by autofix
+    expected_pattern_1 = (
+        "class FirstClass:\n    def method_one(self):\n        pass\n\n\n"
+        "class SecondClass:"
+    )
+    assert expected_pattern_1 in fixed_content, (
+        "Blank lines between FirstClass and SecondClass were removed!"
+    )
 
-        expected_pattern_2 = (
-            "class SecondClass:\n    def method_two(self):\n        pass\n\n\n"
-            "def function_with_redundant_var():"
-        )
-        assert expected_pattern_2 in fixed_content, (
-            "Blank lines between SecondClass and "
-            "function_with_redundant_var were removed!"
-        )
+    expected_pattern_2 = (
+        "class SecondClass:\n    def method_two(self):\n        pass\n\n\n"
+        "def function_with_redundant_var():"
+    )
+    assert expected_pattern_2 in fixed_content, (
+        "Blank lines between SecondClass and function_with_redundant_var were removed!"
+    )
 
-        expected_pattern_3 = "def another_function():\n    pass\n\n\nclass ThirdClass:"
-        assert expected_pattern_3 in fixed_content, (
-            "Blank lines between another_function and ThirdClass were removed!"
-        )
+    expected_pattern_3 = "def another_function():\n    pass\n\n\nclass ThirdClass:"
+    assert expected_pattern_3 in fixed_content, (
+        "Blank lines between another_function and ThirdClass were removed!"
+    )
 
-        # Verify the fixed code is still valid Python
-        try:
-            ast.parse(fixed_content)
-        except SyntaxError as e:
-            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
-            raise AssertionError(msg) from e
+    # Verify the fixed code is still valid Python; raises on failure.
+    ast.parse(fixed_content)
 
 
 def test_autofix_cleans_up_excessive_blank_lines(tmp_path: Path) -> None:
@@ -1651,40 +1619,31 @@ def test_autofix_cleans_up_excessive_blank_lines(tmp_path: Path) -> None:
 
     violations = check.check(filepath, tree, source)
 
-    # If there are fixable violations, verify excessive blank lines are cleaned
-    if any(v.fixable for v in violations):
-        check.fix(filepath, violations, source, tree)
-        fixed_content = filepath.read_text()
+    # This source always yields a fixable violation for `x`.
+    assert any(v.fixable for v in violations)
+    check.fix(filepath, violations, source, tree)
+    fixed_content = filepath.read_text()
 
-        lines = fixed_content.split("\n")
+    lines = fixed_content.split("\n")
 
-        # Count blanks before the return statement, after removing x=42.
-        in_function = False
-        blanks_before_return = 0
+    # Count blanks before the return statement, after removing x=42.
+    def_index = next(
+        i for i, line in enumerate(lines) if "def function_with_redundant" in line
+    )
+    return_index = next(i for i in range(def_index, len(lines)) if "return" in lines[i])
+    blanks_before_return = 0
+    j = return_index - 1
+    while j >= 0 and lines[j].strip() == "":
+        blanks_before_return += 1
+        j -= 1
 
-        for i, line in enumerate(lines):
-            if "def function_with_redundant" in line:
-                in_function = True
-                continue
+    assert blanks_before_return <= 2, (
+        f"Fixed code has {blanks_before_return} blank lines before return "
+        f"(expected ≤2)\n{fixed_content}"
+    )
 
-            if in_function and "return" in line:
-                # Count preceding blank lines
-                j = i - 1
-                while j >= 0 and lines[j].strip() == "":
-                    blanks_before_return += 1
-                    j -= 1
-                break
-
-        assert blanks_before_return <= 2, (
-            f"Fixed code has {blanks_before_return} blank lines before return "
-            f"(expected ≤2)\n{fixed_content}"
-        )
-
-        try:
-            ast.parse(fixed_content)
-        except SyntaxError as e:
-            msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
-            raise AssertionError(msg) from e
+    # Verify the fixed code is still valid Python; raises on failure.
+    ast.parse(fixed_content)
 
 
 def test_cleanup_blank_lines_only_excess_below() -> None:
@@ -2314,10 +2273,8 @@ async def request_json(
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "raw_headers" not in v.message, (
-            f"Should not flag 'raw_headers' - it adds verbosity: {v.message}"
-        )
+    # Should not flag 'raw_headers' - it adds verbosity.
+    assert all("raw_headers" not in v.message for v in violations)
 
 
 def test_verbose_variable_names_parsed_data_not_flagged() -> None:
@@ -2344,10 +2301,8 @@ def load_translations(language, template_name):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "translations" not in v.message, (
-            f"Should not flag 'translations' - it adds context: {v.message}"
-        )
+    # Should not flag 'translations' - it adds context.
+    assert all("translations" not in v.message for v in violations)
 
 
 def test_firestore_client_not_flagged() -> None:
@@ -2361,10 +2316,8 @@ def get_firestore():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "firestore_client" not in v.message, (
-            f"Should not flag 'firestore_client' - it's more specific: {v.message}"
-        )
+    # Should not flag 'firestore_client' - it's more specific.
+    assert all("firestore_client" not in v.message for v in violations)
 
 
 def test_user_email_dict_access_not_flagged() -> None:
@@ -2378,10 +2331,8 @@ def process_user(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "user_email" not in v.message, (
-            f"Should not flag 'user_email' - it adds verbosity: {v.message}"
-        )
+    # Should not flag 'user_email' - it adds verbosity.
+    assert all("user_email" not in v.message for v in violations)
 
 
 def test_descriptive_prefix_not_flagged() -> None:
@@ -2395,10 +2346,8 @@ def process_input(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "raw_data" not in v.message, (
-            f"Should not flag 'raw_data' - 'raw' is descriptive: {v.message}"
-        )
+    # Should not flag 'raw_data' - 'raw' is descriptive.
+    assert all("raw_data" not in v.message for v in violations)
 
 
 def test_adds_verbosity_or_context_function_directly() -> None:
@@ -2453,9 +2402,8 @@ def test_no_false_positive_on_multiline_rhs_fixable_marking() -> None:
     """
     source = """
 def func():
-    value = very_long_function_call(
-        arg1,
-        arg2
+    value = foo(
+        1
     )
     return value
 """
@@ -2463,11 +2411,10 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        if "value" in v.message:
-            assert not v.fixable, (
-                f"Multiline RHS should not be marked fixable: {v.message}"
-            )
+    value_violations = [v for v in violations if "value" in v.message]
+    assert value_violations
+    # Multiline RHS should not be marked fixable.
+    assert all(not v.fixable for v in value_violations)
 
 
 def test_semantic_value_descriptive_boolean_prefix() -> None:
@@ -2544,21 +2491,22 @@ def test_semantic_value_long_expression_60_plus() -> None:
 
 def test_no_false_positive_on_long_rhs_fixable_marking() -> None:
     """Regression test: violations used to be marked [FIXABLE] even when
-    --fix couldn't actually fix them.
+    --fix couldn't actually fix them. A 3-argument call is short enough to be
+    reported but too complex for autofix's argument-count allowance.
     """
     source = """
 def func():
-    value = very_long_func_that_would_exceed_line_length_when_inlined_here()
+    value = some_func(a, b, c)
     return value
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        if "value" in v.message:
-            msg = f"Long RHS should not be marked fixable: {v.message}"
-            assert not v.fixable, msg
+    value_violations = [v for v in violations if "value" in v.message]
+    assert value_violations
+    # Complex RHS should not be marked fixable.
+    assert all(not v.fixable for v in value_violations)
 
 
 def test_magic_number_not_flagged() -> None:
@@ -2576,10 +2524,8 @@ def find_project_root():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "max_search_depth" not in v.message, (
-            f"Should not flag 'max_search_depth' - avoids magic number: {v.message}"
-        )
+    # Should not flag 'max_search_depth' - avoids magic number.
+    assert all("max_search_depth" not in v.message for v in violations)
 
 
 def test_magic_number_float_not_flagged() -> None:
@@ -2593,10 +2539,8 @@ def calculate_spacing():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "line_spacing" not in v.message, (
-            f"Should not flag 'line_spacing' - avoids magic number: {v.message}"
-        )
+    # Should not flag 'line_spacing' - avoids magic number.
+    assert all("line_spacing" not in v.message for v in violations)
 
 
 def test_magic_number_id_not_flagged() -> None:
@@ -2610,10 +2554,8 @@ async def find_nicosia(database):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "nicosia_in_cyprus_id" not in v.message, (
-            f"Should not flag 'nicosia_in_cyprus_id' - avoids magic number: {v.message}"
-        )
+    # Should not flag 'nicosia_in_cyprus_id' - avoids magic number.
+    assert all("nicosia_in_cyprus_id" not in v.message for v in violations)
 
 
 def test_pytest_raises_pattern_not_flagged() -> None:
@@ -2628,10 +2570,8 @@ def test_rate_limit():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "sample_class" not in v.message, (
-            f"Should not flag 'sample_class' - pytest.raises pattern: {v.message}"
-        )
+    # Should not flag 'sample_class' - pytest.raises pattern.
+    assert all("sample_class" not in v.message for v in violations)
 
 
 def test_with_block_pattern_not_flagged() -> None:
@@ -2646,10 +2586,8 @@ def test_retry():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "decorated_mock_func" not in v.message, (
-            f"Should not flag 'decorated_mock_func' - with block pattern: {v.message}"
-        )
+    # Should not flag 'decorated_mock_func' - with block pattern.
+    assert all("decorated_mock_func" not in v.message for v in violations)
 
 
 def test_inline_comment_not_flagged() -> None:
@@ -2665,10 +2603,8 @@ def get_cache_file(cache):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "redirects_file" not in v.message, (
-            f"Should not flag 'redirects_file' - has inline comment: {v.message}"
-        )
+    # Should not flag 'redirects_file' - has inline comment.
+    assert all("redirects_file" not in v.message for v in violations)
 
 
 def test_nonlocal_in_nested_function_not_flagged() -> None:
@@ -2696,10 +2632,8 @@ async def test_websocket():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "cancelled" not in v.message, (
-            f"Should not flag 'cancelled' - captured by nonlocal: {v.message}"
-        )
+    # Should not flag 'cancelled' - captured by nonlocal.
+    assert all("cancelled" not in v.message for v in violations)
 
 
 def test_nonlocal_multiple_variables_not_flagged() -> None:
@@ -2720,10 +2654,8 @@ def outer():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        msg = v.message
-        assert "'x'" not in msg, f"Should not flag 'x' - captured by nonlocal: {msg}"
-        assert "'y'" not in msg, f"Should not flag 'y' - captured by nonlocal: {msg}"
+    # Should not flag 'x' or 'y' - captured by nonlocal.
+    assert all("'x'" not in v.message and "'y'" not in v.message for v in violations)
 
 
 def test_has_inline_comment_detection() -> None:
@@ -2791,8 +2723,8 @@ def process():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "'x'" not in v.message, f"Should not flag 'x' in while loop: {v.message}"
+    # Should not flag 'x' in while loop.
+    assert all("'x'" not in v.message for v in violations)
 
 
 def test_async_for_loop_assignment_not_flagged() -> None:
@@ -2807,8 +2739,8 @@ async def process(items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "'result'" not in v.message, f"Should not flag loop var: {v.message}"
+    # Should not flag loop var.
+    assert all("'result'" not in v.message for v in violations)
 
 
 def test_async_with_assignment_not_flagged() -> None:
@@ -2851,10 +2783,8 @@ def measure():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "start" not in v.message, (
-            f"Should not flag 'start' - nondeterministic: {v.message}"
-        )
+    # Should not flag 'start' - nondeterministic.
+    assert all("start" not in v.message for v in violations)
 
 
 def test_multiple_assignment_targets_not_tracked() -> None:
@@ -2900,10 +2830,8 @@ def func(condition):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "result" not in v.message, (
-            f"Should not flag ternary expression: {v.message}"
-        )
+    # Should not flag ternary expression.
+    assert all("result" not in v.message for v in violations)
 
 
 def test_descriptive_suffix_size_not_flagged() -> None:
@@ -2922,10 +2850,8 @@ def test_flow_control_binary(protocol, out_low_limit, parser_low_limit):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "large_payload_size" not in v.message, (
-            f"Should not flag 'large_payload_size' - has _size suffix: {v.message}"
-        )
+    # Should not flag 'large_payload_size' - has _size suffix.
+    assert all("large_payload_size" not in v.message for v in violations)
 
 
 def test_descriptive_suffix_length_not_flagged() -> None:
@@ -2938,10 +2864,8 @@ def process(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "buffer_length" not in v.message, (
-            f"Should not flag 'buffer_length' - has _length suffix: {v.message}"
-        )
+    # Should not flag 'buffer_length' - has _length suffix.
+    assert all("buffer_length" not in v.message for v in violations)
 
 
 def test_descriptive_suffix_id_not_flagged() -> None:
@@ -2954,10 +2878,8 @@ def get_user(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "user_id" not in v.message, (
-            f"Should not flag 'user_id' - has _id suffix: {v.message}"
-        )
+    # Should not flag 'user_id' - has _id suffix.
+    assert all("user_id" not in v.message for v in violations)
 
 
 def test_test_file_detection_by_path() -> None:
@@ -2972,10 +2894,8 @@ def test_camel_to_under():
     # File in tests/ directory should not flag test setup variables
     violations = check.check(Path("tests/test_utils.py"), tree, source)
 
-    for v in violations:
-        assert "camel_case_sample" not in v.message, (
-            f"Should not flag test setup variable in test file: {v.message}"
-        )
+    # Should not flag test setup variable in test file.
+    assert all("camel_case_sample" not in v.message for v in violations)
 
 
 def test_test_file_detection_by_name() -> None:
@@ -2991,10 +2911,8 @@ def test_translate_templates():
     # File with test_ prefix should not flag test variables
     violations = check.check(Path("test_translator.py"), tree, source)
 
-    for v in violations:
-        assert "templates" not in v.message, (
-            f"Should not flag test data variable in test file: {v.message}"
-        )
+    # Should not flag test data variable in test file.
+    assert all("templates" not in v.message for v in violations)
 
 
 def test_test_result_variable_not_flagged() -> None:
@@ -3009,10 +2927,8 @@ def test_landmark_equal_to_none():
 
     violations = check.check(Path("tests/test_model.py"), tree, source)
 
-    for v in violations:
-        assert "result" not in v.message, (
-            f"Should not flag 'result' in test file: {v.message}"
-        )
+    # Should not flag 'result' in test file.
+    assert all("result" not in v.message for v in violations)
 
 
 def test_test_mock_object_not_flagged() -> None:
@@ -3028,10 +2944,8 @@ def test_prepare_photo():
 
     violations = check.check(Path("tests/test_vision.py"), tree, source)
 
-    for v in violations:
-        assert "mock_image" not in v.message, (
-            f"Should not flag mock object in test file: {v.message}"
-        )
+    # Should not flag mock object in test file.
+    assert all("mock_image" not in v.message for v in violations)
 
 
 def test_semantic_test_data_list_not_flagged() -> None:
@@ -3048,10 +2962,8 @@ def test_airport_connectivity():
 
     violations = check.check(Path("tests/test_kiwi_api.py"), tree, source)
 
-    for v in violations:
-        assert "some_european_airports" not in v.message, (
-            f"Should not flag semantic test data in test file: {v.message}"
-        )
+    # Should not flag semantic test data in test file.
+    assert all("some_european_airports" not in v.message for v in violations)
 
 
 def test_range_with_descriptive_name_not_flagged() -> None:
@@ -3068,10 +2980,8 @@ def generate_price_data():
 
     violations = check.check(Path("tests/test_flight_prices.py"), tree, source)
 
-    for v in violations:
-        assert "days_with_routes_in_a_row" not in v.message, (
-            f"Should not flag descriptive range in test file: {v.message}"
-        )
+    # Should not flag descriptive range in test file.
+    assert all("days_with_routes_in_a_row" not in v.message for v in violations)
 
 
 def test_non_test_file_still_flags_simple_assignments() -> None:
@@ -3167,10 +3077,8 @@ def load_config():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "config" not in v.message, (
-            f"Should not flag context manager pattern: {v.message}"
-        )
+    # Should not flag context manager pattern.
+    assert all("config" not in v.message for v in violations)
 
 
 def test_context_manager_with_block_pattern_not_flagged() -> None:
@@ -3195,10 +3103,8 @@ def load_paths_to_ignore(project_root, src_dir):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "config" not in v.message, (
-            f"Should not flag config in context manager pattern: {v.message}"
-        )
+    # Should not flag config in context manager pattern.
+    assert all("config" not in v.message for v in violations)
 
 
 def test_database_connection_pattern_not_flagged() -> None:
@@ -3214,10 +3120,8 @@ def fetch_user(user_id):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "user_data" not in v.message, (
-            f"Should not flag database pattern: {v.message}"
-        )
+    # Should not flag database pattern.
+    assert all("user_data" not in v.message for v in violations)
 
 
 def test_if_block_assignment_inside_usage_outside_not_flagged() -> None:
@@ -3233,8 +3137,8 @@ def process():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "data" not in v.message, f"Should not flag if block pattern: {v.message}"
+    # Should not flag if block pattern.
+    assert all("data" not in v.message for v in violations)
 
 
 def test_try_block_assignment_inside_usage_outside_not_flagged() -> None:
@@ -3251,10 +3155,8 @@ def load_with_fallback():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "data" not in v.message, (
-            f"Should not flag try block pattern: {v.message}"
-        )
+    # Should not flag try block pattern.
+    assert all("data" not in v.message for v in violations)
 
 
 def test_variable_used_in_list_comprehension_condition_not_flagged() -> None:
@@ -3274,10 +3176,8 @@ def find_routes(depot_data, depots):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "depot_iso_country" not in v.message, (
-            f"Should not flag comprehension-cached variable: {v.message}"
-        )
+    # Should not flag comprehension-cached variable.
+    assert all("depot_iso_country" not in v.message for v in violations)
 
 
 def test_variable_used_only_in_list_comprehension_element_not_flagged() -> None:
@@ -3290,10 +3190,8 @@ def transform(multiplier, items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "factor" not in v.message, (
-            f"Should not flag comprehension element variable: {v.message}"
-        )
+    # Should not flag comprehension element variable.
+    assert all("factor" not in v.message for v in violations)
 
 
 def test_variable_used_only_in_dict_comprehension_not_flagged() -> None:
@@ -3306,10 +3204,8 @@ def build_map(source_obj, keys):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "prefix" not in v.message, (
-            f"Should not flag dict-comprehension-cached variable: {v.message}"
-        )
+    # Should not flag dict-comprehension-cached variable.
+    assert all("prefix" not in v.message for v in violations)
 
 
 def test_variable_used_only_in_set_comprehension_not_flagged() -> None:
@@ -3322,10 +3218,8 @@ def unique_suffixes(config, items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "suffix" not in v.message, (
-            f"Should not flag set-comprehension-cached variable: {v.message}"
-        )
+    # Should not flag set-comprehension-cached variable.
+    assert all("suffix" not in v.message for v in violations)
 
 
 def test_variable_used_only_in_generator_expression_not_flagged() -> None:
@@ -3338,10 +3232,8 @@ def total_score(config, players):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "bonus" not in v.message, (
-            f"Should not flag generator-expression-cached variable: {v.message}"
-        )
+    # Should not flag generator-expression-cached variable.
+    assert all("bonus" not in v.message for v in violations)
 
 
 def test_variable_used_inside_and_outside_comprehension_not_flagged() -> None:
@@ -3358,10 +3250,8 @@ def example(obj, items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "val" not in v.message, (
-            f"Multi-use variable should not be flagged: {v.message}"
-        )
+    # Multi-use variable should not be flagged.
+    assert all("val" not in v.message for v in violations)
 
 
 def test_in_comprehension_flag_set_correctly() -> None:
@@ -3553,11 +3443,8 @@ def _make_app():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "'app'" not in v.message, (
-            "Should not flag 'app' - used in decorator and return statement: "
-            f"{v.message}"
-        )
+    # Should not flag 'app' - used in decorator and return statement.
+    assert all("'app'" not in v.message for v in violations)
 
 
 def test_decorator_use_is_tracked_by_variable_tracker() -> None:
@@ -3751,10 +3638,8 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "'x'" not in v.message, (
-            f"Should not flag 'x' - has inline comment: {v.message}"
-        )
+    # Should not flag 'x' - has inline comment.
+    assert all("'x'" not in v.message for v in violations)
 
 
 def test_should_report_violation_short_ifexp_single_use() -> None:
@@ -3772,8 +3657,8 @@ def func(c):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    for v in violations:
-        assert "'x'" not in v.message, f"Should not flag short IfExp: {v.message}"
+    # Should not flag short IfExp.
+    assert all("'x'" not in v.message for v in violations)
 
 
 def _make_single_use_lifecycle(
