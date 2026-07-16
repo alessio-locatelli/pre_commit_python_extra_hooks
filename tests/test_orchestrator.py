@@ -113,6 +113,5 @@ def test_fix_preserves_crlf_line_endings(tmp_path: Path) -> None:
 
     assert violations[str(filepath)][0].fix_data == {"fixed": True}
     result = filepath.read_bytes()
-    # Untouched lines keep their original CRLF endings.
     assert b"\r\nother = 1\r\n" in result
     assert b"x  # comment" in result

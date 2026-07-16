@@ -14,13 +14,8 @@ from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
 
 
 def test_get_or_create_with_module_cache_not_flagged_as_mutation() -> None:
-    """Test get_or_create with module-level cache is not flagged as mutation.
-
-    This is the bug case from .cache/bug_report.md:
-    - Function uses get_or_create pattern
-    - Updates module-level cache (_logger_per_query)
-    - Should NOT be flagged as mutation since it's not mutating arguments
-    - Should keep get_ prefix (or suggest get_or_create_)
+    """Regression case from .cache/bug_report.md: get_or_create updating a
+    module-level cache must not be flagged as mutating its arguments.
     """
     source = """
 import structlog
@@ -53,15 +48,12 @@ def get_or_create_bound_logger(query) -> FilteringBoundLogger:
 
     analysis = analyze_function(func_node)
 
-    # The key assertion: should NOT be flagged as mutation
-    # because _logger_per_query is NOT a parameter
     assert not analysis["mutates_args"], (
         "get_or_create pattern with module cache should not be flagged as mutation"
     )
 
 
 def test_get_with_argument_mutation_is_flagged() -> None:
-    """Test that functions mutating arguments ARE correctly flagged."""
     source = """
 def get_users(database, filters):
     '''Get users and update filters dict.'''
@@ -80,12 +72,10 @@ def get_users(database, filters):
 
     analysis = analyze_function(func_node)
 
-    # Should be flagged as mutation since we're modifying the 'filters' parameter
     assert analysis["mutates_args"], "Function mutating argument should be flagged"
 
 
 def test_get_with_self_mutation_is_flagged() -> None:
-    """Test that methods mutating self ARE correctly flagged."""
     source = """
 class Cache:
     def get_value(self, key):
@@ -106,12 +96,10 @@ class Cache:
 
     analysis = analyze_function(func_node)
 
-    # Should be flagged as mutation since we're modifying self
     assert analysis["mutates_args"], "Method mutating self should be flagged"
 
 
 def test_get_with_argument_append_is_flagged() -> None:
-    """Test that appending to argument is flagged as mutation."""
     source = """
 def get_items(container, new_item):
     '''Get items and append to container.'''
@@ -128,7 +116,6 @@ def get_items(container, new_item):
 
     assert func_node is not None
 
-    # Need to attach parents for proper analysis
     from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
         attach_parents,
     )
@@ -137,12 +124,10 @@ def get_items(container, new_item):
 
     analysis = analyze_function(func_node)
 
-    # Should be flagged as mutation
     assert analysis["mutates_args"], "Function appending to argument should be flagged"
 
 
 def test_get_with_local_list_append_not_flagged() -> None:
-    """Test that appending to local variable is NOT flagged as mutation."""
     source = """
 def get_items(source):
     '''Get items from source.'''
@@ -169,8 +154,6 @@ def get_items(source):
 
     analysis = analyze_function(func_node)
 
-    # Should NOT be flagged as mutation (results is local, not a parameter)
-    # But should be flagged as "collects"
     assert not analysis["mutates_args"], (
         "Function appending to local variable should not be flagged as mutation"
     )
@@ -178,7 +161,6 @@ def get_items(source):
 
 
 def test_get_with_augmented_assignment_to_param() -> None:
-    """Test that augmented assignment to parameter is flagged."""
     source = """
 def get_total(amount):
     '''Get total with tax added.'''
@@ -197,14 +179,12 @@ def get_total(amount):
 
     analysis = analyze_function(func_node)
 
-    # Should be flagged as mutation
     assert analysis["mutates_args"], (
         "Augmented assignment to parameter should be flagged"
     )
 
 
 def test_get_with_module_global_append_not_flagged() -> None:
-    """Test that appending to module-level global is NOT flagged as mutation."""
     source = """
 _cache = []
 
@@ -231,14 +211,12 @@ def get_cached_item(key):
 
     analysis = analyze_function(func_node)
 
-    # Should NOT be flagged as mutation (_cache is not a parameter)
     assert not analysis["mutates_args"], (
         "Appending to module global should not be flagged as mutation"
     )
 
 
 def test_process_file_with_get_or_create_cache_pattern() -> None:
-    """Integration: process_file should not suggest update_ for cache pattern."""
     source = """
 _cache = {}
 
@@ -257,7 +235,6 @@ def get_or_create_item(key):
     try:
         suggestions = process_file(filepath)
 
-        # Should not suggest renaming (or if it does, should NOT suggest update_)
         for suggestion in suggestions:
             assert not suggestion.suggested_name.startswith("update_"), (
                 f"Should not suggest update_ for cache pattern, "
@@ -268,7 +245,6 @@ def get_or_create_item(key):
 
 
 def test_parameter_detection_with_all_arg_types() -> None:
-    """Test that parameter detection works with all argument types."""
     source = """
 def get_data(regular, /, posonly, *args, kwonly=None, **kwargs):
     '''Get data and potentially mutate various param types.'''
@@ -297,14 +273,12 @@ def get_data(regular, /, posonly, *args, kwonly=None, **kwargs):
 
     analysis = analyze_function(func_node)
 
-    # Should be flagged as mutation (multiple param mutations)
     assert analysis["mutates_args"], (
         "Function mutating various parameter types should be flagged"
     )
 
 
 def test_nested_attribute_access_mutation() -> None:
-    """Test that nested attribute mutations on parameters are detected."""
     source = """
 def get_config(settings):
     '''Get config and update nested attributes.'''
@@ -323,14 +297,11 @@ def get_config(settings):
 
     analysis = analyze_function(func_node)
 
-    # Note: current implementation only checks first level (settings.database)
-    # This is a limitation but acceptable for the initial fix
-    # Should be flagged since settings.database.connection_string starts with 'settings'
+    # Limitation: only checks the first attribute level (settings.database, not deeper).
     assert analysis["mutates_args"], "Nested attribute mutation should be flagged"
 
 
 def test_get_returning_class_not_flagged() -> None:
-    """Test that functions returning classes keep get_ prefix."""
     source = """
 def get_placeholder_backend(original_exception):
     '''Create a placeholder backend class.'''
@@ -351,12 +322,10 @@ def get_placeholder_backend(original_exception):
     finally:
         filepath.unlink()
 
-    # Should not suggest renaming because it returns a class
     assert len(suggestions) == 0, "Functions returning classes should keep get_ prefix"
 
 
 def test_docstring_verb_combine_detected() -> None:
-    """Test that 'combine' verb from docstring is used in suggestion."""
     source = """
 def get_combined_revision(*functions):
     '''Combine the parameters of all revisions into a single revision.'''
@@ -377,14 +346,12 @@ def get_combined_revision(*functions):
     finally:
         filepath.unlink()
 
-    # Should suggest combine_ prefix based on docstring
     assert len(suggestions) == 1
     assert suggestions[0].suggested_name == "combine_combined_revision"
     assert "combine" in suggestions[0].reason.lower()
 
 
 def test_mock_creation_suggests_create() -> None:
-    """Test that mock/factory functions suggest create_ prefix."""
     source = """
 from unittest.mock import MagicMock
 
@@ -406,7 +373,6 @@ def get_mock_response(**kwargs):
     finally:
         filepath.unlink()
 
-    # Should suggest create_ prefix for mock creation
     assert len(suggestions) == 1
     assert suggestions[0].suggested_name == "create_mock_response"
     assert "mock" in suggestions[0].reason.lower()

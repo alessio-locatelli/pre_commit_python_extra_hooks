@@ -47,7 +47,6 @@ def test_raw_prefixed_docstring_header_is_detected() -> None:
 
 
 def test_fix_collapses_header_blank_lines(tmp_path: Path) -> None:
-    """Autofix on a bad fixture should match its known-good counterpart."""
     bad_source = (FIXTURES_DIR / "bad" / "header_spacing.py").read_text()
     good_source = (FIXTURES_DIR / "good" / "header_spacing.py").read_text()
 

@@ -205,7 +205,6 @@ def test_apply_fix_refuses_when_name_is_rebound(tmp_path: Path) -> None:
 
 
 def test_apply_fix_updates_free_function_call_sites(tmp_path: Path) -> None:
-    """Renaming a module-level function updates every call site in the file."""
     test_file = tmp_path / "module.py"
     test_file.write_text(
         "def get_data():\n"
