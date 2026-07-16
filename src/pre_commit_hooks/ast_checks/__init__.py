@@ -35,7 +35,7 @@ from typing import Any
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import batch_filter_files
 
-from ._base import ASTCheck, Violation
+from ._base import ASTCheck, Violation, read_source_with_encoding
 from .excessive_blank_lines import ExcessiveBlankLinesCheck
 from .forbid_vars import ForbidVarsCheck
 from .misplaced_comment import MisplacedCommentCheck
@@ -271,6 +271,32 @@ class CheckOrchestrator:
         except (TypeError, ValueError) as error:
             logger.warning("Cache serialization failed: %s", repr(error))
 
+    def _read_source(self, filepath: Path) -> tuple[str, str] | None:
+        """Read a file's content, honoring a PEP 263 encoding declaration.
+
+        Thin error-handling wrapper around read_source_with_encoding: logs
+        and returns None on any failure instead of raising, since every
+        caller here treats "file couldn't be processed" the same way.
+
+        Args:
+            filepath: Path to file
+
+        Returns:
+            (source, encoding) so a fix() can write back in the same
+            encoding, or None if the file couldn't be read/decoded
+        """
+        try:
+            return read_source_with_encoding(filepath)
+        except OSError as error:
+            logger.error("Failed to read %s: %s", filepath, repr(error))
+            return None
+        except SyntaxError as error:
+            logger.error("Failed to detect encoding for %s: %s", filepath, repr(error))
+            return None
+        except (UnicodeDecodeError, LookupError) as error:
+            logger.error("Failed to decode %s: %s", filepath, repr(error))
+            return None
+
     def _check_file(self, filepath: Path) -> list[Violation] | None:
         """Check a file with all enabled checks.
 
@@ -280,15 +306,10 @@ class CheckOrchestrator:
         Returns:
             List of violations, or None if file couldn't be processed
         """
-        try:
-            # utf-8-sig transparently strips a leading BOM if present (and is
-            # identical to utf-8 otherwise) — without it, a BOM decodes as a
-            # literal U+FEFF character that ast.parse rejects as a syntax
-            # error, silently dropping the file from every check.
-            source = filepath.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as error:
-            logger.error("Failed to read %s: %s", filepath, repr(error))
+        read_result = self._read_source(filepath)
+        if read_result is None:
             return None
+        source, _encoding = read_result
 
         tree: ast.Module | None
         try:
@@ -359,7 +380,10 @@ class CheckOrchestrator:
             try:
                 # Re-read source in case a previous check's fix in this same
                 # loop already modified the file
-                current_source = filepath.read_text(encoding="utf-8-sig")
+                read_result = self._read_source(filepath)
+                if read_result is None:
+                    continue
+                current_source, encoding = read_result
 
                 if check.requires_ast:
                     try:
@@ -389,7 +413,7 @@ class CheckOrchestrator:
                     continue
 
                 success = check.fix(
-                    filepath, fresh_violations, current_source, current_tree
+                    filepath, fresh_violations, current_source, current_tree, encoding
                 )
                 if success:
                     # Mark the original (stale) violations as fixed so the

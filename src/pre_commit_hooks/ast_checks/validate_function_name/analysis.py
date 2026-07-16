@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from .._base import read_source_with_encoding
+
 logger = logging.getLogger("validate_function_name")
 
 # Inline ignore comment format: # pytriage: ignore=TRI004
@@ -26,8 +28,9 @@ class Suggestion:
 
 
 def read_source(path: Path) -> str:
-    """Read source code from a file."""
-    return path.read_text(encoding="utf8")
+    """Read source code from a file, honoring a PEP 263 encoding declaration."""
+    source, _encoding = read_source_with_encoding(path)
+    return source
 
 
 def line_at(source: str, lineno: int) -> str:
@@ -489,7 +492,7 @@ def process_file(filepath: Path) -> list[Suggestion]:
 
     try:
         source = read_source(filepath)
-    except (OSError, UnicodeDecodeError) as error:
+    except (OSError, SyntaxError, UnicodeDecodeError, LookupError) as error:
         logger.warning("File: %s, error: %s", filepath, repr(error))
         return []
 

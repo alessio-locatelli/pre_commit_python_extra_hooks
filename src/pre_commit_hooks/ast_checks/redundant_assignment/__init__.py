@@ -190,6 +190,7 @@ class RedundantAssignmentCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         """Apply fixes for redundant assignment violations.
 
@@ -198,8 +199,9 @@ class RedundantAssignmentCheck:
             violations: List of violations to fix
             source: Original source code
             tree: Parsed AST tree
+            encoding: Encoding to write the file back with
 
         Returns:
             True if fixes were successfully applied
         """
-        return apply_fixes(filepath, violations, source)
+        return apply_fixes(filepath, violations, source, encoding)

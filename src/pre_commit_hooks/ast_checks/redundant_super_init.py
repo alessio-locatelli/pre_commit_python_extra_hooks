@@ -181,6 +181,7 @@ class RedundantSuperInitCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         """No autofix support."""
         return False

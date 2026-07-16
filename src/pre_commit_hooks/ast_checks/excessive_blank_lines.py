@@ -224,6 +224,7 @@ class ExcessiveBlankLinesCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         if not violations:
             return False
@@ -232,7 +233,7 @@ class ExcessiveBlankLinesCheck:
             fixed_content = fix_file_content(source, tree)
 
             # Write back to file
-            filepath.write_text(fixed_content, encoding="utf-8")
+            filepath.write_text(fixed_content, encoding=encoding, newline="")
             return True
         except OSError as os_error:
             logger.error("Failed to write %s: %s", filepath, repr(os_error))

@@ -432,7 +432,11 @@ def _find_enclosing_function(
 
 
 def _apply_fixes(
-    filepath: Path, violations: list[dict[str, Any]], source: str, tree: ast.Module
+    filepath: Path,
+    violations: list[dict[str, Any]],
+    source: str,
+    tree: ast.Module,
+    encoding: str = "utf-8",
 ) -> None:
     """Apply autofixes by replacing forbidden variable assignments and their uses.
 
@@ -444,6 +448,7 @@ def _apply_fixes(
         violations: List of violations with suggestions
         source: Original source code
         tree: Pre-parsed AST tree (optimization: avoid re-parsing)
+        encoding: Encoding to write the file back with
     """
     lines = source.splitlines(keepends=True)
 
@@ -508,7 +513,7 @@ def _apply_fixes(
         if before_ok and after_ok:  # pragma: lax no cover
             lines[line_idx] = line[:col] + new_name + line[col + name_len :]
 
-    filepath.write_text("".join(lines), encoding="utf-8")
+    filepath.write_text("".join(lines), encoding=encoding, newline="")
 
 
 class ForbidVarsCheck:
@@ -597,6 +602,7 @@ class ForbidVarsCheck:
         violations: list[Violation],
         source: str,
         tree: ast.Module,
+        encoding: str = "utf-8",
     ) -> bool:
         """Apply fixes for forbidden variable names.
 
@@ -605,6 +611,7 @@ class ForbidVarsCheck:
             violations: Violations to fix
             source: Source code
             tree: Parsed AST tree
+            encoding: Encoding to write the file back with
 
         Returns:
             True if fixes were applied successfully
@@ -616,7 +623,7 @@ class ForbidVarsCheck:
             return False
 
         try:
-            _apply_fixes(filepath, fixable, source, tree)
+            _apply_fixes(filepath, fixable, source, tree, encoding)
             return True
         except Exception as fix_error:  # noqa: BLE001  # pragma: no cover (defensive error handling)
             logger.error("Failed to apply fixes to %s: %s", filepath, repr(fix_error))
