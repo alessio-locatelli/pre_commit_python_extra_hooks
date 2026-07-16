@@ -268,17 +268,13 @@ def example():
     assert len(violations) == 0
 
 
-def test_fix_method_with_fixable_violations() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_fix_method_with_fixable_violations(tmp_path: Path) -> None:
     source = """def func_scope():
     x = "foo"
     func(x=x)
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -295,12 +291,8 @@ def test_fix_method_with_fixable_violations() -> None:
     assert "x = " not in fixed_content
     assert 'func(x="foo")' in fixed_content
 
-    filepath.unlink()
 
-
-def test_autofix_skips_violation_without_fix_data() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_skips_violation_without_fix_data(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -308,10 +300,8 @@ def test_autofix_skips_violation_without_fix_data() -> None:
 
     source = "x = 1\nprint(x)\n"
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -330,12 +320,8 @@ def test_autofix_skips_violation_without_fix_data() -> None:
 
     assert check.fix(filepath, violations, source, tree) is False
 
-    filepath.unlink()
 
-
-def test_autofix_skips_violation_with_invalid_fix_data() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_skips_violation_with_invalid_fix_data(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -343,10 +329,8 @@ def test_autofix_skips_violation_with_invalid_fix_data() -> None:
 
     source = "x = 1\nprint(x)\n"
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -365,8 +349,6 @@ def test_autofix_skips_violation_with_invalid_fix_data() -> None:
     ]
 
     assert check.fix(filepath, violations, source, tree) is False
-
-    filepath.unlink()
 
 
 def test_autofix_skips_multiline_rhs() -> None:
@@ -402,9 +384,7 @@ def test_autofix_skips_invalid_line_indices() -> None:
     assert _can_safely_inline("x", "value", 10, source_lines) is False  # out of bounds
 
 
-def test_autofix_with_invalid_assignment_line() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_with_invalid_assignment_line(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -412,10 +392,8 @@ def test_autofix_with_invalid_assignment_line() -> None:
 
     source = "x = 1\nprint(x)\n"
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -441,12 +419,8 @@ def test_autofix_with_invalid_assignment_line() -> None:
 
     assert check.fix(filepath, violations, source, tree) is False
 
-    filepath.unlink()
 
-
-def test_autofix_with_invalid_usage_line() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_with_invalid_usage_line(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -454,10 +428,8 @@ def test_autofix_with_invalid_usage_line() -> None:
 
     source = "x = 1\nprint(x)\n"
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -483,12 +455,8 @@ def test_autofix_with_invalid_usage_line() -> None:
 
     assert check.fix(filepath, violations, source, tree) is False
 
-    filepath.unlink()
 
-
-def test_autofix_with_multiple_uses() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_with_multiple_uses(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -496,10 +464,8 @@ def test_autofix_with_multiple_uses() -> None:
 
     source = "x = 1\nprint(x)\nprint(x)\n"
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -527,12 +493,8 @@ def test_autofix_with_multiple_uses() -> None:
 
     assert check.fix(filepath, violations, source, tree) is False  # multiple uses
 
-    filepath.unlink()
 
-
-def test_autofix_with_unsafe_inlining() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_with_unsafe_inlining(tmp_path: Path) -> None:
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment import (
         RedundantAssignmentCheck,
@@ -544,10 +506,8 @@ def test_autofix_with_unsafe_inlining() -> None:
         "x = " + "a" * 40 + "\nresult = some_long_function_name(x, param1, param2)\n"
     )
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
@@ -572,8 +532,6 @@ def test_autofix_with_unsafe_inlining() -> None:
     ]
 
     assert check.fix(filepath, violations, source, tree) is False
-
-    filepath.unlink()
 
 
 def test_fix_method_with_no_fixable_violations() -> None:
@@ -1225,16 +1183,12 @@ def find_place_document(place_id):
     assert len(violations) == 0
 
 
-def test_autofix_respects_line_length() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_respects_line_length(tmp_path: Path) -> None:
     source = """x = "a_very_long_string_that_when_inlined_would_make_the_line_too_long"
 result = some_function(x, another_param, yet_another_param)
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -1248,19 +1202,13 @@ result = some_function(x, another_param, yet_another_param)
             fixed = filepath.read_text()
             assert len(fixed.splitlines()[1]) <= 88 or result is False
 
-    filepath.unlink()
 
-
-def test_autofix_handles_word_boundaries() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_handles_word_boundaries(tmp_path: Path) -> None:
     source = """x = 5
 result = x + max(x, index)
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -1275,8 +1223,6 @@ result = x + max(x, index)
         # Should only replace the standalone 'x', not 'max' or 'index'
         assert "max" in fixed
         assert "index" in fixed
-
-    filepath.unlink()
 
 
 def test_chained_operations_scoring() -> None:
@@ -1412,16 +1358,12 @@ def example():
         assert not v.fixable
 
 
-def test_autofix_simple_constant() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_simple_constant(tmp_path: Path) -> None:
     source = """y = 42
 result = y + 10
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -1437,19 +1379,13 @@ result = y + 10
         assert "y = 42" not in fixed_content
         assert "result = 42 + 10" in fixed_content
 
-    filepath.unlink()
 
-
-def test_autofix_simple_attribute() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_simple_attribute(tmp_path: Path) -> None:
     source = """v = obj.attr
 use(v)
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -1465,19 +1401,13 @@ use(v)
         assert "v = obj.attr" not in fixed_content
         assert "use(obj.attr)" in fixed_content
 
-    filepath.unlink()
 
-
-def test_autofix_word_boundaries() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_word_boundaries(tmp_path: Path) -> None:
     source = """x = 5
 result = max(x, 10)
 """
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
@@ -1492,8 +1422,6 @@ result = max(x, 10)
         # Should replace 'x' but not affect 'max'
         assert "result = max(5, 10)" in fixed_content
         assert "max" in fixed_content  # 'max' should still be present
-
-    filepath.unlink()
 
 
 # === Bug Reproduction Tests ===
@@ -1537,9 +1465,7 @@ def test_problem_2_boolean_descriptive_names() -> None:
         )
 
 
-def test_problem_4_multiple_exception_assignments() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_problem_4_multiple_exception_assignments(tmp_path: Path) -> None:
     source = """def fetch_data():
     error = None
     try:
@@ -1555,10 +1481,8 @@ def test_problem_4_multiple_exception_assignments() -> None:
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     violations = check.check(filepath, tree, source)
 
@@ -1577,12 +1501,8 @@ def test_problem_4_multiple_exception_assignments() -> None:
             msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
             raise AssertionError(msg) from e
 
-    filepath.unlink()
 
-
-def test_problem_5_conditional_assignment_logic_change() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_problem_5_conditional_assignment_logic_change(tmp_path: Path) -> None:
     source = """def configure(service_name=None):
     if not service_name:
         service_name = get_caller_module_name()
@@ -1591,10 +1511,8 @@ def test_problem_5_conditional_assignment_logic_change() -> None:
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     violations = check.check(filepath, tree, source)
 
@@ -1608,8 +1526,6 @@ def test_problem_5_conditional_assignment_logic_change() -> None:
         assert "if not get_caller_module_name():" not in fixed_content, (
             f"Autofix changed program logic!\n{fixed_content}"
         )
-
-    filepath.unlink()
 
 
 def test_same_variable_different_scopes() -> None:
@@ -1638,14 +1554,12 @@ def test_same_variable_different_scopes() -> None:
         assert should_skip
 
 
-def test_autofix_preserves_blank_lines_across_file() -> None:
+def test_autofix_preserves_blank_lines_across_file(tmp_path: Path) -> None:
     """Test that autofix only cleans up blank lines around removed assignments.
 
     Regression test for bug where autofix was deleting blank lines across
     the entire file, not just around the removed assignment.
     """
-    from tempfile import NamedTemporaryFile
-
     # File with multiple classes/functions separated by blank lines
     # and one redundant assignment that will be autofixed
     source = """class FirstClass:
@@ -1675,10 +1589,8 @@ class ThirdClass:
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     violations = check.check(filepath, tree, source)
 
@@ -1718,12 +1630,8 @@ class ThirdClass:
             msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
             raise AssertionError(msg) from e
 
-    filepath.unlink()
 
-
-def test_autofix_cleans_up_excessive_blank_lines() -> None:
-    from tempfile import NamedTemporaryFile
-
+def test_autofix_cleans_up_excessive_blank_lines(tmp_path: Path) -> None:
     # File with excessive blank lines around a redundant assignment
     # The blank lines between the removed assignment should be cleaned up
     source = """def function_with_redundant():
@@ -1738,10 +1646,8 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
 
-    with NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(source)
-        f.flush()
-        filepath = Path(f.name)
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
 
     violations = check.check(filepath, tree, source)
 
@@ -1779,8 +1685,6 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
         except SyntaxError as e:
             msg = f"Fixed code has syntax error: {e}\n{fixed_content}"
             raise AssertionError(msg) from e
-
-    filepath.unlink()
 
 
 def test_cleanup_blank_lines_only_excess_below() -> None:
