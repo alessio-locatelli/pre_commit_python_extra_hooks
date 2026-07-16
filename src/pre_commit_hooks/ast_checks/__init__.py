@@ -308,7 +308,7 @@ class CheckOrchestrator:
 
         # Apply fixes if in fix mode
         if self.fix_mode and all_violations:
-            self._apply_fixes(filepath, all_violations, source, tree)
+            self._apply_fixes(filepath, all_violations)
 
         return all_violations
 
@@ -316,48 +316,61 @@ class CheckOrchestrator:
         self,
         filepath: Path,
         violations: list[Violation],
-        source: str,
-        tree: ast.Module,
     ) -> None:
         """Apply fixes for fixable violations.
 
         Args:
             filepath: Path to file
-            violations: All violations found in file
-            source: Original source code
-            tree: Parsed AST tree
+            violations: All violations found in file (used only to know which
+                checks reported something fixable, and to mark the caller's
+                own Violation objects as fixed for reporting — the actual
+                positions handed to each check's fix() are recomputed fresh
+                below, never taken from this stale list)
         """
-        # Group violations by check
-        by_check: dict[str, list[Violation]] = {}
-        for v in violations:
-            if v.fixable:
-                by_check.setdefault(v.check_id, []).append(v)
+        # Which checks reported at least one fixable violation
+        fixable_check_ids = {v.check_id for v in violations if v.fixable}
 
         # Apply fixes for each check
         for check in self.checks:
-            check_violations = by_check.get(check.check_id, [])
-            if check_violations:
-                try:
-                    # Re-read source in case previous fix modified it
-                    current_source = filepath.read_text(encoding="utf-8-sig")
-                    current_tree = ast.parse(current_source, filename=str(filepath))
+            if check.check_id not in fixable_check_ids:
+                continue
+            try:
+                # Re-read source in case a previous check's fix in this same
+                # loop already modified the file
+                current_source = filepath.read_text(encoding="utf-8-sig")
+                current_tree = ast.parse(current_source, filename=str(filepath))
 
-                    success = check.fix(
-                        filepath, check_violations, current_source, current_tree
-                    )
-                    if success:
-                        # Mark violations as fixed
-                        for v in check_violations:
+                # Recompute violations against the current file state rather
+                # than reusing the stale ones collected before any fixes ran:
+                # an earlier check's fix can shift line/col numbers (removing
+                # or inserting lines), which would otherwise make this
+                # check's fix() edit the wrong location.
+                fresh_violations = [
+                    v
+                    for v in check.check(filepath, current_tree, current_source)
+                    if v.fixable
+                ]
+                if not fresh_violations:
+                    continue
+
+                success = check.fix(
+                    filepath, fresh_violations, current_source, current_tree
+                )
+                if success:
+                    # Mark the original (stale) violations as fixed so the
+                    # caller's reporting loop shows [FIXED] correctly.
+                    for v in violations:
+                        if v.check_id == check.check_id and v.fixable:
                             if v.fix_data is None:
                                 v.fix_data = {}
                             v.fix_data["fixed"] = True
-                except Exception as fix_error:  # noqa: BLE001
-                    logger.error(
-                        "Fix failed for %s on %s: %s",
-                        check.check_id,
-                        filepath,
-                        repr(fix_error),
-                    )
+            except Exception as fix_error:  # noqa: BLE001
+                logger.error(
+                    "Fix failed for %s on %s: %s",
+                    check.check_id,
+                    filepath,
+                    repr(fix_error),
+                )
 
 
 def load_checks(
