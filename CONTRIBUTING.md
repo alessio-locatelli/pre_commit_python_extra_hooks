@@ -160,6 +160,9 @@ class ASTCheck(Protocol):
     @property
     def error_code(self) -> str: ...        # e.g. "TRI001"
 
+    @property
+    def requires_ast(self) -> bool: ...     # False lets check() run when ast.parse() fails
+
     def get_prefilter_pattern(self) -> list[str] | None: ...  # git-grep fast path
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]: ...
@@ -199,6 +202,13 @@ class YourCheck:
     @property
     def error_code(self) -> str:
         return ERROR_CODE
+
+    @property
+    def requires_ast(self) -> bool:
+        # True unless this check only tokenizes and never reads the `tree`
+        # argument (see misplaced-comment) — those can keep running on files
+        # CheckOrchestrator couldn't ast.parse().
+        return True
 
     def get_prefilter_pattern(self) -> list[str] | None:
         # Fixed strings passed to `git grep` to skip files that can't match.

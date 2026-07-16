@@ -95,6 +95,11 @@ ALL_CHECKS: list[type[ASTCheck]] = [
     MisplacedCommentCheck,
 ]
 
+# Passed as the `tree` argument to checks with requires_ast=False when the
+# file couldn't be ast.parse()'d — never a real parse of the file, so such
+# checks must never actually read it.
+_EMPTY_TREE = ast.parse("")
+
 
 class CheckOrchestrator:
     """Orchestrates running multiple AST checks on Python files.
@@ -285,18 +290,35 @@ class CheckOrchestrator:
             logger.error("Failed to read %s: %s", filepath, repr(error))
             return None
 
+        tree: ast.Module | None
         try:
             # Parse AST once
             tree = ast.parse(source, filename=str(filepath))
         except SyntaxError as syntax_error:
-            logger.error("Failed to parse %s: %s", filepath, repr(syntax_error))
-            return None
+            tokenize_only_checks = [c for c in self.checks if not c.requires_ast]
+            if not tokenize_only_checks:
+                logger.error("Failed to parse %s: %s", filepath, repr(syntax_error))
+                return None
+            # This file can't be ast.parse()'d, but at least one enabled
+            # check (e.g. misplaced-comment) only tokenizes and doesn't need
+            # a real tree — run those instead of skipping the file entirely.
+            logger.debug(
+                "Failed to parse %s: %s (running %d tokenize-only check(s) anyway)",
+                filepath,
+                repr(syntax_error),
+                len(tokenize_only_checks),
+            )
+            tree = None
 
         # Run all checks on the same tree
         all_violations: list[Violation] = []
         for check in self.checks:
+            if tree is None and check.requires_ast:
+                continue
             try:
-                violations = check.check(filepath, tree, source)
+                violations = check.check(
+                    filepath, tree if tree is not None else _EMPTY_TREE, source
+                )
                 all_violations.extend(violations)
             except Exception as check_error:  # noqa: BLE001
                 logger.error(
@@ -338,7 +360,20 @@ class CheckOrchestrator:
                 # Re-read source in case a previous check's fix in this same
                 # loop already modified the file
                 current_source = filepath.read_text(encoding="utf-8-sig")
-                current_tree = ast.parse(current_source, filename=str(filepath))
+
+                if check.requires_ast:
+                    try:
+                        current_tree = ast.parse(current_source, filename=str(filepath))
+                    except SyntaxError as syntax_error:
+                        logger.error(
+                            "Failed to parse %s for fixing: %s",
+                            filepath,
+                            repr(syntax_error),
+                        )
+                        continue
+                else:
+                    # Never dereferenced by a requires_ast=False check.
+                    current_tree = _EMPTY_TREE
 
                 # Recompute violations against the current file state rather
                 # than reusing the stale ones collected before any fixes ran:
