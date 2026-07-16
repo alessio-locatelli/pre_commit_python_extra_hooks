@@ -19,7 +19,6 @@ from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
 
 
 def test_immediate_single_use_detected() -> None:
-    """Test detection of immediate single use pattern."""
     source = """
 def func_scope():
     x = "foo"
@@ -36,7 +35,6 @@ def func_scope():
 
 
 def test_single_use_return_detected() -> None:
-    """Test detection of single-use variable in return."""
     source = """
 def example():
     result = get_value()
@@ -51,7 +49,6 @@ def example():
 
 
 def test_literal_identity_detected() -> None:
-    """Test detection of literal identity pattern."""
     source = """
 def func_scope():
     foo = "foo"
@@ -66,7 +63,6 @@ def func_scope():
 
 
 def test_literal_identity_with_underscores() -> None:
-    """Test literal identity with underscores matches."""
     source = """
 def func_scope():
     SOME_VALUE = "somevalue"
@@ -76,12 +72,10 @@ def func_scope():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should detect as literal identity (underscores removed match)
     assert len(violations) >= 1
 
 
 def test_multiple_uses_not_flagged() -> None:
-    """Test that variables with multiple uses are not flagged."""
     source = """
 value = calc()
 print(value)
@@ -92,12 +86,10 @@ return value
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'value' because it's used multiple times
     assert len(violations) == 0
 
 
 def test_semantic_value_skipped() -> None:
-    """Test that variables with semantic value are skipped."""
     source = """
 def example():
     formatted_timestamp = format_iso8601(raw_ts)
@@ -107,12 +99,10 @@ def example():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag because 'formatted_timestamp' has semantic value
     assert len(violations) == 0
 
 
 def test_inline_suppression_respected() -> None:
-    """Test that inline ignore comments are respected."""
     source = """
 x = "foo"  # pytriage: ignore=TRI005
 func(x=x)
@@ -121,12 +111,10 @@ func(x=x)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag because of inline suppression
     assert len(violations) == 0
 
 
 def test_inline_suppression_case_insensitive() -> None:
-    """Test that inline ignore comments are case-insensitive."""
     source = """
 x = "foo"  # PYTRIAGE: IGNORE=TRI005
 func(x=x)
@@ -135,12 +123,10 @@ func(x=x)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag because of inline suppression
     assert len(violations) == 0
 
 
 def test_variable_tracker_scope_isolation() -> None:
-    """Test that VariableTracker isolates variables by scope."""
     source = """
 def outer():
     x = "outer"
@@ -154,13 +140,11 @@ def outer():
     tracker.visit(tree)
     lifecycles = tracker.build_lifecycles()
 
-    # Should track two separate lifecycles for 'x' in different scopes
     x_lifecycles = [lc for lc in lifecycles if lc.assignment.var_name == "x"]
     assert len(x_lifecycles) == 2
 
 
 def test_global_variable_not_analyzed() -> None:
-    """Test that global variables are not analyzed."""
     source = """
 def func():
     global state
@@ -171,12 +155,10 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not analyze global variables
     assert len(violations) == 0
 
 
 def test_type_annotation_adds_value() -> None:
-    """Test that type annotations increase semantic value."""
     source = """
 def example():
     result: ComplexType = calculate()
@@ -194,7 +176,6 @@ def example():
 
 
 def test_comprehension_not_causing_errors() -> None:
-    """Test that comprehensions don't cause tracking errors."""
     source = """
 result = [x for x in items]
 return result
@@ -209,7 +190,6 @@ return result
 
 
 def test_pattern_detection_immediate_use() -> None:
-    """Test pattern detection for immediate single use."""
     source = """
 def func():
     x = "foo"
@@ -220,16 +200,13 @@ def func():
     tracker.visit(tree)
     lifecycles = tracker.build_lifecycles()
 
-    # Find the 'x' lifecycle
     x_lifecycle = next(lc for lc in lifecycles if lc.assignment.var_name == "x")
 
-    # Should detect immediate single use
     pattern = detect_redundancy(x_lifecycle)
     assert pattern == PatternType.IMMEDIATE_SINGLE_USE
 
 
 def test_pattern_detection_single_use() -> None:
-    """Test pattern detection for single use (not immediate)."""
     source = """
 def func():
     x = "foo"
@@ -242,30 +219,26 @@ def func():
     tracker.visit(tree)
     lifecycles = tracker.build_lifecycles()
 
-    # Find the 'x' lifecycle
     x_lifecycle = next(lc for lc in lifecycles if lc.assignment.var_name == "x")
 
-    # Should detect single use (not immediate because there are intervening statements)
+    # Not immediate: there are intervening statements between assignment and use.
     pattern = detect_redundancy(x_lifecycle)
     assert pattern == PatternType.SINGLE_USE
 
 
 def test_check_id_and_error_code() -> None:
-    """Test that check has correct ID and error code."""
     check = RedundantAssignmentCheck()
     assert check.check_id == "redundant-assignment"
     assert check.error_code == "TRI005"
 
 
 def test_prefilter_pattern() -> None:
-    """Test that prefilter pattern is defined."""
     check = RedundantAssignmentCheck()
     patterns = check.get_prefilter_pattern()
     assert patterns == [" = "]
 
 
 def test_fixable_marked_correctly() -> None:
-    """Test that simple violations are marked fixable."""
     source = """
 def func_scope():
     x = "foo"
@@ -275,14 +248,12 @@ def func_scope():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should detect violations and mark simple ones as fixable
     assert len(violations) >= 1
-    # Simple case: constant assignment, immediate use, short name, no control flow
+    # Simple case: constant assignment, immediate use, short name, no control flow.
     assert any(v.fixable for v in violations)
 
 
 def test_non_fixable_semantic_value() -> None:
-    """Test that violations with semantic value are not marked fixable."""
     source = """
 def example():
     calculated_value = expensive_operation()
@@ -298,7 +269,6 @@ def example():
 
 
 def test_fix_method_with_fixable_violations() -> None:
-    """Test that fix method can fix simple violations."""
     from tempfile import NamedTemporaryFile
 
     source = """def func_scope():
@@ -314,20 +284,14 @@ def test_fix_method_with_fixable_violations() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(filepath, tree, source)
 
-    # Should detect violations
     assert len(violations) >= 1
-
-    # Simple case should be marked fixable
     assert any(v.fixable for v in violations)
 
-    # Apply fixes
-    result = check.fix(filepath, violations, source, tree)
-    assert result is True
+    assert check.fix(filepath, violations, source, tree) is True
 
-    # Read the fixed content
     fixed_content = filepath.read_text()
 
-    # The assignment should be removed and the usage should be inlined
+    # The assignment should be removed and the usage inlined.
     assert "x = " not in fixed_content
     assert 'func(x="foo")' in fixed_content
 
@@ -335,7 +299,6 @@ def test_fix_method_with_fixable_violations() -> None:
 
 
 def test_autofix_skips_violation_without_fix_data() -> None:
-    """Test that autofix skips violations without fix_data."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -353,7 +316,6 @@ def test_autofix_skips_violation_without_fix_data() -> None:
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
 
-    # Create a violation without fix_data
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -366,14 +328,12 @@ def test_autofix_skips_violation_without_fix_data() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    assert result is False
+    assert check.fix(filepath, violations, source, tree) is False
 
     filepath.unlink()
 
 
 def test_autofix_skips_violation_with_invalid_fix_data() -> None:
-    """Test that autofix skips violations with invalid fix_data."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -404,58 +364,45 @@ def test_autofix_skips_violation_with_invalid_fix_data() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    assert result is False
+    assert check.fix(filepath, violations, source, tree) is False
 
     filepath.unlink()
 
 
 def test_autofix_skips_multiline_rhs() -> None:
-    """Test that autofix skips multiline expressions."""
     from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
         _can_safely_inline,
     )
 
     source_lines = ["result = func(x)\n"]
 
-    # RHS with newline should not be inlined
-    result = _can_safely_inline("result", "func(\n    arg\n)", 0, source_lines)
-    assert result is False
+    # RHS with newline should not be inlined.
+    assert _can_safely_inline("result", "func(\n    arg\n)", 0, source_lines) is False
 
 
 def test_autofix_skips_line_length_violation() -> None:
-    """Test that autofix skips if inlining would exceed line length."""
     from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
         _can_safely_inline,
     )
 
-    # Current line is 80 chars, adding 20 more would exceed 88
+    # Current line is 80 chars, adding 20 more would exceed 88.
     source_lines = ["x = " + "a" * 80 + "\n"]
 
-    # Inlining would make the line too long
-    result = _can_safely_inline("x", "a" * 20, 0, source_lines)
-    assert result is False
+    assert _can_safely_inline("x", "a" * 20, 0, source_lines) is False
 
 
 def test_autofix_skips_invalid_line_indices() -> None:
-    """Test that autofix handles invalid line indices gracefully."""
     from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
         _can_safely_inline,
     )
 
     source_lines = ["line1\n", "line2\n"]
 
-    # Negative index
-    result = _can_safely_inline("x", "value", -1, source_lines)
-    assert result is False
-
-    # Index out of bounds
-    result = _can_safely_inline("x", "value", 10, source_lines)
-    assert result is False
+    assert _can_safely_inline("x", "value", -1, source_lines) is False  # negative index
+    assert _can_safely_inline("x", "value", 10, source_lines) is False  # out of bounds
 
 
 def test_autofix_with_invalid_assignment_line() -> None:
-    """Test that autofix skips violations with invalid assignment line indices."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -492,14 +439,12 @@ def test_autofix_with_invalid_assignment_line() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    assert result is False
+    assert check.fix(filepath, violations, source, tree) is False
 
     filepath.unlink()
 
 
 def test_autofix_with_invalid_usage_line() -> None:
-    """Test that autofix skips violations with invalid usage line indices."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -536,14 +481,12 @@ def test_autofix_with_invalid_usage_line() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    assert result is False
+    assert check.fix(filepath, violations, source, tree) is False
 
     filepath.unlink()
 
 
 def test_autofix_with_multiple_uses() -> None:
-    """Test that autofix skips violations with multiple uses."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -582,14 +525,12 @@ def test_autofix_with_multiple_uses() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    assert result is False  # Should skip because of multiple uses
+    assert check.fix(filepath, violations, source, tree) is False  # multiple uses
 
     filepath.unlink()
 
 
 def test_autofix_with_unsafe_inlining() -> None:
-    """Test that autofix skips when inlining would be unsafe (line too long)."""
     from tempfile import NamedTemporaryFile
 
     from pre_commit_hooks.ast_checks._base import Violation
@@ -611,7 +552,6 @@ def test_autofix_with_unsafe_inlining() -> None:
     check = RedundantAssignmentCheck()
     tree = ast.parse(source)
 
-    # Manually create a fixable violation with a long RHS
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -631,15 +571,12 @@ def test_autofix_with_unsafe_inlining() -> None:
         )
     ]
 
-    result = check.fix(filepath, violations, source, tree)
-    # Should return False because inlining would make the line too long
-    assert result is False
+    assert check.fix(filepath, violations, source, tree) is False
 
     filepath.unlink()
 
 
 def test_fix_method_with_no_fixable_violations() -> None:
-    """Test that fix method returns False when no violations are fixable."""
     from pre_commit_hooks.ast_checks._base import Violation
     from pre_commit_hooks.ast_checks.redundant_assignment.autofix import apply_fixes
 
@@ -647,7 +584,6 @@ def test_fix_method_with_no_fixable_violations() -> None:
 x = "foo"
 func(x=x)
 """
-    # Create a non-fixable violation
     violations = [
         Violation(
             check_id="redundant-assignment",
@@ -660,12 +596,10 @@ func(x=x)
         )
     ]
 
-    result = apply_fixes(Path("test.py"), violations, source)
-    assert result is False
+    assert apply_fixes(Path("test.py"), violations, source) is False
 
 
 def test_nonlocal_variable_not_analyzed() -> None:
-    """Test that nonlocal variables are not analyzed."""
     source = """
 def outer():
     x = "outer"
@@ -679,12 +613,10 @@ def outer():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Nonlocal assignment should not be flagged
     assert all("modified" not in v.message for v in violations)
 
 
 def test_annotated_assignment_tracked() -> None:
-    """Test that annotated assignments are tracked."""
     source = """
 def example():
     x: str = "foo"
@@ -694,13 +626,11 @@ def example():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should flag if semantic value is low
-    # Type annotation adds 15 points, but 'x' literal is still low value
+    # Type annotation adds 15 points, but 'x' literal is still low value.
     assert len(violations) >= 1
 
 
 def test_annotated_assignment_not_global() -> None:
-    """Test annotated assignment that is not global/nonlocal (normal path)."""
     source = """
 def example():
     result: int = calculate_value()
@@ -716,7 +646,6 @@ def example():
 
 
 def test_annotated_assignment_without_value() -> None:
-    """Test annotated assignment without value (type hint only)."""
     source = """
 def example():
     x: str  # Type hint only, no assignment
@@ -732,7 +661,6 @@ def example():
 
 
 def test_class_attributes_not_analyzed() -> None:
-    """Test that class attributes are not analyzed."""
     source = """
 class MyClass:
     x = "foo"
@@ -744,12 +672,10 @@ class MyClass:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Class attributes should not be flagged
     assert len(violations) == 0
 
 
 def test_semantic_scoring_long_expression() -> None:
-    """Test that long expressions get higher semantic scores."""
     source = """
 def example():
     x = very_long_function_name_that_exceeds_sixty_characters_in_total()
@@ -765,7 +691,6 @@ def example():
 
 
 def test_semantic_scoring_comprehension() -> None:
-    """Test that comprehensions increase semantic value."""
     source = """
 result = [x * 2 for x in range(10)]
 print(result)
@@ -779,7 +704,6 @@ print(result)
 
 
 def test_semantic_scoring_binary_op() -> None:
-    """Test that binary operations increase semantic value."""
     source = """
 result = a + b
 print(result)
@@ -793,7 +717,6 @@ print(result)
 
 
 def test_semantic_scoring_unary_op() -> None:
-    """Test that unary operations increase semantic value."""
     source = """
 result = -value
 print(result)
@@ -807,7 +730,6 @@ print(result)
 
 
 def test_semantic_scoring_ternary() -> None:
-    """Test that ternary expressions increase semantic value."""
     source = """
 result = x if condition else y
 print(result)
@@ -821,7 +743,6 @@ print(result)
 
 
 def test_semantic_scoring_lambda() -> None:
-    """Test that lambda expressions increase semantic value."""
     source = """
 func = lambda x: x * 2
 result = func(10)
@@ -835,7 +756,6 @@ result = func(10)
 
 
 def test_semantic_scoring_multipart_name() -> None:
-    """Test that multi-part names increase semantic value."""
     source = """
 def example():
     user_email_address = get_email()
@@ -850,7 +770,6 @@ def example():
 
 
 def test_tuple_unpacking_not_analyzed() -> None:
-    """Test that tuple unpacking is not analyzed."""
     source = """
 x, y = get_coords()
 print(x)
@@ -881,7 +800,6 @@ def test_orchestrator_skips_file_with_invalid_syntax(tmp_path: Path) -> None:
 
 
 def test_autofix_should_autofix_simple_call() -> None:
-    """Test that should_autofix allows simple calls."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -892,7 +810,6 @@ def test_autofix_should_autofix_simple_call() -> None:
         should_autofix,
     )
 
-    # Create a simple call assignment
     source = "get_value()"
     rhs_node = ast.parse(source, mode="eval").body
 
@@ -921,14 +838,11 @@ def test_autofix_should_autofix_simple_call() -> None:
         ],
     )
 
-    # Should autofix simple call with immediate use
-    result = should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE)
-    # This might be True or False depending on semantic score
-    assert isinstance(result, bool)
+    # May be True or False depending on semantic score.
+    assert isinstance(should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE), bool)
 
 
 def test_no_uses_not_flagged() -> None:
-    """Test that assignments with no uses are not flagged."""
     source = """
 def example():
     x = "foo"
@@ -938,12 +852,10 @@ def example():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Variables with no uses should not be flagged (different issue)
     assert len(violations) == 0
 
 
 def test_should_autofix_with_single_use_pattern() -> None:
-    """Test that should_autofix returns False for SINGLE_USE pattern."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -982,13 +894,11 @@ def test_should_autofix_with_single_use_pattern() -> None:
         ],
     )
 
-    # SINGLE_USE pattern CAN be auto-fixed for simple cases (simple call with no args)
-    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is True
+    # SINGLE_USE pattern CAN be auto-fixed for simple cases (simple call with no args).
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
 
 
 def test_semantic_scoring_medium_length_expression() -> None:
-    """Test semantic scoring for medium-length expressions (40-60 chars)."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
@@ -997,14 +907,11 @@ def test_semantic_scoring_medium_length_expression() -> None:
     rhs_source = "some_function_with_exactly_45_characters("
     rhs_node = ast.parse(rhs_source + ")", mode="eval").body
 
-    score = calculate_semantic_value("x", rhs_source + ")", rhs_node, False)
-
-    # Should get points for medium length (40-60 chars = +10 points)
-    assert score >= 10
+    # Medium length (40-60 chars) should score +10 points.
+    assert calculate_semantic_value("x", rhs_source + ")", rhs_node, False) >= 10
 
 
 def test_should_autofix_call_with_simple_args() -> None:
-    """Test that should_autofix allows calls with simple arguments."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -1015,7 +922,6 @@ def test_should_autofix_call_with_simple_args() -> None:
         should_autofix,
     )
 
-    # Create a call with simple arguments
     source = "func(1, 2)"
     rhs_node = ast.parse(source, mode="eval").body
 
@@ -1044,13 +950,11 @@ def test_should_autofix_call_with_simple_args() -> None:
         ],
     )
 
-    # Should potentially autofix (depending on semantic score)
-    result = should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE)
-    assert isinstance(result, bool)
+    # May or may not autofix, depending on semantic score.
+    assert isinstance(should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE), bool)
 
 
 def test_should_autofix_no_args_call() -> None:
-    """Test that should_autofix allows no-args calls."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -1061,7 +965,6 @@ def test_should_autofix_no_args_call() -> None:
         should_autofix,
     )
 
-    # Create a call with no arguments
     source = "func()"
     rhs_node = ast.parse(source, mode="eval").body
 
@@ -1090,13 +993,11 @@ def test_should_autofix_no_args_call() -> None:
         ],
     )
 
-    # Should potentially autofix (depending on semantic score)
-    result = should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE)
-    assert isinstance(result, bool)
+    # May or may not autofix, depending on semantic score.
+    assert isinstance(should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE), bool)
 
 
 def test_lifecycle_no_uses_not_immediate() -> None:
-    """Test that lifecycle with no uses is not immediate."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         VariableLifecycle,
@@ -1116,16 +1017,13 @@ def test_lifecycle_no_uses_not_immediate() -> None:
         has_type_annotation=False,
     )
 
-    # Lifecycle with no uses
     lifecycle = VariableLifecycle(assignment=assignment, uses=[])
 
-    # Should not be immediate use
     assert lifecycle.is_immediate_use is False
     assert lifecycle.is_single_use is False
 
 
 def test_annotated_assignment_with_nonlocal() -> None:
-    """Test that annotated assignments with nonlocal are skipped."""
     source = """
 def outer():
     x: str = "outer"
@@ -1142,7 +1040,6 @@ def outer():
 
 
 def test_get_source_segment_error_handling() -> None:
-    """Test that _get_source_segment handles errors gracefully."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         VariableTracker,
     )
@@ -1150,16 +1047,12 @@ def test_get_source_segment_error_handling() -> None:
     source = "x = 1"
     tracker = VariableTracker(source)
 
-    # Create a node with invalid line numbers
     node = ast.Constant(value=1, lineno=-1, col_offset=-1)
 
-    # Should return empty string on error
-    result = tracker._get_source_segment(node)
-    assert result == ""
+    assert tracker._get_source_segment(node) == ""
 
 
 def test_multiple_assignments_to_same_variable() -> None:
-    """Test that multiple assignments to same variable create separate lifecycles."""
     source = """
 def example():
     x = "first"
@@ -1176,7 +1069,6 @@ def example():
 
 
 def test_multiple_annotated_assignments_same_variable() -> None:
-    """Test multiple annotated assignments to same variable."""
     source = """
 def example():
     x: str = "first"
@@ -1193,7 +1085,6 @@ def example():
 
 
 def test_self_referential_assignment_correctly_tracked() -> None:
-    """Test that x = x + 1 pattern correctly ignores LHS in RHS."""
     source = """
 def example():
     x = 1
@@ -1213,7 +1104,6 @@ def example():
 
 
 def test_should_autofix_complex_call_args() -> None:
-    """Test that should_autofix rejects calls with complex arguments."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -1224,7 +1114,6 @@ def test_should_autofix_complex_call_args() -> None:
         should_autofix,
     )
 
-    # Create a call with complex arguments (dict comprehension)
     source = "func({k: v for k, v in items})"
     rhs_node = ast.parse(source, mode="eval").body
 
@@ -1253,13 +1142,10 @@ def test_should_autofix_complex_call_args() -> None:
         ],
     )
 
-    # Should NOT autofix due to complex arguments
-    result = should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE)
-    assert result is False
+    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
 
 
 def test_conditional_assignment_with_augmented_use() -> None:
-    """Test conditional assignments with augmented assignment not flagged."""
     source = """
 def func(v):
     if v:
@@ -1275,7 +1161,6 @@ def func(v):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag either 'msg' assignment because:
     # 1. Both assignments are in different branches (if/else)
     # 2. The variable is used in an augmented assignment (msg += ...)
     # 3. This is not a single-use pattern - the conditional value is essential
@@ -1283,7 +1168,6 @@ def func(v):
 
 
 def test_augmented_assignment_tracks_usage() -> None:
-    """Test that augmented assignments track variable usage."""
     source = """
 def example():
     x = 1
@@ -1295,8 +1179,7 @@ def example():
     tracker.visit(tree)
     lifecycles = tracker.build_lifecycles()
 
-    # Should have one lifecycle for 'x' (the initial assignment)
-    # Augmented assignments are tracked as usages, not new assignments
+    # Augmented assignments are tracked as usages, not new assignments.
     x_lifecycles = [lc for lc in lifecycles if lc.assignment.var_name == "x"]
     assert len(x_lifecycles) == 1
 
@@ -1308,7 +1191,6 @@ def example():
 
 
 def test_augmented_assignment_single_use_can_be_flagged() -> None:
-    """Test that augmented assignments can still be flagged if redundant."""
     source = """
 def example():
     x = 1
@@ -1326,7 +1208,6 @@ def example():
 
 
 def test_long_chained_expression_not_flagged() -> None:
-    """Test that long chained expressions with meaningful names are not flagged."""
     source = """
 @functools.cache
 def find_place_document(place_id):
@@ -1337,7 +1218,6 @@ def find_place_document(place_id):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag 'collection_places' because:
     # 1. It's a long expression (70+ chars)
     # 2. It has chained subscript operations
     # 3. The variable name is meaningful and descriptive
@@ -1346,10 +1226,8 @@ def find_place_document(place_id):
 
 
 def test_autofix_respects_line_length() -> None:
-    """Test that autofix doesn't inline if it would exceed line length."""
     from tempfile import NamedTemporaryFile
 
-    # Create a case where inlining would exceed 88 characters
     source = """x = "a_very_long_string_that_when_inlined_would_make_the_line_too_long"
 result = some_function(x, another_param, yet_another_param)
 """
@@ -1367,7 +1245,6 @@ result = some_function(x, another_param, yet_another_param)
     for v in violations:
         if v.fixable:  # pragma: no cover - autofix disabled
             result = check.fix(filepath, [v], source, tree)
-            # Should not fix if it violates line length
             fixed = filepath.read_text()
             assert len(fixed.splitlines()[1]) <= 88 or result is False
 
@@ -1375,10 +1252,8 @@ result = some_function(x, another_param, yet_another_param)
 
 
 def test_autofix_handles_word_boundaries() -> None:
-    """Test that autofix correctly handles variable names as whole words."""
     from tempfile import NamedTemporaryFile
 
-    # Test that 'x' doesn't match 'max' or 'index'
     source = """x = 5
 result = x + max(x, index)
 """
@@ -1405,41 +1280,27 @@ result = x + max(x, index)
 
 
 def test_chained_operations_scoring() -> None:
-    """Test that chained operations increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test with 2 chained subscripts: obj[x][y]
     source = "obj[x][y]"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("result", source, rhs_node, False)
+    # 2 chains (+20) + "result" is 1 part (+0) + short expression (+0)
+    assert calculate_semantic_value("result", source, rhs_node, False) == 20
 
-    # Should get points for chained operations (2 chains = +20)
-    # "result" is 1 part (+0), short expression (+0)
-    assert score == 20
-
-    # Test with 3 chained operations and better naming
     source = "func()[x][y]"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("my_value", source, rhs_node, False)
+    # 3+ chains (+30) + 2-part name (+10)
+    assert calculate_semantic_value("my_value", source, rhs_node, False) == 40
 
-    # Should get points for:
-    # - 3+ chains (+30)
-    # - 2-part name (+10)
-    assert score == 40
-
-    # Test with attribute chaining: obj.foo.bar
     source = "obj.foo.bar"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("result", source, rhs_node, False)
-
-    # Should get points for chained attributes (2 chains = +20)
-    assert score >= 20
+    # chained attributes (2 chains = +20)
+    assert calculate_semantic_value("result", source, rhs_node, False) >= 20
 
 
 def test_augmented_assignment_with_global_variable() -> None:
-    """Test that augmented assignments with global variables are skipped."""
     source = """
 def func():
     global x
@@ -1449,12 +1310,10 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag global variable
     assert len(violations) == 0
 
 
 def test_augmented_assignment_with_nonlocal_variable() -> None:
-    """Test that augmented assignments with nonlocal variables are skipped."""
     source = """
 def outer():
     x = 1
@@ -1466,12 +1325,10 @@ def outer():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag nonlocal variable
     assert isinstance(violations, list)
 
 
 def test_augmented_assignment_with_attribute() -> None:
-    """Test that augmented assignments to attributes (not simple names) are skipped."""
     source = """
 def func():
     obj.x += 1
@@ -1480,23 +1337,18 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not track attribute assignments
     assert len(violations) == 0
 
 
 def test_semantic_scoring_very_long_expression() -> None:
-    """Test that very long expressions (80+ chars) get extra points."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Create an 85-character expression
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("x", source, rhs_node, False)
-
-    # Should get points for very long expression (80+ = +35)
-    assert score >= 35
+    # Very long expression (80+ chars) scores +35.
+    assert calculate_semantic_value("x", source, rhs_node, False) >= 35
 
 
 # === Autofix Safety Tests ===
@@ -1504,7 +1356,6 @@ def test_semantic_scoring_very_long_expression() -> None:
 
 
 def test_autofix_not_in_loop() -> None:
-    """Test that autofix does not fix variables inside loops."""
     source = """
 for i in range(10):
     x = i * 2
@@ -1514,12 +1365,10 @@ for i in range(10):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag or fix variables in loops
     assert len(violations) == 0
 
 
 def test_autofix_not_in_control_flow() -> None:
-    """Test that autofix does not fix variables inside control flow."""
     source = """
 def example():
     if condition:
@@ -1536,7 +1385,6 @@ def example():
 
 
 def test_autofix_not_long_names() -> None:
-    """Test that autofix does not fix variables with long names."""
     source = """
 very_long_descriptive_name = 42
 use(very_long_descriptive_name)
@@ -1551,7 +1399,6 @@ use(very_long_descriptive_name)
 
 
 def test_autofix_only_simple_rhs() -> None:
-    """Test that autofix only fixes simple RHS expressions."""
     source = """
 def example():
     x = func(arg1, arg2)
@@ -1561,13 +1408,11 @@ def example():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not be fixable due to complex RHS (function call)
     for v in violations:
         assert not v.fixable
 
 
 def test_autofix_simple_constant() -> None:
-    """Test that autofix handles simple constants."""
     from tempfile import NamedTemporaryFile
 
     source = """y = 42
@@ -1596,7 +1441,6 @@ result = y + 10
 
 
 def test_autofix_simple_attribute() -> None:
-    """Test that autofix handles simple single-level attribute access."""
     from tempfile import NamedTemporaryFile
 
     source = """v = obj.attr
@@ -1625,7 +1469,6 @@ use(v)
 
 
 def test_autofix_word_boundaries() -> None:
-    """Test that autofix uses word boundaries correctly."""
     from tempfile import NamedTemporaryFile
 
     source = """x = 5
@@ -1658,7 +1501,6 @@ result = max(x, 10)
 
 
 def test_problem_1_loop_reassignment() -> None:
-    """Reproduce Problem 1: Wrong variable replacement in loop reassignment."""
     source = """def find_route():
     latest_datetime = initial_datetime
     for edge in edges:
@@ -1671,8 +1513,6 @@ def test_problem_1_loop_reassignment() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag latest_datetime as it's reassigned in a loop
-    # and used across iterations
     for v in violations:
         assert "latest_datetime" not in v.message, (
             f"Should not flag latest_datetime in loop reassignment: {v.message}"
@@ -1680,7 +1520,6 @@ def test_problem_1_loop_reassignment() -> None:
 
 
 def test_problem_2_boolean_descriptive_names() -> None:
-    """Reproduce Problem 2: False positive on descriptive boolean names."""
     source = """def check_cycle(subgraph, depot_idx):
     out_edge_count = len(subgraph.out_edges(depot_idx))
     in_edge_count = len(subgraph.in_edges(depot_idx))
@@ -1692,7 +1531,6 @@ def test_problem_2_boolean_descriptive_names() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag has_cycle - it's a descriptive boolean name
     for v in violations:
         assert "has_cycle" not in v.message, (
             f"Should not flag descriptive boolean variable has_cycle: {v.message}"
@@ -1700,7 +1538,6 @@ def test_problem_2_boolean_descriptive_names() -> None:
 
 
 def test_problem_4_multiple_exception_assignments() -> None:
-    """Reproduce Problem 4: Concatenated variable names from multiple assignments."""
     from tempfile import NamedTemporaryFile
 
     source = """def fetch_data():
@@ -1731,11 +1568,9 @@ def test_problem_4_multiple_exception_assignments() -> None:
         check.fix(filepath, violations, source, tree)
         fixed_content = filepath.read_text()
 
-        # Verify no concatenated garbage
         assert "value_errortype_error" not in fixed_content
         assert "type_errorkey_error" not in fixed_content
 
-        # Verify the code is still valid Python
         try:
             ast.parse(fixed_content)
         except SyntaxError as e:
@@ -1746,7 +1581,6 @@ def test_problem_4_multiple_exception_assignments() -> None:
 
 
 def test_problem_5_conditional_assignment_logic_change() -> None:
-    """Reproduce Problem 5: Logic-changing autofix for conditional assignments."""
     from tempfile import NamedTemporaryFile
 
     source = """def configure(service_name=None):
@@ -1764,7 +1598,6 @@ def test_problem_5_conditional_assignment_logic_change() -> None:
 
     violations = check.check(filepath, tree, source)
 
-    # If there are fixable violations, verify the logic isn't changed
     if any(v.fixable for v in violations):  # pragma: no cover - autofix disabled
         check.fix(filepath, violations, source, tree)
         fixed_content = filepath.read_text()
@@ -1780,7 +1613,6 @@ def test_problem_5_conditional_assignment_logic_change() -> None:
 
 
 def test_same_variable_different_scopes() -> None:
-    """Test that variables in different branches are tracked correctly."""
     source = """def process(value):
     if value > 0:
         result = "positive"
@@ -1794,7 +1626,6 @@ def test_same_variable_different_scopes() -> None:
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag result because:
     # 1. It's assigned in different branches
     # 2. It's used after the if/else block
     # 3. Both assignments are needed for the final return
@@ -1891,7 +1722,6 @@ class ThirdClass:
 
 
 def test_autofix_cleans_up_excessive_blank_lines() -> None:
-    """Test that autofix reduces 3+ consecutive blank lines to 2 around removals."""
     from tempfile import NamedTemporaryFile
 
     # File with excessive blank lines around a redundant assignment
@@ -1920,12 +1750,9 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
         check.fix(filepath, violations, source, tree)
         fixed_content = filepath.read_text()
 
-        # Verify the excessive blank lines around the removed assignment are reduced
-        # Inside the function, after removing x=42, we should have at most 2 blanks
-        # before the return statement
         lines = fixed_content.split("\n")
 
-        # Find the function and count blanks before return
+        # Count blanks before the return statement, after removing x=42.
         in_function = False
         blanks_before_return = 0
 
@@ -1942,13 +1769,11 @@ def test_autofix_cleans_up_excessive_blank_lines() -> None:
                     j -= 1
                 break
 
-        # Should have at most 2 blank lines before return
         assert blanks_before_return <= 2, (
             f"Fixed code has {blanks_before_return} blank lines before return "
             f"(expected ≤2)\n{fixed_content}"
         )
 
-        # Verify the fixed code is still valid Python
         try:
             ast.parse(fixed_content)
         except SyntaxError as e:
@@ -1999,7 +1824,6 @@ def test_cleanup_blank_lines_only_excess_above() -> None:
 
 
 def test_global_scope_without_underscore_not_flagged() -> None:
-    """Test that global scope variables without underscore prefix are not flagged."""
     source = """
 parent_url = "https://example.com"
 print(parent_url)
@@ -2008,12 +1832,10 @@ print(parent_url)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'parent_url' in global scope (no underscore prefix)
     assert len(violations) == 0
 
 
 def test_global_scope_with_underscore_flagged() -> None:
-    """Test that global scope variables with underscore prefix ARE flagged."""
     source = """
 _temp = "foo"
 print(_temp)
@@ -2022,13 +1844,11 @@ print(_temp)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # SHOULD flag '_temp' in global scope (underscore prefix)
     assert len(violations) >= 1
     assert any("_temp" in v.message for v in violations)
 
 
 def test_global_scope_with_comment_above_not_flagged() -> None:
-    """Test that global scope variables with comments above are not flagged."""
     source = """
 # Configuration URL
 _url = "https://example.com"
@@ -2038,12 +1858,10 @@ print(_url)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag '_url' because it has a comment above
     assert len(violations) == 0
 
 
 def test_function_scope_single_use_still_flagged() -> None:
-    """Test that function scope variables are still flagged normally."""
     source = """
 def func():
     x = "foo"
@@ -2053,13 +1871,11 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # SHOULD flag 'x' in function scope
     assert len(violations) >= 1
     assert any("x" in v.message for v in violations)
 
 
 def test_await_on_both_assignment_and_usage_not_flagged() -> None:
-    """Test that await on both RHS and usage is not flagged."""
     source = """
 async def test_json(client):
     response = await get_test_response(client, '/null_content')
@@ -2069,7 +1885,6 @@ async def test_json(client):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'response' because await is on both assignment and usage
     assert len(violations) == 0
 
 
@@ -2091,12 +1906,10 @@ async def test_func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag 'x' because RHS has await
     assert len(violations) == 0
 
 
 def test_await_only_on_usage_flagged() -> None:
-    """Test that await only on usage is still flagged."""
     source = """
 async def test_func():
     x = get_value()
@@ -2106,13 +1919,11 @@ async def test_func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # SHOULD flag 'x' because await is only on usage, not assignment
     assert len(violations) >= 1
     assert any("x" in v.message for v in violations)
 
 
 def test_ternary_operator_not_flagged() -> None:
-    """Test that if-else ternary operators are not flagged."""
     source = """
 import sys
 
@@ -2124,12 +1935,10 @@ print(parent_url)
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'parent_url' because it uses ternary operator
     assert len(violations) == 0
 
 
 def test_ternary_in_function_not_flagged() -> None:
-    """Test that ternary operators in function scope are not flagged."""
     source = """
 def func(condition):
     value = "yes" if condition else "no"
@@ -2139,12 +1948,10 @@ def func(condition):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'value' because it uses ternary operator
     assert len(violations) == 0
 
 
-def test_long_rhs_not_flagged() -> None:
-    """Test that variables with long RHS are not flagged (>79 chars after inline)."""
+def test_long_rhs_over_79_chars_not_flagged() -> None:
     source = """
 def func():
     variable = compute_something_with_very_long_function_name()
@@ -2161,7 +1968,6 @@ def func():
 
 
 def test_comment_above_in_function_scope_not_flagged() -> None:
-    """Test that variables with comments above are not flagged (any scope)."""
     source = """
 def auto_clear_fixture():
     # Exclude cache.
@@ -2173,12 +1979,10 @@ def auto_clear_fixture():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not flag 'cache_prefixes' because it has a comment above
     assert len(violations) == 0
 
 
-def test_moderately_long_rhs_not_flagged() -> None:
-    """Test that RHS >= 25 chars is not flagged (line length heuristic)."""
+def test_rhs_at_25_char_threshold_not_flagged() -> None:
     source = """
 def func():
     prefixes = ("responses", "redirects")
@@ -2194,7 +1998,6 @@ def func():
 
 
 def test_comment_above_multiline_not_flagged() -> None:
-    """Test that variables with multiline comments above are not flagged."""
     source = """
 def func():
     # First comment line
@@ -2212,55 +2015,46 @@ def func():
 
 
 def test_would_require_parentheses_binop() -> None:
-    """Test that _would_require_parentheses detects binary operations."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _would_require_parentheses,
     )
 
-    # Test BinOp (addition)
     source = "len(x) + 1"
     rhs_node = ast.parse(source, mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_boolop() -> None:
-    """Test that _would_require_parentheses detects boolean operations."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _would_require_parentheses,
     )
 
-    # Test BoolOp (and)
     source = "a and b"
     rhs_node = ast.parse(source, mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_compare() -> None:
-    """Test that _would_require_parentheses detects comparison operations."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _would_require_parentheses,
     )
 
-    # Test Compare
     source = "x == y"
     rhs_node = ast.parse(source, mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_simple() -> None:
-    """Test that _would_require_parentheses returns False for simple expressions."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _would_require_parentheses,
     )
 
-    # Test simple call - should not require parentheses
     source = "len(x)"
     rhs_node = ast.parse(source, mode="eval").body
     assert _would_require_parentheses(rhs_node) is False
 
 
 def test_should_report_violation_with_parentheses_required() -> None:
-    """Test that violations requiring parentheses are not reported."""
     source = """
 def func():
     len_prefix = len(x) + 1
@@ -2270,12 +2064,10 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should not report because inlining would require parentheses
     assert len(violations) == 0
 
 
 def test_should_autofix_single_use_with_attribute() -> None:
-    """Test that should_autofix allows attribute access for SINGLE_USE."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -2314,13 +2106,10 @@ def test_should_autofix_single_use_with_attribute() -> None:
         ],
     )
 
-    # Should autofix for SINGLE_USE with simple attribute access
-    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is True
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
 
 
 def test_should_autofix_single_use_with_keywords() -> None:
-    """Test that should_autofix allows simple keyword arguments for SINGLE_USE."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -2359,13 +2148,10 @@ def test_should_autofix_single_use_with_keywords() -> None:
         ],
     )
 
-    # Should autofix for SINGLE_USE with simple keyword call
-    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is True
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
 
 
 def test_should_autofix_single_use_high_semantic_score() -> None:
-    """Test that should_autofix rejects SINGLE_USE with high semantic score."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -2405,13 +2191,10 @@ def test_should_autofix_single_use_high_semantic_score() -> None:
         ],
     )
 
-    # Should NOT autofix due to high semantic score (descriptive name)
-    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is False
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
 
 
 def test_should_not_autofix_single_use_complex_call() -> None:
-    """Test that should_autofix rejects SINGLE_USE with complex calls."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         PatternType,
@@ -2451,13 +2234,10 @@ def test_should_not_autofix_single_use_complex_call() -> None:
         ],
     )
 
-    # Should NOT autofix - too many args
-    result = should_autofix(lifecycle, PatternType.SINGLE_USE)
-    assert result is False
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
 
 
 def test_closure_variable_not_flagged() -> None:
-    """Test that variables used in nested functions (closures) are not flagged."""
     source = """
 async def test_func(faker):
     return_value = faker.pystr()
@@ -2472,12 +2252,10 @@ async def test_func(faker):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag return_value - it's captured by the closure
     assert len(violations) == 0
 
 
 def test_closure_with_mock_not_flagged() -> None:
-    """Test that Mock objects used in closures are not flagged as redundant."""
     source = """
 async def test_func():
     from unittest.mock import Mock
@@ -2494,12 +2272,10 @@ async def test_func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag mock - it's used in the closure and in outer scope
     assert len(violations) == 0
 
 
 def test_closure_single_use_in_nested_function() -> None:
-    """Test variables used only in nested function are not flagged."""
     source = """
 def outer():
     value = calculate()
@@ -2513,12 +2289,10 @@ def outer():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag value - used in nested function (closure)
     assert len(violations) == 0
 
 
 def test_closure_multiple_nested_levels() -> None:
-    """Test variables captured by deeply nested closures are not flagged."""
     source = """
 def level1():
     x = 1
@@ -2537,8 +2311,6 @@ def level1():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag x - used in level2 and level3 (closures)
-    # Should NOT flag y - used in level3 (closure)
     assert len(violations) == 0
 
 
@@ -2565,16 +2337,11 @@ async def test_rate_limited_decorator_exceeds_limit(
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag return_value - used in nested function and outer scope
-    # Should NOT flag mock - used in nested function and outer scope
     assert len(violations) == 0
 
 
 def test_non_closure_still_detected() -> None:
-    """Test that non-closure single-use variables are still detected.
-
-    This is NOT a closure - just a redundant assignment in same scope.
-    """
+    """This is NOT a closure - just a redundant assignment in the same scope."""
     source = """
 def test_func():
     x = "foo"
@@ -2584,20 +2351,17 @@ def test_func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # SHOULD flag x - it's a simple single-use, not a closure
     assert len(violations) >= 1
     assert any("x" in v.message for v in violations)
 
 
 def test_lifecycle_is_immediate_use_with_closure() -> None:
-    """Test that is_immediate_use returns False for closures."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         AssignmentInfo,
         UsageInfo,
         VariableLifecycle,
     )
 
-    # Create a lifecycle where the use is in a different scope (closure)
     assignment = AssignmentInfo(
         var_name="x",
         line=1,
@@ -2627,10 +2391,8 @@ def test_lifecycle_is_immediate_use_with_closure() -> None:
 
 
 def test_verbose_variable_names_kwargs_get_not_flagged() -> None:
-    """Test that verbose variable names with kwargs.get() are not flagged.
-
-    Example from user request: raw_headers = kwargs.get("headers")
-    The variable name "raw_headers" is more descriptive than just "headers"
+    """Example from user request: raw_headers = kwargs.get("headers") — the
+    name "raw_headers" is more descriptive than just "headers".
     """
     source = """
 async def request_json(
@@ -2648,7 +2410,6 @@ async def request_json(
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag raw_headers - it adds verbosity/context
     for v in violations:
         assert "raw_headers" not in v.message, (
             f"Should not flag 'raw_headers' - it adds verbosity: {v.message}"
@@ -2656,10 +2417,8 @@ async def request_json(
 
 
 def test_verbose_variable_names_parsed_data_not_flagged() -> None:
-    """Test that variable names describing parsed data are not flagged.
-
-    Example from user request: translations = orjson.loads(f.read())
-    The variable name "translations" describes what the parsed data represents
+    """Example from user request: translations = orjson.loads(f.read()) —
+    the name "translations" describes what the parsed data represents.
     """
     source = """
 def load_translations(language, template_name):
@@ -2681,7 +2440,6 @@ def load_translations(language, template_name):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag translations - it adds context to what the data is
     for v in violations:
         assert "translations" not in v.message, (
             f"Should not flag 'translations' - it adds context: {v.message}"
@@ -2689,11 +2447,7 @@ def load_translations(language, template_name):
 
 
 def test_firestore_client_not_flagged() -> None:
-    """Test that more specific type names are not flagged.
-
-    Example: firestore_client = db.client()
-    The variable name is more specific than just "client"
-    """
+    """Example: firestore_client = db.client() — more specific than "client"."""
     source = """
 def get_firestore():
     firestore_client = db.client()
@@ -2703,7 +2457,6 @@ def get_firestore():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag firestore_client - it's more specific than "client"
     for v in violations:
         assert "firestore_client" not in v.message, (
             f"Should not flag 'firestore_client' - it's more specific: {v.message}"
@@ -2711,11 +2464,7 @@ def get_firestore():
 
 
 def test_user_email_dict_access_not_flagged() -> None:
-    """Test that more verbose dict access variable names are not flagged.
-
-    Example: user_email = data["email"]
-    The variable name is more verbose/specific than just "email"
-    """
+    """Example: user_email = data["email"] — more verbose/specific than "email"."""
     source = """
 def process_user(data):
     user_email = data["email"]
@@ -2725,7 +2474,6 @@ def process_user(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag user_email - it's more verbose than "email"
     for v in violations:
         assert "user_email" not in v.message, (
             f"Should not flag 'user_email' - it adds verbosity: {v.message}"
@@ -2733,10 +2481,7 @@ def process_user(data):
 
 
 def test_descriptive_prefix_not_flagged() -> None:
-    """Test that descriptive prefixes are recognized.
-
-    Examples: raw_data, parsed_output, validated_input
-    """
+    """Descriptive prefixes recognized: raw_data, parsed_output, validated_input."""
     source = """
 def process_input(data):
     raw_data = fetch_from_api()
@@ -2746,7 +2491,6 @@ def process_input(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag raw_data - "raw" is a descriptive prefix
     for v in violations:
         assert "raw_data" not in v.message, (
             f"Should not flag 'raw_data' - 'raw' is descriptive: {v.message}"
@@ -2754,7 +2498,6 @@ def process_input(data):
 
 
 def test_adds_verbosity_or_context_function_directly() -> None:
-    """Test the _adds_verbosity_or_context function directly."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _adds_verbosity_or_context,
     )
@@ -2801,10 +2544,8 @@ def test_adds_verbosity_or_context_function_directly() -> None:
 
 
 def test_no_false_positive_on_multiline_rhs_fixable_marking() -> None:
-    """Test that multiline RHS is not marked as fixable.
-
-    This is a regression test for the bug where violations were marked as
-    [FIXABLE] even when --fix couldn't actually fix them.
+    """Regression test: violations used to be marked [FIXABLE] even when
+    --fix couldn't actually fix them.
     """
     source = """
 def func():
@@ -2818,8 +2559,6 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # If there are violations, they should NOT be marked as fixable
-    # because the RHS is multiline
     for v in violations:
         if "value" in v.message:
             assert not v.fixable, (
@@ -2828,101 +2567,80 @@ def func():
 
 
 def test_semantic_value_descriptive_boolean_prefix() -> None:
-    """Test that descriptive boolean prefixes increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test has_ prefix
     rhs_node = ast.parse("check_something()", mode="eval").body
-    score = calculate_semantic_value(
-        "has_permission", "check_something()", rhs_node, False
+    # has_ prefix scores +50
+    assert (
+        calculate_semantic_value("has_permission", "check_something()", rhs_node, False)
+        >= 50
     )
-    assert score >= 50  # Should get +50 for has_ prefix
 
 
 def test_semantic_value_descriptive_suffix() -> None:
-    """Test that descriptive suffixes increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test _count suffix
     rhs_node = ast.parse("len(items)", mode="eval").body
-    score = calculate_semantic_value("item_count", "len(items)", rhs_node, False)
-    assert score >= 40  # Should get +40 for _count suffix
+    assert calculate_semantic_value("item_count", "len(items)", rhs_node, False) >= 40
 
 
 def test_semantic_value_list_comprehension() -> None:
-    """Test that list comprehensions increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test list comprehension
     source = "[x for x in items]"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("result", source, rhs_node, False)
-    assert score >= 30  # Should get +30 for comprehension
+    assert calculate_semantic_value("result", source, rhs_node, False) >= 30
 
 
 def test_semantic_value_unary_operation() -> None:
-    """Test that unary operations increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test unary operation
     source = "-value"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("result", source, rhs_node, False)
-    assert score >= 10  # Should get +10 for unary op
+    assert calculate_semantic_value("result", source, rhs_node, False) >= 10
 
 
 def test_semantic_value_lambda_expression() -> None:
-    """Test that lambda expressions increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test lambda
     source = "lambda x: x * 2"
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("func", source, rhs_node, False)
-    assert score >= 25  # Should get +25 for lambda
+    assert calculate_semantic_value("func", source, rhs_node, False) >= 25
 
 
 def test_semantic_value_very_long_expression() -> None:
-    """Test that very long expressions (80+ chars) increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test very long expression (85 chars)
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("x", source, rhs_node, False)
-    assert score >= 35  # Should get +35 for very long expression
+    assert calculate_semantic_value("x", source, rhs_node, False) >= 35
 
 
 def test_semantic_value_long_expression_60_plus() -> None:
-    """Test that long expressions (60-80 chars) increase semantic value."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
 
-    # Test long expression (65 chars)
     source = "a" * 65
     rhs_node = ast.parse(source, mode="eval").body
-    score = calculate_semantic_value("x", source, rhs_node, False)
-    assert score >= 25  # Should get +25 for long expression
+    assert calculate_semantic_value("x", source, rhs_node, False) >= 25
 
 
 def test_no_false_positive_on_long_rhs_fixable_marking() -> None:
-    """Test that long RHS that would exceed line length is not marked fixable.
-
-    This is a regression test for the bug where violations were marked as
-    [FIXABLE] even when --fix couldn't actually fix them.
+    """Regression test: violations used to be marked [FIXABLE] even when
+    --fix couldn't actually fix them.
     """
     source = """
 def func():
@@ -2933,8 +2651,6 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # If there are violations, they should NOT be marked as fixable
-    # because inlining would exceed line length
     for v in violations:
         if "value" in v.message:
             msg = f"Long RHS should not be marked fixable: {v.message}"
@@ -2942,10 +2658,7 @@ def func():
 
 
 def test_magic_number_not_flagged() -> None:
-    """Test that magic numbers with descriptive names are not flagged.
-
-    Variables like max_search_depth = 10 give semantic meaning to raw numbers.
-    """
+    """Variables like max_search_depth = 10 give semantic meaning to raw numbers."""
     source = """
 def find_project_root():
     max_search_depth = 10
@@ -2959,7 +2672,6 @@ def find_project_root():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag max_search_depth - it's a named constant avoiding magic number
     for v in violations:
         assert "max_search_depth" not in v.message, (
             f"Should not flag 'max_search_depth' - avoids magic number: {v.message}"
@@ -2967,7 +2679,6 @@ def find_project_root():
 
 
 def test_magic_number_float_not_flagged() -> None:
-    """Test that float constants with descriptive names are not flagged."""
     source = """
 def calculate_spacing():
     line_spacing = 1.2
@@ -2978,7 +2689,6 @@ def calculate_spacing():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag line_spacing - it's a named constant
     for v in violations:
         assert "line_spacing" not in v.message, (
             f"Should not flag 'line_spacing' - avoids magic number: {v.message}"
@@ -2986,7 +2696,6 @@ def calculate_spacing():
 
 
 def test_magic_number_id_not_flagged() -> None:
-    """Test that ID constants with descriptive names are not flagged."""
     source = """
 async def find_nicosia(database):
     nicosia_in_cyprus_id = 101749141
@@ -2997,7 +2706,6 @@ async def find_nicosia(database):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag nicosia_in_cyprus_id - it's a named constant
     for v in violations:
         assert "nicosia_in_cyprus_id" not in v.message, (
             f"Should not flag 'nicosia_in_cyprus_id' - avoids magic number: {v.message}"
@@ -3005,10 +2713,7 @@ async def find_nicosia(database):
 
 
 def test_pytest_raises_pattern_not_flagged() -> None:
-    """Test that variables used inside pytest.raises are not flagged.
-
-    Setup should be outside the context manager to keep the with block minimal.
-    """
+    """Setup should live outside the context manager to keep the with block minimal."""
     source = """
 def test_rate_limit():
     sample_class = SampleClass()
@@ -3019,7 +2724,6 @@ def test_rate_limit():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag sample_class - setup should be outside pytest.raises
     for v in violations:
         assert "sample_class" not in v.message, (
             f"Should not flag 'sample_class' - pytest.raises pattern: {v.message}"
@@ -3027,7 +2731,6 @@ def test_rate_limit():
 
 
 def test_with_block_pattern_not_flagged() -> None:
-    """Test that variables set up before a with block are not flagged."""
     source = """
 def test_retry():
     decorated_mock_func = retry_service(mock_func)
@@ -3039,7 +2742,6 @@ def test_retry():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag decorated_mock_func - setup outside with block is intentional
     for v in violations:
         assert "decorated_mock_func" not in v.message, (
             f"Should not flag 'decorated_mock_func' - with block pattern: {v.message}"
@@ -3047,10 +2749,7 @@ def test_retry():
 
 
 def test_inline_comment_not_flagged() -> None:
-    """Test that assignments with inline comments are not flagged.
-
-    Inline comments indicate intentional code (e.g., type: ignore).
-    """
+    """Inline comments indicate intentional code (e.g., type: ignore)."""
     source = """
 def get_cache_file(cache):
     redirects_file = cache.redirects.filename  # type: ignore[attr-defined]
@@ -3062,7 +2761,6 @@ def get_cache_file(cache):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag redirects_file - has inline comment
     for v in violations:
         assert "redirects_file" not in v.message, (
             f"Should not flag 'redirects_file' - has inline comment: {v.message}"
@@ -3070,10 +2768,8 @@ def get_cache_file(cache):
 
 
 def test_nonlocal_in_nested_function_not_flagged() -> None:
-    """Test that variables captured by nonlocal in nested functions are not flagged.
-
-    This is a regression test for the bug where the linter would remove a variable
-    that was modified via nonlocal in a nested function.
+    """Regression test: the linter used to remove a variable that was
+    modified via nonlocal in a nested function.
     """
     source = """
 async def test_websocket():
@@ -3096,7 +2792,6 @@ async def test_websocket():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag 'cancelled' - it's captured by nonlocal in nested function
     for v in violations:
         assert "cancelled" not in v.message, (
             f"Should not flag 'cancelled' - captured by nonlocal: {v.message}"
@@ -3104,7 +2799,6 @@ async def test_websocket():
 
 
 def test_nonlocal_multiple_variables_not_flagged() -> None:
-    """Test multiple variables captured by nonlocal are not flagged."""
     source = """
 def outer():
     x = 0
@@ -3122,7 +2816,6 @@ def outer():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag x or y - they're captured by nonlocal
     for v in violations:
         msg = v.message
         assert "'x'" not in msg, f"Should not flag 'x' - captured by nonlocal: {msg}"
@@ -3130,7 +2823,6 @@ def outer():
 
 
 def test_has_inline_comment_detection() -> None:
-    """Test the _has_inline_comment function."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         _has_inline_comment,
     )
@@ -3157,7 +2849,6 @@ def test_has_inline_comment_detection() -> None:
 
 
 def test_is_named_constant_pattern() -> None:
-    """Test the _is_named_constant_pattern function."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         _is_named_constant_pattern,
     )
@@ -3185,7 +2876,6 @@ def test_is_named_constant_pattern() -> None:
 
 
 def test_while_loop_assignment_not_flagged() -> None:
-    """Test that assignments inside while loops are not flagged."""
     source = """
 def process():
     x = 0
@@ -3197,13 +2887,11 @@ def process():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Assignments in loops should not be flagged
     for v in violations:
         assert "'x'" not in v.message, f"Should not flag 'x' in while loop: {v.message}"
 
 
 def test_async_for_loop_assignment_not_flagged() -> None:
-    """Test that assignments inside async for loops are not flagged."""
     source = """
 async def process(items):
     result = []
@@ -3215,13 +2903,11 @@ async def process(items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Assignments in async for loops should not be flagged
     for v in violations:
         assert "'result'" not in v.message, f"Should not flag loop var: {v.message}"
 
 
 def test_async_with_assignment_not_flagged() -> None:
-    """Test that assignments inside async with blocks are handled."""
     source = """
 async def process():
     async with context() as ctx:
@@ -3235,7 +2921,6 @@ async def process():
 
 
 def test_global_attribute_assignment_not_tracked() -> None:
-    """Test that attribute assignments to global vars are skipped properly."""
     source = """
 global_obj = None
 
@@ -3245,13 +2930,11 @@ def modify_global():
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
-    # Should not crash when global var is base of attribute assignment
     violations = check.check(Path("test.py"), tree, source)
     assert len(violations) == 0
 
 
 def test_nondeterministic_call_not_flagged() -> None:
-    """Test that nondeterministic function calls are not flagged."""
     source = """
 import time
 
@@ -3264,7 +2947,6 @@ def measure():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag 'start' because time.time() is nondeterministic
     for v in violations:
         assert "start" not in v.message, (
             f"Should not flag 'start' - nondeterministic: {v.message}"
@@ -3272,7 +2954,6 @@ def measure():
 
 
 def test_multiple_assignment_targets_not_tracked() -> None:
-    """Test that multiple assignment targets (a = b = c = value) are skipped."""
     source = """
 def func():
     a = b = c = some_value()
@@ -3280,16 +2961,14 @@ def func():
 """
     tree = ast.parse(source)
     check = RedundantAssignmentCheck()
-    # Should not crash and should not flag these assignments
     violations = check.check(Path("test.py"), tree, source)
-    # Multiple assignment targets are skipped entirely
+    # Multiple assignment targets are skipped entirely.
     assert all("'a'" not in v.message for v in violations)
     assert all("'b'" not in v.message for v in violations)
     assert all("'c'" not in v.message for v in violations)
 
 
 def test_inline_comment_with_string_containing_hash() -> None:
-    """Test inline comment detection with strings containing #."""
     from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
         _has_inline_comment,
     )
@@ -3308,7 +2987,6 @@ def test_inline_comment_with_string_containing_hash() -> None:
 
 
 def test_ternary_operator_ifexp_not_flagged() -> None:
-    """Test that ternary/if-else expressions are explicitly not flagged."""
     source = """
 def func(condition):
     result = "yes" if condition else "no"
@@ -3318,7 +2996,6 @@ def func(condition):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag result because it's a ternary expression
     for v in violations:
         assert "result" not in v.message, (
             f"Should not flag ternary expression: {v.message}"
@@ -3326,10 +3003,8 @@ def func(condition):
 
 
 def test_descriptive_suffix_size_not_flagged() -> None:
-    """Test that variables with _size suffix are not flagged.
-
-    Variables like large_payload_size = len(large_payload) clarify what
-    the value represents (the SIZE), making the code more readable.
+    """Variables like large_payload_size = len(large_payload) clarify what
+    the value represents, making the code more readable.
     """
     source = """
 def test_flow_control_binary(protocol, out_low_limit, parser_low_limit):
@@ -3343,7 +3018,6 @@ def test_flow_control_binary(protocol, out_low_limit, parser_low_limit):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag large_payload_size - it has descriptive _size suffix
     for v in violations:
         assert "large_payload_size" not in v.message, (
             f"Should not flag 'large_payload_size' - has _size suffix: {v.message}"
@@ -3351,7 +3025,6 @@ def test_flow_control_binary(protocol, out_low_limit, parser_low_limit):
 
 
 def test_descriptive_suffix_length_not_flagged() -> None:
-    """Test that variables with _length suffix are not flagged."""
     source = """
 def process(data):
     buffer_length = len(data)
@@ -3361,7 +3034,6 @@ def process(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag buffer_length - it has descriptive _length suffix
     for v in violations:
         assert "buffer_length" not in v.message, (
             f"Should not flag 'buffer_length' - has _length suffix: {v.message}"
@@ -3369,7 +3041,6 @@ def process(data):
 
 
 def test_descriptive_suffix_id_not_flagged() -> None:
-    """Test that variables with _id suffix are not flagged."""
     source = """
 def get_user(data):
     user_id = data.get("id")
@@ -3379,7 +3050,6 @@ def get_user(data):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag user_id - it has descriptive _id suffix
     for v in violations:
         assert "user_id" not in v.message, (
             f"Should not flag 'user_id' - has _id suffix: {v.message}"
@@ -3387,7 +3057,6 @@ def get_user(data):
 
 
 def test_test_file_detection_by_path() -> None:
-    """Test that files in tests/ directory are recognized as test files."""
     source = """
 def test_camel_to_under():
     camel_case_sample = "RandomClassName"
@@ -3399,7 +3068,6 @@ def test_camel_to_under():
     # File in tests/ directory should not flag test setup variables
     violations = check.check(Path("tests/test_utils.py"), tree, source)
 
-    # Should NOT flag camel_case_sample - test setup variable in test file
     for v in violations:
         assert "camel_case_sample" not in v.message, (
             f"Should not flag test setup variable in test file: {v.message}"
@@ -3407,7 +3075,6 @@ def test_camel_to_under():
 
 
 def test_test_file_detection_by_name() -> None:
-    """Test that files with test_ prefix are recognized as test files."""
     source = """
 def test_translate_templates():
     templates = ["Hello", "Goodbye"]
@@ -3420,7 +3087,6 @@ def test_translate_templates():
     # File with test_ prefix should not flag test variables
     violations = check.check(Path("test_translator.py"), tree, source)
 
-    # Should NOT flag templates - descriptive test data in test file
     for v in violations:
         assert "templates" not in v.message, (
             f"Should not flag test data variable in test file: {v.message}"
@@ -3428,7 +3094,6 @@ def test_translate_templates():
 
 
 def test_test_result_variable_not_flagged() -> None:
-    """Test that result variables in test files are not flagged."""
     source = """
 def test_landmark_equal_to_none():
     landmark = Landmark(name="Tower", long_lat=(2.0, 48.0), score=0.9)
@@ -3440,7 +3105,6 @@ def test_landmark_equal_to_none():
 
     violations = check.check(Path("tests/test_model.py"), tree, source)
 
-    # Should NOT flag result - common test pattern for assertion clarity
     for v in violations:
         assert "result" not in v.message, (
             f"Should not flag 'result' in test file: {v.message}"
@@ -3448,7 +3112,6 @@ def test_landmark_equal_to_none():
 
 
 def test_test_mock_object_not_flagged() -> None:
-    """Test that mock objects with descriptive names are not flagged."""
     source = """
 def test_prepare_photo():
     mock_image = MagicMock()
@@ -3461,7 +3124,6 @@ def test_prepare_photo():
 
     violations = check.check(Path("tests/test_vision.py"), tree, source)
 
-    # Should NOT flag mock_image - named mock object in test file
     for v in violations:
         assert "mock_image" not in v.message, (
             f"Should not flag mock object in test file: {v.message}"
@@ -3469,7 +3131,6 @@ def test_prepare_photo():
 
 
 def test_semantic_test_data_list_not_flagged() -> None:
-    """Test that semantic test data lists are not flagged in test files."""
     source = """
 def test_airport_connectivity():
     some_european_airports = ["AES", "BYJ", "BTS"]
@@ -3483,7 +3144,6 @@ def test_airport_connectivity():
 
     violations = check.check(Path("tests/test_kiwi_api.py"), tree, source)
 
-    # Should NOT flag some_european_airports - semantic test data
     for v in violations:
         assert "some_european_airports" not in v.message, (
             f"Should not flag semantic test data in test file: {v.message}"
@@ -3491,7 +3151,6 @@ def test_airport_connectivity():
 
 
 def test_range_with_descriptive_name_not_flagged() -> None:
-    """Test that range objects with descriptive names are not flagged in test files."""
     source = """
 def generate_price_data():
     days_with_routes_in_a_row = range(70)
@@ -3505,7 +3164,6 @@ def generate_price_data():
 
     violations = check.check(Path("tests/test_flight_prices.py"), tree, source)
 
-    # Should NOT flag days_with_routes_in_a_row - descriptive range in test file
     for v in violations:
         assert "days_with_routes_in_a_row" not in v.message, (
             f"Should not flag descriptive range in test file: {v.message}"
@@ -3513,7 +3171,6 @@ def generate_price_data():
 
 
 def test_non_test_file_still_flags_simple_assignments() -> None:
-    """Test that non-test files still flag simple redundant assignments."""
     source = """
 def process_data():
     x = "foo"
@@ -3525,7 +3182,6 @@ def process_data():
     # Non-test file should still flag simple redundant assignments
     violations = check.check(Path("src/processor.py"), tree, source)
 
-    # Should flag x - simple redundant assignment in non-test file
     msg = "Should flag simple redundant assignment in non-test file"
     assert len(violations) > 0, msg
     assert any("x" in v.message for v in violations), (
@@ -3534,38 +3190,32 @@ def process_data():
 
 
 def test_is_test_file_detects_tests_directory() -> None:
-    """Test that _is_test_file correctly identifies files in tests directory."""
     assert _is_test_file(Path("tests/test_something.py")) is True
     assert _is_test_file(Path("tests/utils/test_helpers.py")) is True
     assert _is_test_file(Path("test/test_foo.py")) is True
 
 
 def test_is_test_file_detects_test_prefix() -> None:
-    """Test that _is_test_file correctly identifies files with test_ prefix."""
     assert _is_test_file(Path("test_example.py")) is True
     assert _is_test_file(Path("src/test_module.py")) is True
 
 
 def test_is_test_file_detects_test_suffix() -> None:
-    """Test that _is_test_file correctly identifies files with _test.py suffix."""
     assert _is_test_file(Path("example_test.py")) is True
     assert _is_test_file(Path("src/module_test.py")) is True
 
 
 def test_is_test_file_rejects_non_test_files() -> None:
-    """Test that _is_test_file correctly rejects non-test files."""
     assert _is_test_file(Path("src/module.py")) is False
     assert _is_test_file(Path("main.py")) is False
     assert _is_test_file(Path("setup.py")) is False
 
 
 def test_is_test_file_handles_none() -> None:
-    """Test that _is_test_file handles None input."""
     assert _is_test_file(None) is False
 
 
 def test_is_test_function_detects_test_functions() -> None:
-    """Test that _is_test_function correctly identifies test functions."""
     source = "def test_something(): pass"
     tree = ast.parse(source)
     func_node = tree.body[0]
@@ -3573,7 +3223,6 @@ def test_is_test_function_detects_test_functions() -> None:
 
 
 def test_is_test_function_detects_async_test_functions() -> None:
-    """Test that _is_test_function correctly identifies async test functions."""
     source = "async def test_async_something(): pass"
     tree = ast.parse(source)
     func_node = tree.body[0]
@@ -3581,7 +3230,6 @@ def test_is_test_function_detects_async_test_functions() -> None:
 
 
 def test_is_test_function_rejects_non_test_functions() -> None:
-    """Test that _is_test_function correctly rejects non-test functions."""
     source = "def helper_function(): pass"
     tree = ast.parse(source)
     func_node = tree.body[0]
@@ -3589,7 +3237,6 @@ def test_is_test_function_rejects_non_test_functions() -> None:
 
 
 def test_is_test_function_handles_non_function_nodes() -> None:
-    """Test that _is_test_function handles non-function nodes."""
     source = "x = 5"
     tree = ast.parse(source)
     assign_node = tree.body[0]
@@ -3597,15 +3244,12 @@ def test_is_test_function_handles_non_function_nodes() -> None:
 
 
 def test_is_test_function_handles_none() -> None:
-    """Test that _is_test_function handles None input."""
     assert _is_test_function(None) is False
 
 
 def test_context_manager_assignment_inside_usage_outside_not_flagged() -> None:
-    """Test that assignments inside context managers with usage outside are not flagged.
-
-    This pattern is used to reduce nesting - load data inside the context manager,
-    use it outside to avoid deep indentation.
+    """This pattern is used to reduce nesting: load data inside the context
+    manager, use it outside to avoid deep indentation.
     """
     source = """
 def load_config():
@@ -3619,7 +3263,6 @@ def load_config():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag config - intentional pattern to reduce nesting
     for v in violations:
         assert "config" not in v.message, (
             f"Should not flag context manager pattern: {v.message}"
@@ -3648,7 +3291,6 @@ def load_paths_to_ignore(project_root, src_dir):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag config - used outside with block to reduce nesting
     for v in violations:
         assert "config" not in v.message, (
             f"Should not flag config in context manager pattern: {v.message}"
@@ -3656,7 +3298,6 @@ def load_paths_to_ignore(project_root, src_dir):
 
 
 def test_database_connection_pattern_not_flagged() -> None:
-    """Test database connection pattern where data is loaded inside, used outside."""
     source = """
 def fetch_user(user_id):
     with get_db_connection() as conn:
@@ -3669,7 +3310,6 @@ def fetch_user(user_id):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag user_data - intentional pattern to close connection quickly
     for v in violations:
         assert "user_data" not in v.message, (
             f"Should not flag database pattern: {v.message}"
@@ -3677,7 +3317,6 @@ def fetch_user(user_id):
 
 
 def test_if_block_assignment_inside_usage_outside_not_flagged() -> None:
-    """Test that assignments inside if blocks with usage outside are not flagged."""
     source = """
 def process():
     if condition:
@@ -3690,13 +3329,11 @@ def process():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag data - used outside if block
     for v in violations:
         assert "data" not in v.message, f"Should not flag if block pattern: {v.message}"
 
 
 def test_try_block_assignment_inside_usage_outside_not_flagged() -> None:
-    """Test that assignments inside try blocks with usage outside are not flagged."""
     source = """
 def load_with_fallback():
     try:
@@ -3710,7 +3347,6 @@ def load_with_fallback():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag data - used outside try block
     for v in violations:
         assert "data" not in v.message, (
             f"Should not flag try block pattern: {v.message}"
@@ -3741,7 +3377,6 @@ def find_routes(depot_data, depots):
 
 
 def test_variable_used_only_in_list_comprehension_element_not_flagged() -> None:
-    """Test variable used in the element expression of a list comprehension."""
     source = """
 def transform(multiplier, items):
     factor = multiplier.value
@@ -3758,7 +3393,6 @@ def transform(multiplier, items):
 
 
 def test_variable_used_only_in_dict_comprehension_not_flagged() -> None:
-    """Test variable cached for use inside a dict comprehension."""
     source = """
 def build_map(source_obj, keys):
     prefix = source_obj.namespace
@@ -3775,7 +3409,6 @@ def build_map(source_obj, keys):
 
 
 def test_variable_used_only_in_set_comprehension_not_flagged() -> None:
-    """Test variable cached for use inside a set comprehension."""
     source = """
 def unique_suffixes(config, items):
     suffix = config.default_suffix
@@ -3792,7 +3425,6 @@ def unique_suffixes(config, items):
 
 
 def test_variable_used_only_in_generator_expression_not_flagged() -> None:
-    """Test variable cached for use inside a generator expression."""
     source = """
 def total_score(config, players):
     bonus = config.bonus_points
@@ -3809,10 +3441,8 @@ def total_score(config, players):
 
 
 def test_variable_used_inside_and_outside_comprehension_not_flagged() -> None:
-    """Test that the new rule does not interfere with multi-use variables.
-
-    A variable used both inside AND outside a comprehension has multiple uses,
-    so detect_redundancy returns None and it is never flagged regardless.
+    """A variable used both inside AND outside a comprehension has multiple
+    uses, so detect_redundancy returns None and it is never flagged regardless.
     """
     source = """
 def example(obj, items):
@@ -3824,8 +3454,6 @@ def example(obj, items):
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # val is used twice (inside comprehension + return), so it is not single-use
-    # and must not be flagged by detect_redundancy at all.
     for v in violations:
         assert "val" not in v.message, (
             f"Multi-use variable should not be flagged: {v.message}"
@@ -3833,7 +3461,6 @@ def example(obj, items):
 
 
 def test_in_comprehension_flag_set_correctly() -> None:
-    """Test that UsageInfo.in_comprehension is set for comprehension usages."""
     source = """
 def func(obj, items):
     cached = obj.attr
@@ -3853,7 +3480,6 @@ def func(obj, items):
 
 
 def test_in_comprehension_flag_false_for_normal_usage() -> None:
-    """Test that UsageInfo.in_comprehension is False for non-comprehension usages."""
     source = """
 def func():
     x = "foo"
@@ -3869,10 +3495,9 @@ def func():
 
 
 def test_calculate_semantic_value_test_context_list_literal() -> None:
-    """Test that list/dict/set literals get a bonus in test-context scoring.
-
-    Rule 10 now intercepts variables used solely inside comprehensions before
-    they reach calculate_semantic_value, so this branch needs a direct test.
+    """Rule 10 now intercepts variables used solely inside comprehensions
+    before they reach calculate_semantic_value, so this branch needs a
+    direct test.
     """
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
@@ -3881,19 +3506,20 @@ def test_calculate_semantic_value_test_context_list_literal() -> None:
     rhs_source = '["AES", "BYJ", "BTS"]'
     rhs_node = ast.parse(rhs_source, mode="eval").body
 
-    score = calculate_semantic_value(
-        "some_european_airports",
-        rhs_source,
-        rhs_node,
-        has_type_annotation=False,
-        is_test_context=True,
-    )
     # multi-part name (+30) + "some" in test_semantic_words (+25) + list bonus (+25)
-    assert score >= 25
+    assert (
+        calculate_semantic_value(
+            "some_european_airports",
+            rhs_source,
+            rhs_node,
+            has_type_annotation=False,
+            is_test_context=True,
+        )
+        >= 25
+    )
 
 
 def test_calculate_semantic_value_test_context_dict_literal() -> None:
-    """Test that dict literals get a bonus in test-context scoring."""
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
     )
@@ -3901,21 +3527,23 @@ def test_calculate_semantic_value_test_context_dict_literal() -> None:
     rhs_source = '{"key": "value"}'
     rhs_node = ast.parse(rhs_source, mode="eval").body
 
-    score = calculate_semantic_value(
-        "my_mapping",
-        rhs_source,
-        rhs_node,
-        has_type_annotation=False,
-        is_test_context=True,
+    # dict literal bonus in test context
+    assert (
+        calculate_semantic_value(
+            "my_mapping",
+            rhs_source,
+            rhs_node,
+            has_type_annotation=False,
+            is_test_context=True,
+        )
+        >= 25
     )
-    assert score >= 25  # dict literal bonus in test context
 
 
 def test_calculate_semantic_value_test_context_range_call() -> None:
-    """Test that range() calls get a bonus in test-context scoring.
-
-    Rule 10 now intercepts 'days_with_routes_in_a_row' used in comprehension
-    before it reaches calculate_semantic_value, so this needs a direct test.
+    """Rule 10 now intercepts 'days_with_routes_in_a_row' used in
+    comprehension before it reaches calculate_semantic_value, so this
+    needs a direct test.
     """
     from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
         calculate_semantic_value,
@@ -3924,21 +3552,21 @@ def test_calculate_semantic_value_test_context_range_call() -> None:
     rhs_source = "range(70)"
     rhs_node = ast.parse(rhs_source, mode="eval").body
 
-    score = calculate_semantic_value(
-        "days_with_routes_in_a_row",
-        rhs_source,
-        rhs_node,
-        has_type_annotation=False,
-        is_test_context=True,
-    )
     # multi-part name (+30) + no test_semantic_words match (+0) + range bonus (+25)
-    assert score >= 25
+    assert (
+        calculate_semantic_value(
+            "days_with_routes_in_a_row",
+            rhs_source,
+            rhs_node,
+            has_type_annotation=False,
+            is_test_context=True,
+        )
+        >= 25
+    )
 
 
 def test_calculate_semantic_value_test_context_no_semantic_word() -> None:
-    """Test test-context scoring for a variable name without test semantic words.
-
-    Covers the False branch of the test_semantic_words check (line 343->348).
+    """Covers the False branch of the test_semantic_words check (line 343->348).
     Before Rule 10, 'days_with_routes_in_a_row' (no semantic test words) covered
     this branch, but it is now intercepted by Rule 10.
     """
@@ -3949,20 +3577,22 @@ def test_calculate_semantic_value_test_context_no_semantic_word() -> None:
     rhs_source = "42"
     rhs_node = ast.parse(rhs_source, mode="eval").body
 
-    # "flight_count" contains no test semantic words
-    score = calculate_semantic_value(
-        "flight_count",
-        rhs_source,
-        rhs_node,
-        has_type_annotation=False,
-        is_test_context=True,
+    # "flight_count" contains no test semantic words: multi-part name (+30) +
+    # no test_semantic_words match (+0). Just verifying the False branch is
+    # exercised, not any particular score.
+    assert (
+        calculate_semantic_value(
+            "flight_count",
+            rhs_source,
+            rhs_node,
+            has_type_annotation=False,
+            is_test_context=True,
+        )
+        >= 0
     )
-    # multi-part name (+30) + no test_semantic_words match (+0)
-    assert score >= 0  # just verifying the False branch is exercised
 
 
 def test_pytriage_ignore_still_suppresses_comprehension_false_positive() -> None:
-    """Test that the pytriage ignore comment works for comprehension cases too."""
     source = """
 def func(depot_data, depots):
     depot_iso_country = depot_data.iso_country  # pytriage: ignore=TRI005
@@ -4027,7 +3657,6 @@ def _make_app():
 
 
 def test_decorator_use_is_tracked_by_variable_tracker() -> None:
-    """Test that VariableTracker records decorator expressions as uses."""
     source = """
 def outer():
     app = make_app()
@@ -4053,7 +3682,6 @@ def outer():
 
 
 def test_class_decorator_use_is_tracked() -> None:
-    """Test that class decorators in nested classes are tracked as uses."""
     source = """
 def factory():
     validator = build_validator()
@@ -4190,8 +3818,7 @@ def test_calculate_semantic_value_binop() -> None:
     )
 
     rhs_node = ast.parse("a + b", mode="eval").body
-    score = calculate_semantic_value("x", "a + b", rhs_node, False)
-    assert score >= 15
+    assert calculate_semantic_value("x", "a + b", rhs_node, False) >= 15
 
 
 def test_calculate_semantic_value_ifexp() -> None:
@@ -4201,8 +3828,7 @@ def test_calculate_semantic_value_ifexp() -> None:
     )
 
     rhs_node = ast.parse("1 if c else 0", mode="eval").body
-    score = calculate_semantic_value("x", "1 if c else 0", rhs_node, False)
-    assert score >= 20
+    assert calculate_semantic_value("x", "1 if c else 0", rhs_node, False) >= 20
 
 
 def test_should_report_violation_inline_comment_single_use() -> None:
@@ -4221,7 +3847,6 @@ def func():
     check = RedundantAssignmentCheck()
     violations = check.check(Path("test.py"), tree, source)
 
-    # Should NOT flag 'x' - it has an inline comment
     for v in violations:
         assert "'x'" not in v.message, (
             f"Should not flag 'x' - has inline comment: {v.message}"
@@ -4378,10 +4003,11 @@ def test_adds_verbosity_subscript_with_variable_slice() -> None:
     rhs_node = ast.parse("obj[key]", mode="eval").body
     # The var_name "user_obj" contains "obj" (from the Name base) but the slice is a
     # variable; rhs_key_or_method is None so the check returns False from Pattern 2.
-    result = _adds_verbosity_or_context("user_obj", "obj[key]", rhs_node)
     # Pattern 1 also doesn't apply ("user" not a descriptive prefix for "obj[key]")
     # Just assert we get a bool without error — coverage is the goal here.
-    assert isinstance(result, bool)
+    assert isinstance(
+        _adds_verbosity_or_context("user_obj", "obj[key]", rhs_node), bool
+    )
 
 
 def test_adds_verbosity_call_with_subscript_func() -> None:
@@ -4397,8 +4023,9 @@ def test_adds_verbosity_call_with_subscript_func() -> None:
 
     rhs_node = ast.parse('funcs["load"](data)', mode="eval").body
     rhs_src = 'funcs["load"](data)'
-    result = _adds_verbosity_or_context("configuration", rhs_src, rhs_node)
-    assert isinstance(result, bool)
+    assert isinstance(
+        _adds_verbosity_or_context("configuration", rhs_src, rhs_node), bool
+    )
 
 
 def test_adds_verbosity_get_call_key_not_in_var() -> None:
@@ -4409,8 +4036,7 @@ def test_adds_verbosity_get_call_key_not_in_var() -> None:
 
     # var_name "x" does not contain "email" → Pattern 3 condition is False
     rhs_node = ast.parse('data.get("email")', mode="eval").body
-    result = _adds_verbosity_or_context("x", 'data.get("email")', rhs_node)
-    assert result is False
+    assert _adds_verbosity_or_context("x", 'data.get("email")', rhs_node) is False
 
 
 def test_adds_verbosity_parse_func_with_subscript_func() -> None:
@@ -4422,8 +4048,9 @@ def test_adds_verbosity_parse_func_with_subscript_func() -> None:
     # parsers["json"](data) — func is a Subscript, not Name or Attribute
     rhs_node = ast.parse('parsers["json"](data)', mode="eval").body
     rhs_src = 'parsers["json"](data)'
-    result = _adds_verbosity_or_context("parsed_data", rhs_src, rhs_node)
-    assert isinstance(result, bool)
+    assert isinstance(
+        _adds_verbosity_or_context("parsed_data", rhs_src, rhs_node), bool
+    )
 
 
 def test_adds_verbosity_parse_func_with_generic_var_name() -> None:
@@ -4438,8 +4065,7 @@ def test_adds_verbosity_parse_func_with_generic_var_name() -> None:
 
     # json.loads() is a generic parse function; "result" is in generic_names
     rhs_node = ast.parse("json.loads(data)", mode="eval").body
-    result = _adds_verbosity_or_context("result", "json.loads(data)", rhs_node)
-    assert result is False
+    assert _adds_verbosity_or_context("result", "json.loads(data)", rhs_node) is False
 
 
 def test_contains_nondeterministic_call_with_subscript_func() -> None:
