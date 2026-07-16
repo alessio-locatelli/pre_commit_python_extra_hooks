@@ -106,9 +106,13 @@ def test_git_grep_filter_skips_unresolvable_git_paths(tmp_path: Path) -> None:
     """Defensive: if git's null-separated output includes a path that
     doesn't resolve back to one of the requested filepaths, it's skipped
     rather than included as a bogus match.
+
+    The file content deliberately doesn't contain "data" so that the
+    assertion can only pass via the mocked git-grep-success branch, not by
+    coincidentally falling through to the Python substring fallback.
     """
     file1 = tmp_path / "file1.py"
-    file1.write_text("data = 1\n")
+    file1.write_text("value = 1\n")
 
     with mock.patch("subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(
