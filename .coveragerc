@@ -10,13 +10,9 @@ source = src/pre_commit_hooks
 # config silently never applied). The orchestrator (ast_checks/__init__.py)
 # and redundant-super-init have little to no dedicated test coverage;
 # restoring this to 100 is tracked as follow-up work, not a one-shot fix.
-# fix_misplaced_comments/__init__.py reads as 0% because its tests exercise
-# it via subprocess.run, and coverage.py doesn't track subprocess-executed
-# code without separate multiprocessing/subprocess coverage setup
-# (COVERAGE_PROCESS_START) - that's a measurement gap, not evidence the
-# module is untested; fixing it is also follow-up work. Set fail_under with
-# real margin below the measured baseline (not right at the rounding
-# boundary) so the gate reliably catches further regressions.
+# Set fail_under with real margin below the measured baseline (not right
+# at the rounding boundary) so the gate reliably catches further
+# regressions.
 fail_under = 70
 exclude_also =
     no cover: start(?s:.)*?no cover: stop
