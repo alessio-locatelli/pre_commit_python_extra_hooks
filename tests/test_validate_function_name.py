@@ -34,16 +34,12 @@ def get_or_create_bound_logger(query) -> FilteringBoundLogger:
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.FunctionDef)
-            and node.name == "get_or_create_bound_logger"
-        ):
-            func_node = node
-            break
-
-    assert func_node is not None, "Function not found in source"
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "get_or_create_bound_logger"
+    )
 
     analysis = analyze_function(func_node)
 
@@ -61,13 +57,11 @@ def get_users(database, filters):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_users":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_users"
+    )
 
     analysis = analyze_function(func_node)
 
@@ -85,13 +79,11 @@ class Cache:
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_value":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_value"
+    )
 
     analysis = analyze_function(func_node)
 
@@ -107,13 +99,11 @@ def get_items(container, new_item):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_items":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_items"
+    )
 
     from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
         attach_parents,
@@ -137,13 +127,11 @@ def get_items(source):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_items":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_items"
+    )
 
     from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
         attach_parents,
@@ -168,13 +156,11 @@ def get_total(amount):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_total":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_total"
+    )
 
     analysis = analyze_function(func_node)
 
@@ -194,13 +180,11 @@ def get_cached_item(key):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_cached_item":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_cached_item"
+    )
 
     from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
         attach_parents,
@@ -251,13 +235,11 @@ def get_data(regular, /, posonly, *args, kwonly=None, **kwargs):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_data":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_data"
+    )
 
     from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
         attach_parents,
@@ -281,13 +263,11 @@ def get_config(settings):
 """
 
     tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "get_config":
-            func_node = node
-            break
-
-    assert func_node is not None
+    func_node = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "get_config"
+    )
 
     analysis = analyze_function(func_node)
 
