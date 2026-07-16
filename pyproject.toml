@@ -67,6 +67,10 @@ python_functions = ["test_*"]
 [tool.vulture]
 exclude = ["tests/fixtures"]
 paths = ["src", "tests"]
+# visit_* are ast.NodeVisitor callbacks invoked via .visit() dispatch, not by
+# name; return_value/side_effect are unittest.mock attributes read by the
+# mock machinery. Vulture's static analysis can't see either kind of use.
+ignore_names = ["visit_*", "return_value", "side_effect"]
 
 # Coverage configuration lives in .coveragerc, not here: coverage.py reads
 # only the first config file it finds (.coveragerc, setup.cfg, tox.ini,

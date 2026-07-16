@@ -195,7 +195,7 @@ def test_process_files_second_call_uses_cache(
     first = orchestrator.process_files([str(filepath)])
     assert first[str(filepath)][0].error_code == "TRI001"
 
-    def boom(*args: object, **kwargs: object) -> None:
+    def boom(*_args: object, **_kws: object) -> None:
         raise AssertionError("_check_file should not run on a cache hit")
 
     monkeypatch.setattr(orchestrator, "_check_file", boom)
@@ -246,7 +246,7 @@ def test_cache_violations_serialization_error_is_caught(
 
     orchestrator = CheckOrchestrator(checks=[ForbidVarsCheck()])
 
-    def boom(*args: object, **kwargs: object) -> None:
+    def boom(*_args: object, **_kws: object) -> None:
         raise TypeError("simulated cache backend failure")
 
     monkeypatch.setattr(orchestrator.cache, "set_cached_result", boom)
@@ -306,7 +306,7 @@ def test_process_files_check_exception_is_logged_and_skipped(
 
     forbid_vars = ForbidVarsCheck()
 
-    def boom(*args: object, **kwargs: object) -> None:
+    def boom(*_args: object, **_kws: object) -> None:
         raise ValueError("simulated check failure")
 
     monkeypatch.setattr(forbid_vars, "check", boom)
@@ -405,7 +405,7 @@ def test_apply_fixes_marks_nothing_fixed_when_fix_returns_false(
     filepath.write_text("data = requests.get(url)\n")
 
     forbid_vars = ForbidVarsCheck()
-    monkeypatch.setattr(forbid_vars, "fix", lambda *a, **k: False)
+    monkeypatch.setattr(forbid_vars, "fix", lambda *_a, **_k: False)
 
     orchestrator = CheckOrchestrator(checks=[forbid_vars], fix_mode=True)
     violations = orchestrator.process_files([str(filepath)])
@@ -421,7 +421,7 @@ def test_apply_fixes_exception_in_fix_is_logged(
 
     forbid_vars = ForbidVarsCheck()
 
-    def boom(*args: object, **kwargs: object) -> bool:
+    def boom(*_args: object, **_kws: object) -> bool:
         raise RuntimeError("simulated fix failure")
 
     monkeypatch.setattr(forbid_vars, "fix", boom)

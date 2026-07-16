@@ -524,7 +524,7 @@ def test_fix_logs_and_continues_when_apply_fix_raises(
     violations = check.check(filepath, tree, source)
     assert len(violations) == 1
 
-    def boom(*args: object, **kwargs: object) -> bool:
+    def boom(*_args: object, **_kws: object) -> bool:
         raise RuntimeError("simulated apply_fix failure")
 
     monkeypatch.setattr(module, "apply_fix", boom)
