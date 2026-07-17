@@ -12,6 +12,7 @@ import argparse
 import ast
 import logging
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -107,13 +108,41 @@ def _compile_patterns(
     return compiled
 
 
+def _repo_root() -> Path:
+    """Resolve the repo root via `git rev-parse --show-toplevel`.
+
+    The documented CLI usage (`... path/to/file.py`) allows invocation from
+    any CWD, so a plain `Path("pyproject.toml")` lookup would silently miss
+    a repo's `[tool.forbid-vars.autofix]` customization unless invoked from
+    the repo root exactly. Falls back to the process CWD — the previous
+    behavior — if git isn't available or the CWD isn't inside a repo.
+    """
+    try:
+        rev_parse = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if rev_parse.returncode == 0:
+            return Path(rev_parse.stdout.strip())
+    except (
+        subprocess.SubprocessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        logger.debug(repr(error))
+    return Path.cwd()
+
+
 def load_autofix_config() -> dict[str, Any]:
     """Load autofix configuration from pyproject.toml and pre-compile regex patterns.
 
     Returns:
         A dictionary containing the autofix configuration with pre-compiled regexes.
     """
-    pyproject_path = Path("pyproject.toml")
+    pyproject_path = _repo_root() / "pyproject.toml"
     if not pyproject_path.exists():
         return {
             "patterns": _compile_patterns(DEFAULT_AUTOFIX_PATTERNS),
