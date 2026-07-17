@@ -6,6 +6,8 @@ import ast
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck
 
 
@@ -770,6 +772,55 @@ name = "fetched_data"
             )
     finally:
         os.chdir(original_dir)
+
+
+def test_load_autofix_config_found_from_subdirectory_of_repo(tmp_path: Path) -> None:
+    """Regression: the CLI accepts files from any CWD, so config lookup must
+    resolve the repo root via git rather than assuming CWD == repo root.
+    """
+    import os
+    import subprocess
+
+    from pre_commit_hooks.ast_checks.forbid_vars import load_autofix_config
+
+    subprocess.run(["git", "init", "-q"], check=True, cwd=tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(r"""
+[tool.forbid-vars.autofix]
+enabled = ["custom"]
+
+[[tool.forbid-vars.autofix.patterns]]
+category = "custom"
+regex = "\\.fetch\\(.*\\)"
+name = "fetched_data"
+""")
+    subdir = tmp_path / "src" / "nested"
+    subdir.mkdir(parents=True)
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(subdir)
+        config = load_autofix_config()
+    finally:
+        os.chdir(original_dir)
+
+    assert "custom" in config["enabled"]
+    assert any(p["name"] == "fetched_data" for p in config["patterns"]["custom"])
+
+
+def test_repo_root_falls_back_to_cwd_when_git_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+
+    from pre_commit_hooks.ast_checks.forbid_vars import _repo_root
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git not found")
+
+    monkeypatch.setattr(subprocess, "run", _raise)
+
+    assert _repo_root() == Path.cwd()
 
 
 def test_autofix_custom_pattern_merges_into_existing_category() -> None:
