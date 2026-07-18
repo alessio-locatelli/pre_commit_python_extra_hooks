@@ -65,6 +65,8 @@ ignore = [
   "PLR0915",
   # too-many-arguments
   "PLR0913",
+  # raw-string-in-exception
+  "EM101",
 ]
 
 [tool.pytest.ini_options]
