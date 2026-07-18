@@ -272,12 +272,12 @@ print(msg)
   - Tuple unpacking (skipped)
   - Class attributes (skipped)
 
-**Autofix criteria (ALL must be met):**
+**Autofix criteria:**
 
-- Semantic value score ≤ 20 (very low value)
-- Pattern is IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY
-- RHS is simple: literal, name, attribute, or simple call
-- Inlining won't exceed 88 characters (Black's default)
+- **Immediate single use / literal identity** (conservative): semantic value score ≤ 10, variable name ≤ 10 characters, and RHS is a literal, name, simple attribute (`obj.attr`), or a zero-argument call — the last case only when inlining can't change how often or in what order the call runs (not inside a loop or lambda, and nothing potentially effectful — a call, attribute/subscript access, `await`/`yield`, an operator, or a conditional branch — evaluates before the use)
+- **Single-use variables** (more permissive, function-scope single use): semantic value score ≤ 20, and RHS is a literal, name, attribute, or a call with at most 2 simple arguments (subject to the same execution-order safety check as above)
+- Inlining must not push the usage line past 79 characters, checked against the actual line
+- RHS must not span multiple lines
 
 ```yaml
 - id: ruff-extra-rules
