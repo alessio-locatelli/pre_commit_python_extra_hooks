@@ -77,8 +77,7 @@ def format_message(var_name: str, pattern_type: str) -> str:
     }
     return messages.get(
         pattern_type,
-        f"Redundant assignment '{var_name}'. "
-        f"Or add '# pytriage: ignore={ERROR_CODE}' to suppress.",
+        f"Redundant assignment '{var_name}'. Or add '# pytriage: ignore={ERROR_CODE}' to suppress.",
     )
 
 
@@ -153,9 +152,7 @@ class RedundantAssignmentCheck(BaseCheck):
             # actual usage line, not just a conservative RHS-length estimate
             # (see docs: apply_fixes independently re-checks the real line,
             # and the two must agree or [FIXABLE] can lie about --fix).
-            fixable = should_autofix(
-                lifecycle, pattern, filepath, source_lines=tracker.source_lines
-            )
+            fixable = should_autofix(lifecycle, pattern, filepath, source_lines=tracker.source_lines)
 
             # Create violation
             message = format_message(lifecycle.assignment.var_name, pattern.name)

@@ -97,13 +97,7 @@ def test_apply_fixes_recomputes_stale_positions(tmp_path: Path) -> None:
     lines and silently fail to inline `x`.
     """
     filepath = tmp_path / "stale_positions.py"
-    filepath.write_text(
-        '"""Module docstring."""\n'
-        "\n\n\n"
-        "def func_scope():\n"
-        '    x = "foo"\n'
-        "    print(x)\n"
-    )
+    filepath.write_text('"""Module docstring."""\n\n\n\ndef func_scope():\n    x = "foo"\n    print(x)\n')
 
     checks = load_checks(select={"excessive-blank-lines", "redundant-assignment"})
     orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
@@ -142,9 +136,7 @@ def test_fix_honors_pep263_encoding_declaration(tmp_path: Path) -> None:
 def test_fix_preserves_crlf_line_endings(tmp_path: Path) -> None:
     """Lines untouched by a fix must keep their original CRLF endings."""
     filepath = tmp_path / "crlf.py"
-    filepath.write_bytes(
-        b"result = func(\r\n    x\r\n)  # comment\r\n\r\nother = 1\r\n"
-    )
+    filepath.write_bytes(b"result = func(\r\n    x\r\n)  # comment\r\n\r\nother = 1\r\n")
 
     checks = load_checks(select={"misplaced-comment"})
     orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
@@ -189,9 +181,7 @@ def test_process_files_no_candidates_after_prefilter_returns_empty(
     assert violations == {}
 
 
-def test_process_files_second_call_uses_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_process_files_second_call_uses_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("data = 1\n")
 
@@ -217,18 +207,14 @@ def test_process_files_different_check_set_forces_recheck(tmp_path: Path) -> Non
     forbid_vars_only = CheckOrchestrator(checks=[ForbidVarsCheck()])
     forbid_vars_only.process_files([str(filepath)])
 
-    both_checks = CheckOrchestrator(
-        checks=[ForbidVarsCheck(), ExcessiveBlankLinesCheck()]
-    )
+    both_checks = CheckOrchestrator(checks=[ForbidVarsCheck(), ExcessiveBlankLinesCheck()])
     violations = both_checks.process_files([str(filepath)])
 
     error_codes = {v.error_code for v in violations[str(filepath)]}
     assert error_codes == {"TRI001", "TRI002"}
 
 
-def test_generate_cache_key_changes_when_source_tree_changes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_generate_cache_key_changes_when_source_tree_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: replaces the hand-bumped CACHE_VERSION that a developer
     had to remember to update whenever a check's own code changed (commit
     0e3efba). The cache key must change on its own when the hashed source
@@ -255,17 +241,13 @@ def test_get_cached_violations_ignores_corrupted_cache_entry(
     filepath.write_text("data = 1\n")
 
     orchestrator = CheckOrchestrator(checks=[ForbidVarsCheck()])
-    orchestrator.cache.set_cached_result(
-        filepath, "ruff-extra-rules", {"violations": [{}]}
-    )
+    orchestrator.cache.set_cached_result(filepath, "ruff-extra-rules", {"violations": [{}]})
 
     cached_violations = orchestrator._get_cached_violations(filepath)
     assert cached_violations is None
 
 
-def test_cache_violations_serialization_error_is_caught(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cache_violations_serialization_error_is_caught(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("data = 1\n")
 
@@ -320,9 +302,7 @@ def test_process_files_invalid_syntax_is_skipped(tmp_path: Path) -> None:
     assert violations == {}
 
 
-def test_process_files_check_exception_is_logged_and_skipped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_process_files_check_exception_is_logged_and_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A check that raises must not prevent other checks from running or
     crash the whole file's processing.
     """
@@ -372,9 +352,7 @@ def test_apply_fixes_skips_check_with_no_fixable_violations(tmp_path: Path) -> N
     assert by_check["redundant-super-init"].fixable is False
 
 
-def test_apply_fixes_file_disappears_before_refetch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_apply_fixes_file_disappears_before_refetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """If the file can't be re-read inside _apply_fixes (e.g. deleted by a
     concurrent process), that check's fix is skipped rather than crashing.
     """
@@ -438,9 +416,7 @@ def test_apply_fixes_marks_nothing_fixed_when_fix_returns_false(
     assert not (v.fix_data and v.fix_data.get("fixed"))
 
 
-def test_apply_fixes_exception_in_fix_is_logged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_apply_fixes_exception_in_fix_is_logged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("data = requests.get(url)\n")
 
@@ -478,9 +454,7 @@ def test_load_checks_ignore_composes_with_select() -> None:
     `elif` instead of two independent checks), so `--select`+`--ignore`
     couldn't be combined the way `ruff check --select`/`--ignore` can.
     """
-    checks = load_checks(
-        select={"forbid-vars", "redundant-super-init"}, ignore={"forbid-vars"}
-    )
+    checks = load_checks(select={"forbid-vars", "redundant-super-init"}, ignore={"forbid-vars"})
     assert {c.check_id for c in checks} == {"redundant-super-init"}
 
 
@@ -549,9 +523,7 @@ def test_main_no_violations_returns_zero(tmp_path: Path) -> None:
     assert main([str(filepath)]) == 0
 
 
-def test_main_reports_non_fixable_violation(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_reports_non_fixable_violation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text(
         "class Base:\n"
@@ -573,9 +545,7 @@ def test_main_reports_non_fixable_violation(
     assert "Run with --fix" not in err
 
 
-def test_main_reports_fixable_violation_without_fix_flag(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_reports_fixable_violation_without_fix_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("data = requests.get(url)\nprint(data)\n")
 
@@ -587,9 +557,7 @@ def test_main_reports_fixable_violation_without_fix_flag(
     assert "Run with --fix to inline automatically." in err
 
 
-def test_main_fix_flag_marks_violation_fixed(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_fix_flag_marks_violation_fixed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("data = requests.get(url)\nprint(data)\n")
 
@@ -629,9 +597,7 @@ def test_main_check_specific_cli_arg_round_trip(
         def get_prefilter_pattern(self) -> list[str] | None:
             return None
 
-        def check(
-            self, _filepath: Path, _tree: ast.Module, _source: str
-        ) -> list[Violation]:
+        def check(self, _filepath: Path, _tree: ast.Module, _source: str) -> list[Violation]:
             return [
                 Violation(
                     check_id=self.check_id,
@@ -670,9 +636,7 @@ def test_main_check_specific_cli_arg_round_trip(
     assert "custom-message" in capsys.readouterr().err
 
 
-def test_main_unknown_select_check_returns_one(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_unknown_select_check_returns_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("x = 1\n")
 
@@ -682,9 +646,7 @@ def test_main_unknown_select_check_returns_one(
     assert "Unknown checks: not-a-real-check" in capsys.readouterr().err
 
 
-def test_main_unknown_ignore_check_returns_one(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_unknown_ignore_check_returns_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("x = 1\n")
 
@@ -694,9 +656,7 @@ def test_main_unknown_ignore_check_returns_one(
     assert "Unknown checks: not-a-real-check" in capsys.readouterr().err
 
 
-def test_main_ignoring_all_checks_returns_one(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_ignoring_all_checks_returns_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
     filepath.write_text("x = 1\n")
 
@@ -707,9 +667,7 @@ def test_main_ignoring_all_checks_returns_one(
     assert "Error: No checks enabled" in capsys.readouterr().err
 
 
-def test_main_select_and_ignore_compose(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_select_and_ignore_compose(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Regression: `--select`+`--ignore` together used to behave like
     `--select` alone, silently dropping `--ignore` (see
     `test_load_checks_ignore_composes_with_select`).

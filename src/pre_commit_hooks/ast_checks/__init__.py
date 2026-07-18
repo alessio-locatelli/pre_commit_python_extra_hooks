@@ -45,9 +45,7 @@ from .redundant_super_init import RedundantSuperInitCheck
 from .validate_function_name import ValidateFunctionNameCheck
 
 
-def filter_excluded_files(
-    filepaths: list[str], exclude_patterns: list[str]
-) -> list[str]:
+def filter_excluded_files(filepaths: list[str], exclude_patterns: list[str]) -> list[str]:
     """Filter out files matching exclude patterns.
 
     Args:
@@ -157,9 +155,7 @@ class CheckOrchestrator:
         """
         self.checks = checks
         self.fix_mode = fix_mode
-        self.cache = CacheManager(
-            hook_name="ruff-extra-rules", cache_version=self._generate_cache_key()
-        )
+        self.cache = CacheManager(hook_name="ruff-extra-rules", cache_version=self._generate_cache_key())
 
     def process_files(self, filepaths: list[str]) -> dict[str, list[Violation]]:
         """Process files and return violations for each file.
@@ -230,9 +226,7 @@ class CheckOrchestrator:
         exchange for never missing a real change again.
         """
         check_ids = sorted(check.check_id for check in self.checks)
-        fingerprints = sorted(
-            f"{check.check_id}={_fingerprint_check(check)}" for check in self.checks
-        )
+        fingerprints = sorted(f"{check.check_id}={_fingerprint_check(check)}" for check in self.checks)
         tree_hash = CacheManager.compute_tree_hash(_PACKAGE_ROOT)
         return "|".join([",".join(check_ids), ",".join(fingerprints), tree_hash])
 
@@ -296,9 +290,7 @@ class CheckOrchestrator:
                     }
                 )
 
-            self.cache.set_cached_result(
-                filepath, "ruff-extra-rules", {"violations": serialized}
-            )
+            self.cache.set_cached_result(filepath, "ruff-extra-rules", {"violations": serialized})
         except (TypeError, ValueError) as error:
             logger.warning("Cache serialization failed: %s", repr(error))
 
@@ -405,17 +397,11 @@ class CheckOrchestrator:
                 # an earlier check's fix can shift line/col numbers (removing
                 # or inserting lines), which would otherwise make this
                 # check's fix() edit the wrong location.
-                fresh_violations = [
-                    v
-                    for v in check.check(filepath, current_tree, current_source)
-                    if v.fixable
-                ]
+                fresh_violations = [v for v in check.check(filepath, current_tree, current_source) if v.fixable]
                 if not fresh_violations:
                     continue
 
-                success = check.fix(
-                    filepath, fresh_violations, current_source, current_tree, encoding
-                )
+                success = check.fix(filepath, fresh_violations, current_source, current_tree, encoding)
                 if success:
                     # Mark the original (stale) violations as fixed so the
                     # caller's reporting loop shows [FIXED] correctly.
@@ -459,9 +445,7 @@ def load_checks(
         try:
             check = check_class()
         except Exception as init_error:  # noqa: BLE001
-            logger.error(
-                "Failed to load check %s: %s", check_class.__name__, repr(init_error)
-            )
+            logger.error("Failed to load check %s: %s", check_class.__name__, repr(init_error))
             continue
 
         check_id = check.check_id
@@ -600,11 +584,7 @@ def main(argv: list[str] | None = None) -> int:
                 tag = "[FIXABLE] "
             else:
                 tag = ""
-            hint = (
-                " Run with --fix to inline automatically."
-                if v.fixable and not fixed
-                else ""
-            )
+            hint = " Run with --fix to inline automatically." if v.fixable and not fixed else ""
             print(
                 f"{filepath}:{v.line}: {v.error_code}: {tag}{v.message}{hint}",
                 file=sys.stderr,

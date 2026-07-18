@@ -101,11 +101,7 @@ def _find_function_node(tree: ast.Module, name: str, lineno: int) -> _FuncNode |
         The matching function node, or None if not found
     """
     for node in ast.walk(tree):
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == name
-            and node.lineno == lineno
-        ):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name and node.lineno == lineno:
             return node
     return None
 
@@ -213,9 +209,7 @@ def _attr_name_position(node: ast.Attribute, lines: list[str]) -> tuple[int, int
     return (node.end_lineno, char_end - len(node.attr))
 
 
-def _binds_name(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, name: str, target: ast.AST
-) -> bool:
+def _binds_name(node: ast.FunctionDef | ast.AsyncFunctionDef, name: str, target: ast.AST) -> bool:
     """Whether a function's own scope introduces a new binding for `name`.
 
     Conservative by design: covers a same-named parameter, a same-named
@@ -247,16 +241,9 @@ def _binds_name(
     for child in iter_within_scope(node):
         if child is target:
             continue
-        if (
-            isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and child.name == name
-        ):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and child.name == name:
             return True
-        if (
-            isinstance(child, ast.Name)
-            and isinstance(child.ctx, ast.Store)
-            and child.id == name
-        ):
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
             return True
         if isinstance(child, (ast.Import, ast.ImportFrom)) and any(
             (alias.asname or alias.name) == name for alias in child.names
@@ -280,11 +267,7 @@ def _is_rebound_in_scope(scope_node: ast.AST, name: str, target: ast.AST) -> boo
     for child in iter_within_scope(scope_node):
         if child is target:
             continue
-        if (
-            isinstance(child, ast.Name)
-            and isinstance(child.ctx, ast.Store)
-            and child.id == name
-        ):
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
             return True
         if isinstance(child, (ast.Import, ast.ImportFrom)) and any(
             (alias.asname or alias.name) == name for alias in child.names
@@ -309,9 +292,7 @@ class _ReferenceCollector(ast.NodeVisitor):
     so a same-named local helper's own call sites are never touched.
     """
 
-    def __init__(
-        self, old_name: str, is_method: bool, target: ast.AST, lines: list[str]
-    ) -> None:
+    def __init__(self, old_name: str, is_method: bool, target: ast.AST, lines: list[str]) -> None:
         self.old_name = old_name
         self.is_method = is_method
         self.target = target
@@ -352,16 +333,10 @@ class _ReferenceCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
-        if (
-            not self.is_method
-            and node.id == self.old_name
-            and isinstance(node.ctx, ast.Load)
-        ):
+        if not self.is_method and node.id == self.old_name and isinstance(node.ctx, ast.Load):
             # col_offset is a UTF-8 byte offset; convert to a character
             # offset before it's used to index into the line as a str.
-            char_col = byte_col_to_char_col(
-                self.lines[node.lineno - 1], node.col_offset
-            )
+            char_col = byte_col_to_char_col(self.lines[node.lineno - 1], node.col_offset)
             self.positions.append((node.lineno, char_col))
         self.generic_visit(node)
 
@@ -375,9 +350,7 @@ def _is_self_like_receiver(value: ast.expr) -> bool:
     return isinstance(value, ast.Name) and value.id in ("self", "cls")
 
 
-def _resolve_rename_scope(
-    tree: ast.Module, func_node: _FuncNode
-) -> tuple[ast.AST, bool]:
+def _resolve_rename_scope(tree: ast.Module, func_node: _FuncNode) -> tuple[ast.AST, bool]:
     """Determine the AST subtree in which call-site references may be renamed.
 
     Args:

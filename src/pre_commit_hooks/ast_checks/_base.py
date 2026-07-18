@@ -229,9 +229,7 @@ def atomic_write_text(path: Path, content: str, encoding: str) -> None:
     or fully new.
     """
     real_path = path.resolve()
-    fd, temp_name = tempfile.mkstemp(
-        dir=real_path.parent, prefix=f".{real_path.name}.", suffix=".tmp"
-    )
+    fd, temp_name = tempfile.mkstemp(dir=real_path.parent, prefix=f".{real_path.name}.", suffix=".tmp")
     temp_path = Path(temp_name)
     try:
         with os.fdopen(fd, "w", encoding=encoding, newline="") as temp_file:

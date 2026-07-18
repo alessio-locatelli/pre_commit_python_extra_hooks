@@ -152,9 +152,7 @@ def apply_fixes(
     return False
 
 
-def _cleanup_blank_lines_around_removals(
-    source_lines: list[str], removed_lines: set[int]
-) -> None:
+def _cleanup_blank_lines_around_removals(source_lines: list[str], removed_lines: set[int]) -> None:
     """Remove excessive blank lines only around lines we removed.
 
     This ensures we don't affect blank lines elsewhere in the file.

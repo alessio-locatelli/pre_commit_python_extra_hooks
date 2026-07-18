@@ -556,9 +556,7 @@ def test_autofix_with_unsafe_inlining(tmp_path: Path) -> None:
 
     # Create a case where inlining would exceed 88 characters
     # Line is already 60 chars, adding 40 char value would exceed 88
-    source = (
-        "x = " + "a" * 40 + "\nresult = some_long_function_name(x, param1, param2)\n"
-    )
+    source = "x = " + "a" * 40 + "\nresult = some_long_function_name(x, param1, param2)\n"
 
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -858,9 +856,7 @@ def test_should_autofix_with_single_use_pattern() -> None:
 
     use_stmt = ast.parse("x.method()").body[0]
     use_node = next(
-        n
-        for n in ast.walk(use_stmt)
-        if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
+        n for n in ast.walk(use_stmt) if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
     )
     lifecycle = VariableLifecycle(
         assignment=assignment,
@@ -889,7 +885,7 @@ def test_semantic_scoring_medium_length_expression() -> None:
     rhs_node = ast.parse(rhs_source + ")", mode="eval").body
 
     # Medium length (40-60 chars) should score +10 points.
-    assert calculate_semantic_value("x", rhs_source + ")", rhs_node, has_type_annotation=False) >= 10  # noqa: E501
+    assert calculate_semantic_value("x", rhs_source + ")", rhs_node, has_type_annotation=False) >= 10
 
 
 def test_should_autofix_call_with_simple_args() -> None:
@@ -1225,17 +1221,17 @@ def test_chained_operations_scoring() -> None:
     source = "obj[x][y]"
     rhs_node = ast.parse(source, mode="eval").body
     # 2 chains (+20) + "result" is 1 part (+0) + short expression (+0)
-    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) == 20  # noqa: E501
+    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) == 20
 
     source = "func()[x][y]"
     rhs_node = ast.parse(source, mode="eval").body
     # 3+ chains (+30) + 2-part name (+10)
-    assert calculate_semantic_value("my_value", source, rhs_node, has_type_annotation=False) == 40  # noqa: E501
+    assert calculate_semantic_value("my_value", source, rhs_node, has_type_annotation=False) == 40
 
     source = "obj.foo.bar"
     rhs_node = ast.parse(source, mode="eval").body
     # chained attributes (2 chains = +20)
-    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 20  # noqa: E501
+    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 20
 
 
 def test_augmented_assignment_with_global_variable() -> None:
@@ -1280,7 +1276,7 @@ def test_semantic_scoring_very_long_expression() -> None:
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
     # Very long expression (80+ chars) scores +35.
-    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 35  # noqa: E501
+    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 35
 
 
 # === Autofix Safety Tests ===
@@ -1498,12 +1494,7 @@ def test_same_variable_different_scopes() -> None:
     # 1. It's assigned in different branches
     # 2. It's used after the if/else block
     # 3. Both assignments are needed for the final return
-    assert all(
-        "result" not in v.message
-        or "positive" not in source
-        or "negative" not in source
-        for v in violations
-    )
+    assert all("result" not in v.message or "positive" not in source or "negative" not in source for v in violations)
 
 
 def test_autofix_preserves_blank_lines_across_file(tmp_path: Path) -> None:
@@ -1553,26 +1544,18 @@ class ThirdClass:
 
     # Verify blank lines between classes/functions are preserved
     # These blank lines should NOT be affected by autofix
-    expected_pattern_1 = (
-        "class FirstClass:\n    def method_one(self):\n        pass\n\n\n"
-        "class SecondClass:"
-    )
-    assert expected_pattern_1 in fixed_content, (
-        "Blank lines between FirstClass and SecondClass were removed!"
-    )
+    expected_pattern_1 = "class FirstClass:\n    def method_one(self):\n        pass\n\n\nclass SecondClass:"
+    assert expected_pattern_1 in fixed_content, "Blank lines between FirstClass and SecondClass were removed!"
 
     expected_pattern_2 = (
-        "class SecondClass:\n    def method_two(self):\n        pass\n\n\n"
-        "def function_with_redundant_var():"
+        "class SecondClass:\n    def method_two(self):\n        pass\n\n\ndef function_with_redundant_var():"
     )
     assert expected_pattern_2 in fixed_content, (
         "Blank lines between SecondClass and function_with_redundant_var were removed!"
     )
 
     expected_pattern_3 = "def another_function():\n    pass\n\n\nclass ThirdClass:"
-    assert expected_pattern_3 in fixed_content, (
-        "Blank lines between another_function and ThirdClass were removed!"
-    )
+    assert expected_pattern_3 in fixed_content, "Blank lines between another_function and ThirdClass were removed!"
 
     # Verify the fixed code is still valid Python; raises on failure.
     ast.parse(fixed_content)
@@ -1606,9 +1589,7 @@ def test_autofix_cleans_up_excessive_blank_lines(tmp_path: Path) -> None:
     lines = fixed_content.split("\n")
 
     # Count blanks before the return statement, after removing x=42.
-    def_index = next(
-        i for i, line in enumerate(lines) if "def function_with_redundant" in line
-    )
+    def_index = next(i for i, line in enumerate(lines) if "def function_with_redundant" in line)
     return_index = next(i for i in range(def_index, len(lines)) if "return" in lines[i])
     blanks_before_return = 0
     j = return_index - 1
@@ -1617,8 +1598,7 @@ def test_autofix_cleans_up_excessive_blank_lines(tmp_path: Path) -> None:
         j -= 1
 
     assert blanks_before_return <= 2, (
-        f"Fixed code has {blanks_before_return} blank lines before return "
-        f"(expected ≤2)\n{fixed_content}"
+        f"Fixed code has {blanks_before_return} blank lines before return (expected ≤2)\n{fixed_content}"
     )
 
     # Verify the fixed code is still valid Python; raises on failure.
@@ -1924,9 +1904,7 @@ def test_should_autofix_single_use_with_keywords() -> None:
 
     use_stmt = ast.parse("x.method()").body[0]
     use_node = next(
-        n
-        for n in ast.walk(use_stmt)
-        if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
+        n for n in ast.walk(use_stmt) if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
     )
     lifecycle = VariableLifecycle(
         assignment=assignment,
@@ -2003,9 +1981,7 @@ def test_should_not_autofix_single_use_complex_call() -> None:
     # context check that _call_use_is_safe_to_inline also performs.
     use_stmt = ast.parse("x.method()").body[0]
     use_node = next(
-        n
-        for n in ast.walk(use_stmt)
-        if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
+        n for n in ast.walk(use_stmt) if isinstance(n, ast.Name) and n.id == "x" and isinstance(n.ctx, ast.Load)
     )
     lifecycle = VariableLifecycle(
         assignment=assignment,
@@ -2268,23 +2244,15 @@ def test_adds_verbosity_or_context_function_directly() -> None:
 
     # Test Pattern 2: Variable contains RHS key but is more verbose
     rhs_node = ast.parse('kwargs.get("headers")', mode="eval").body
-    assert (
-        _adds_verbosity_or_context("raw_headers", 'kwargs.get("headers")', rhs_node)
-        is True
-    )
+    assert _adds_verbosity_or_context("raw_headers", 'kwargs.get("headers")', rhs_node) is True
 
     # Test Pattern 3: .get() with more context
     rhs_node = ast.parse('data.get("email")', mode="eval").body
-    assert (
-        _adds_verbosity_or_context("user_email", 'data.get("email")', rhs_node) is True
-    )
+    assert _adds_verbosity_or_context("user_email", 'data.get("email")', rhs_node) is True
 
     # Test Pattern 4: Generic parse functions with descriptive names
     rhs_node = ast.parse("orjson.loads(data)", mode="eval").body
-    assert (
-        _adds_verbosity_or_context("translations", "orjson.loads(data)", rhs_node)
-        is True
-    )
+    assert _adds_verbosity_or_context("translations", "orjson.loads(data)", rhs_node) is True
 
     # Test Pattern 4: Generic parse with multi-part name
     rhs_node = ast.parse("json.load(f)", mode="eval").body
@@ -2327,51 +2295,48 @@ def test_semantic_value_descriptive_boolean_prefix() -> None:
 
     rhs_node = ast.parse("check_something()", mode="eval").body
     # has_ prefix scores +50
-    assert (
-        calculate_semantic_value("has_permission", "check_something()", rhs_node, has_type_annotation=False)  # noqa: E501
-        >= 50
-    )
+    assert calculate_semantic_value("has_permission", "check_something()", rhs_node, has_type_annotation=False) >= 50
 
 
 def test_semantic_value_descriptive_suffix() -> None:
 
     rhs_node = ast.parse("len(items)", mode="eval").body
-    assert calculate_semantic_value("item_count", "len(items)", rhs_node, has_type_annotation=False) >= 40  # noqa: E501
+    assert calculate_semantic_value("item_count", "len(items)", rhs_node, has_type_annotation=False) >= 40
 
 
 def test_semantic_value_list_comprehension() -> None:
 
     source = "[x for x in items]"
     rhs_node = ast.parse(source, mode="eval").body
-    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 30  # noqa: E501
+    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 30
 
 
 def test_semantic_value_unary_operation() -> None:
 
     source = "-value"
     rhs_node = ast.parse(source, mode="eval").body
-    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 10  # noqa: E501
+    assert calculate_semantic_value("result", source, rhs_node, has_type_annotation=False) >= 10
 
 
 def test_semantic_value_lambda_expression() -> None:
 
     source = "lambda x: x * 2"
     rhs_node = ast.parse(source, mode="eval").body
-    assert calculate_semantic_value("func", source, rhs_node, has_type_annotation=False) >= 25  # noqa: E501
+    assert calculate_semantic_value("func", source, rhs_node, has_type_annotation=False) >= 25
 
 
 def test_semantic_value_very_long_expression() -> None:
 
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
-    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 35  # noqa: E501
+    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 35
 
 
 def test_semantic_value_long_expression_60_plus() -> None:
 
     source = "a" * 65
     rhs_node = ast.parse(source, mode="eval").body
-    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 25  # noqa: E501
+    assert calculate_semantic_value("x", source, rhs_node, has_type_annotation=False) >= 25
 
 
 def test_no_false_positive_on_long_rhs_fixable_marking() -> None:
@@ -3167,9 +3132,7 @@ def generate_price_data():
 """
     check = RedundantAssignmentCheck()
 
-    violations = check.check(
-        Path("tests/test_flight_prices.py"), ast.parse(source), source
-    )
+    violations = check.check(Path("tests/test_flight_prices.py"), ast.parse(source), source)
 
     # Should not flag descriptive range in test file.
     assert all("days_with_routes_in_a_row" not in v.message for v in violations)
@@ -3188,9 +3151,7 @@ def process_data():
 
     msg = "Should flag simple redundant assignment in non-test file"
     assert len(violations) > 0, msg
-    assert any("x" in v.message for v in violations), (
-        "Should flag variable 'x' in non-test file"
-    )
+    assert any("x" in v.message for v in violations), "Should flag variable 'x' in non-test file"
 
 
 def test_is_test_file_detects_tests_directory() -> None:
@@ -3412,9 +3373,7 @@ def func(obj, items):
     tracker.visit(ast.parse(source))
     lifecycles = tracker.build_lifecycles()
 
-    cached_lifecycle = next(
-        lc for lc in lifecycles if lc.assignment.var_name == "cached"
-    )
+    cached_lifecycle = next(lc for lc in lifecycles if lc.assignment.var_name == "cached")
     assert len(cached_lifecycle.uses) == 1
     assert cached_lifecycle.uses[0].in_comprehension is True
 
@@ -3717,12 +3676,8 @@ def func():
     assert fixable_violations, "Expected at least one fixable violation for this test"
 
     for v in fixable_violations:
-        assert "[FIXABLE]" not in v.message, (
-            f"Message must not embed [FIXABLE] tag: {v.message}"
-        )
-        assert "Run with --fix" not in v.message, (
-            f"Message must not embed --fix hint: {v.message}"
-        )
+        assert "[FIXABLE]" not in v.message, f"Message must not embed [FIXABLE] tag: {v.message}"
+        assert "Run with --fix" not in v.message, f"Message must not embed --fix hint: {v.message}"
 
 
 # ---------------------------------------------------------------------------
@@ -3734,14 +3689,14 @@ def test_calculate_semantic_value_binop() -> None:
     """Branch coverage: BinOp RHS adds 15 to semantic score (line 399)."""
 
     rhs_node = ast.parse("a + b", mode="eval").body
-    assert calculate_semantic_value("x", "a + b", rhs_node, has_type_annotation=False) >= 15  # noqa: E501
+    assert calculate_semantic_value("x", "a + b", rhs_node, has_type_annotation=False) >= 15
 
 
 def test_calculate_semantic_value_ifexp() -> None:
     """Branch coverage: IfExp RHS adds 20 to semantic score (line 405)."""
 
     rhs_node = ast.parse("1 if c else 0", mode="eval").body
-    assert calculate_semantic_value("x", "1 if c else 0", rhs_node, has_type_annotation=False) >= 20  # noqa: E501
+    assert calculate_semantic_value("x", "1 if c else 0", rhs_node, has_type_annotation=False) >= 20
 
 
 def test_should_report_violation_inline_comment_single_use() -> None:
@@ -3812,16 +3767,10 @@ def _make_single_use_lifecycle(
         in_control_flow=in_control_flow,
         in_global_scope=False,
     )
-    use_stmt_source = (
-        f"sink(side_effect(), {var_name})"
-        if preceded_by_call
-        else f"{var_name}.method()"
-    )
+    use_stmt_source = f"sink(side_effect(), {var_name})" if preceded_by_call else f"{var_name}.method()"
     use_stmt = ast.parse(use_stmt_source).body[0]
     use_node = next(
-        n
-        for n in ast.walk(use_stmt)
-        if isinstance(n, ast.Name) and n.id == var_name and isinstance(n.ctx, ast.Load)
+        n for n in ast.walk(use_stmt) if isinstance(n, ast.Name) and n.id == var_name and isinstance(n.ctx, ast.Load)
     )
     use = UsageInfo(
         var_name=var_name,
@@ -3864,9 +3813,7 @@ def test_should_autofix_returns_false_for_long_var_name_immediate() -> None:
     """
 
     rhs_node = ast.parse("something1", mode="eval").body
-    lifecycle = _make_single_use_lifecycle(
-        "something1", rhs_node, var_name="myvariablex"
-    )
+    lifecycle = _make_single_use_lifecycle("something1", rhs_node, var_name="myvariablex")
     assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
 
 
@@ -3879,9 +3826,7 @@ def test_should_autofix_returns_false_for_high_semantic_score_single_use() -> No
 
     # "has_something" gets +50 for "has_" prefix → semantic score > 20
     rhs_node = ast.parse("check()", mode="eval").body
-    lifecycle = _make_single_use_lifecycle(
-        "check()", rhs_node, var_name="has_something"
-    )
+    lifecycle = _make_single_use_lifecycle("check()", rhs_node, var_name="has_something")
     assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
 
 
@@ -4235,9 +4180,7 @@ def test_is_preceded_by_call_defaults_to_true_for_unknown_container() -> None:
     rather than guessing.
     """
 
-    use = UsageInfo(
-        var_name="x", line=1, col=0, stmt_index=0, context="unknown", scope_id=1
-    )
+    use = UsageInfo(var_name="x", line=1, col=0, stmt_index=0, context="unknown", scope_id=1)
     assert is_preceded_by_call(use) is True
 
 
@@ -4261,24 +4204,16 @@ def test_should_autofix_uses_real_use_line_length_when_available() -> None:
     """
 
     rhs_node = ast.parse("ast.parse(source)", mode="eval").body
-    lifecycle = _make_single_use_lifecycle(
-        "ast.parse(source)", rhs_node, var_name="tree"
-    )
+    lifecycle = _make_single_use_lifecycle("ast.parse(source)", rhs_node, var_name="tree")
 
     # Without the real use line, the conservative RHS/var-name estimate says
     # inlining is safe (both are short).
     assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
 
     # _make_single_use_lifecycle fixes the use at line 2 (1-indexed).
-    long_use_line = (
-        "    violations = check.check("
-        'Path("tests/test_something_with_a_long_name.py"), tree, source)'
-    )
+    long_use_line = '    violations = check.check(Path("tests/test_something_with_a_long_name.py"), tree, source)'
     source_lines = ["def f():", long_use_line]
-    assert (
-        should_autofix(lifecycle, PatternType.SINGLE_USE, source_lines=source_lines)
-        is False
-    )
+    assert should_autofix(lifecycle, PatternType.SINGLE_USE, source_lines=source_lines) is False
 
 
 def test_adds_verbosity_subscript_with_variable_slice() -> None:
@@ -4294,9 +4229,7 @@ def test_adds_verbosity_subscript_with_variable_slice() -> None:
     # variable; rhs_key_or_method is None so the check returns False from Pattern 2.
     # Pattern 1 also doesn't apply ("user" not a descriptive prefix for "obj[key]")
     # Just assert we get a bool without error — coverage is the goal here.
-    assert isinstance(
-        _adds_verbosity_or_context("user_obj", "obj[key]", rhs_node), bool
-    )
+    assert isinstance(_adds_verbosity_or_context("user_obj", "obj[key]", rhs_node), bool)
 
 
 def test_adds_verbosity_call_with_subscript_func() -> None:

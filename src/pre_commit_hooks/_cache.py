@@ -127,10 +127,7 @@ class CacheManager:
                     return None
 
                 # Fast path: mtime + size check (no hashing needed)
-                if (
-                    cache_data.get("mtime") == stat.st_mtime_ns
-                    and cache_data.get("size") == stat.st_size
-                ):
+                if cache_data.get("mtime") == stat.st_mtime_ns and cache_data.get("size") == stat.st_size:
                     # mtime unchanged, cache is valid!
                     return cache_data.get("hook_results", {}).get(hook_name)
 
@@ -147,15 +144,11 @@ class CacheManager:
             return None
 
         except (OSError, json.JSONDecodeError, KeyError) as error:
-            logger.warning(
-                "File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error)
-            )
+            logger.warning("File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error))
             # Treat any error as cache miss
             return None
 
-    def set_cached_result(
-        self, filepath: Path, hook_name: str, hook_result: dict[str, Any]
-    ) -> None:
+    def set_cached_result(self, filepath: Path, hook_name: str, hook_result: dict[str, Any]) -> None:
         try:
             stat = filepath.stat()
             file_hash = self.compute_file_hash(filepath)
@@ -191,9 +184,7 @@ class CacheManager:
 
         except (OSError, json.JSONDecodeError) as error:
             # Don't crash on cache write failure - just skip caching
-            logger.warning(
-                "File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error)
-            )
+            logger.warning("File: %s, hook name: %s, error: %s", filepath, hook_name, repr(error))
 
     def _get_cache_path(self, filepath: Path) -> Path:
         """Uses two-level directory structure for better filesystem performance:

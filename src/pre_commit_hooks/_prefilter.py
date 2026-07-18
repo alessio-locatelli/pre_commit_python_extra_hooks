@@ -21,9 +21,7 @@ __all__ = ["batch_filter_files", "git_grep_filter"]
 logger = logging.getLogger("linter")
 
 
-def git_grep_filter(
-    filepaths: Sequence[str], pattern: str, *, fixed_string: bool = False
-) -> list[str]:
+def git_grep_filter(filepaths: Sequence[str], pattern: str, *, fixed_string: bool = False) -> list[str]:
     """Uses git grep to quickly filter files containing a pattern. This is much
     faster than parsing every file with Python. Falls back to Python substring
     search if git is unavailable.
@@ -46,9 +44,7 @@ def git_grep_filter(
         cmd.extend(["-e", pattern, "--"])
         cmd.extend(filepaths)
 
-        git_grep_result = subprocess.run(
-            cmd, capture_output=True, text=True, check=False, timeout=30
-        )
+        git_grep_result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
 
         if git_grep_result.returncode == 0:
             # Parse null-separated output

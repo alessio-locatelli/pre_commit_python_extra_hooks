@@ -59,9 +59,7 @@ def is_linter_pragma(comment_text: str) -> bool:
     return any(pattern.search(comment_text) for pattern in _COMPILED_LINTER_PATTERNS)
 
 
-def is_bracket_only_line(
-    tokens: tuple[tokenize.TokenInfo, ...], bracket_token_idx: int
-) -> bool:
+def is_bracket_only_line(tokens: tuple[tokenize.TokenInfo, ...], bracket_token_idx: int) -> bool:
     bracket_token = tokens[bracket_token_idx]
     line_num = bracket_token.start[0]
 
@@ -115,11 +113,7 @@ def _scan_misplaced_comments(
         # line (nothing to find on this bracket's line). Every token stream
         # ends with an ENDMARKER on a line past the last real line, so this
         # always finds something.
-        next_token = next(
-            t
-            for t in tokens[i + 1 :]
-            if t.start[0] > bracket_line or t.type == tokenize.COMMENT
-        )
+        next_token = next(t for t in tokens[i + 1 :] if t.start[0] > bracket_line or t.type == tokenize.COMMENT)
         if (
             next_token.start[0] == bracket_line
             and not is_linter_pragma(next_token.string)
@@ -224,13 +218,9 @@ class MisplacedCommentCheck(BaseCheck):
             if len(potential_inline) <= 88:
                 lines[prev_line_idx] = f"{prev_line}  {item.comment_text}\n"
             else:
-                lines[prev_line_idx] = (
-                    f"{' ' * indent}{item.comment_text}\n{prev_line}\n"
-                )
+                lines[prev_line_idx] = f"{' ' * indent}{item.comment_text}\n{prev_line}\n"
 
-            lines[bracket_line_idx] = (
-                lines[bracket_line_idx][: item.comment_col].rstrip() + "\n"
-            )
+            lines[bracket_line_idx] = lines[bracket_line_idx][: item.comment_col].rstrip() + "\n"
             fixed_any = True
 
         if fixed_any:

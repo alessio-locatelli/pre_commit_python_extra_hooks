@@ -17,9 +17,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "excessive_blank_lines"
 
 
 def _check(source: str) -> list[str]:
-    violations = ExcessiveBlankLinesCheck().check(
-        Path("test.py"), ast.parse(source), source
-    )
+    violations = ExcessiveBlankLinesCheck().check(Path("test.py"), ast.parse(source), source)
     return [v.message for v in violations]
 
 

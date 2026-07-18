@@ -97,9 +97,7 @@ def test_git_grep_filter_real_success_and_no_match_paths(tmp_path: Path) -> None
         matches = git_grep_filter([str(file1)], "def get_", fixed_string=True)
         assert matches == [str(file1)]
 
-        no_matches = git_grep_filter(
-            [str(file1)], "totally_absent_pattern", fixed_string=True
-        )
+        no_matches = git_grep_filter([str(file1)], "totally_absent_pattern", fixed_string=True)
         assert no_matches == []
     finally:
         os.chdir(original_dir)
