@@ -67,6 +67,8 @@ ignore = [
   "PLR0913",
   # raw-string-in-exception
   "EM101",
+  # Avoid specifying long messages outside the exception class
+  "TRY003",
 ]
 
 [tool.pytest.ini_options]
