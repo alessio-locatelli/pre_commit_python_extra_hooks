@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from pre_commit_hooks.ast_checks._base import Violation
-from pre_commit_hooks.ast_checks.excessive_blank_lines import ExcessiveBlankLinesCheck
+from pre_commit_hooks.ast_checks.excessive_blank_lines import (
+    ExcessiveBlankLinesCheck,
+    fix_file_content,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "excessive_blank_lines"
 
@@ -134,8 +137,6 @@ def test_fix_with_stale_violation_and_no_current_violation_returns_false(
 
 
 def test_fix_file_content_empty_source_returns_unchanged() -> None:
-    from pre_commit_hooks.ast_checks.excessive_blank_lines import fix_file_content
-
     assert fix_file_content("", ast.parse("")) == ""
 
 

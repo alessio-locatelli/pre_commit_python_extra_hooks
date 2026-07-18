@@ -7,13 +7,17 @@ from pathlib import Path
 
 import pytest
 
+import pre_commit_hooks.ast_checks.validate_function_name as module
+from pre_commit_hooks.ast_checks._base import Violation
 from pre_commit_hooks.ast_checks.validate_function_name import ValidateFunctionNameCheck
 from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
     _call_name,
+    _get_base_name,
     analyze_function,
     attach_parents,
     decorator_name,
     is_decorator_override_or_abstract,
+    is_simple_accessor,
     process_file,
 )
 
@@ -122,9 +126,6 @@ def get_items(container, new_item):
         if isinstance(node, ast.FunctionDef) and node.name == "get_items"
     )
 
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        attach_parents,
-    )
 
     attach_parents(tree)
 
@@ -150,9 +151,6 @@ def get_items(source):
         if isinstance(node, ast.FunctionDef) and node.name == "get_items"
     )
 
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        attach_parents,
-    )
 
     attach_parents(tree)
 
@@ -203,9 +201,6 @@ def get_cached_item(key):
         if isinstance(node, ast.FunctionDef) and node.name == "get_cached_item"
     )
 
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        attach_parents,
-    )
 
     attach_parents(tree)
 
@@ -256,9 +251,6 @@ def get_data(regular, /, posonly, *args, kwonly=None, **kwargs):
         if isinstance(node, ast.FunctionDef) and node.name == "get_data"
     )
 
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        attach_parents,
-    )
 
     attach_parents(tree)
 
@@ -405,7 +397,6 @@ def test_fix_with_no_violations_returns_false(tmp_path: Path) -> None:
 
 
 def test_fix_skips_violation_without_fix_data(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
 
     filepath = tmp_path / "mod.py"
     filepath.write_text("def get_data() -> bool:\n    return True\n")
@@ -425,7 +416,6 @@ def test_fix_skips_violation_without_fix_data(tmp_path: Path) -> None:
 
 
 def test_fix_skips_violation_without_suggestion_key(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
 
     filepath = tmp_path / "mod.py"
     filepath.write_text("def get_data() -> bool:\n    return True\n")
@@ -515,7 +505,6 @@ def test_fix_returns_false_when_apply_fix_fails_without_raising(
 def test_fix_logs_and_continues_when_apply_fix_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pre_commit_hooks.ast_checks.validate_function_name as module
 
     filepath = tmp_path / "mod.py"
     source = "def get_data() -> bool:\n    return True\n"
@@ -886,9 +875,6 @@ def test_returns_class_flag_detected_for_type_call() -> None:
 
 
 def test_get_base_name_returns_none_for_unsupported_expression() -> None:
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        _get_base_name,
-    )
 
     node = ast.parse("a + b", mode="eval").body
     assert _get_base_name(node) is None
@@ -899,36 +885,24 @@ def test_is_simple_accessor_false_for_docstring_only_function() -> None:
         'def get_data():\n    """Just a docstring, no return."""\n',
         "get_data",
     )
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        is_simple_accessor,
-    )
 
     # No return statement at all, so nothing to suggest a rename for.
     assert is_simple_accessor(func_node) is False
 
 
 def test_is_simple_accessor_false_for_non_return_single_statement() -> None:
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        is_simple_accessor,
-    )
 
     func_node = _func("def get_data():\n    pass\n", "get_data")
     assert is_simple_accessor(func_node) is False
 
 
 def test_is_simple_accessor_false_for_bare_return() -> None:
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        is_simple_accessor,
-    )
 
     func_node = _func("def get_data():\n    return\n", "get_data")
     assert is_simple_accessor(func_node) is False
 
 
 def test_is_simple_accessor_false_for_non_get_call_return() -> None:
-    from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
-        is_simple_accessor,
-    )
 
     func_node = _func("def get_data():\n    return compute_stuff()\n", "get_data")
     assert is_simple_accessor(func_node) is False

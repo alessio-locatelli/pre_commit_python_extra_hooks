@@ -5,14 +5,35 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from pre_commit_hooks.ast_checks import CheckOrchestrator
+from pre_commit_hooks.ast_checks._base import Violation
 from pre_commit_hooks.ast_checks.redundant_assignment import RedundantAssignmentCheck
 from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
+    AssignmentInfo,
     PatternType,
+    UsageInfo,
     VariableLifecycle,
     VariableTracker,
+    _evaluation_order_children,
+    _has_comment_above,
+    _has_inline_comment,
     detect_redundancy,
+    is_preceded_by_call,
 )
-from pre_commit_hooks.ast_checks.redundant_assignment.semantic import _is_test_file
+from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
+    _can_safely_inline,
+    _cleanup_blank_lines_around_removals,
+    apply_fixes,
+)
+from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
+    _adds_verbosity_or_context,
+    _contains_nondeterministic_call,
+    _is_named_constant_pattern,
+    _is_test_file,
+    _would_require_parentheses,
+    calculate_semantic_value,
+    should_autofix,
+)
 
 
 def test_immediate_single_use_detected() -> None:
@@ -363,10 +384,6 @@ def test_fix_chained_assignment_where_use_line_is_another_assign_line(
 
 
 def test_autofix_skips_violation_without_fix_data(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -391,10 +408,6 @@ def test_autofix_skips_violation_without_fix_data(tmp_path: Path) -> None:
 
 
 def test_autofix_skips_violation_with_invalid_fix_data(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -420,9 +433,6 @@ def test_autofix_skips_violation_with_invalid_fix_data(tmp_path: Path) -> None:
 
 
 def test_autofix_skips_multiline_rhs() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
-        _can_safely_inline,
-    )
 
     source_lines = ["result = func(x)\n"]
 
@@ -431,9 +441,6 @@ def test_autofix_skips_multiline_rhs() -> None:
 
 
 def test_autofix_skips_line_length_violation() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
-        _can_safely_inline,
-    )
 
     # Current line is 80 chars, adding 20 more would exceed 88.
     source_lines = ["x = " + "a" * 80 + "\n"]
@@ -442,9 +449,6 @@ def test_autofix_skips_line_length_violation() -> None:
 
 
 def test_autofix_skips_invalid_line_indices() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
-        _can_safely_inline,
-    )
 
     source_lines = ["line1\n", "line2\n"]
 
@@ -453,10 +457,6 @@ def test_autofix_skips_invalid_line_indices() -> None:
 
 
 def test_autofix_with_invalid_assignment_line(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -488,10 +488,6 @@ def test_autofix_with_invalid_assignment_line(tmp_path: Path) -> None:
 
 
 def test_autofix_with_invalid_usage_line(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     source = "x = 1\nprint(x)\n"
 
@@ -523,10 +519,6 @@ def test_autofix_with_invalid_usage_line(tmp_path: Path) -> None:
 
 
 def test_autofix_with_multiple_uses(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     source = "x = 1\nprint(x)\nprint(x)\n"
 
@@ -561,10 +553,6 @@ def test_autofix_with_multiple_uses(tmp_path: Path) -> None:
 
 
 def test_autofix_with_unsafe_inlining(tmp_path: Path) -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment import (
-        RedundantAssignmentCheck,
-    )
 
     # Create a case where inlining would exceed 88 characters
     # Line is already 60 chars, adding 40 char value would exceed 88
@@ -600,8 +588,6 @@ def test_autofix_with_unsafe_inlining(tmp_path: Path) -> None:
 
 
 def test_fix_method_with_no_fixable_violations() -> None:
-    from pre_commit_hooks.ast_checks._base import Violation
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import apply_fixes
 
     source = """
 x = "foo"
@@ -798,7 +784,6 @@ def test_orchestrator_skips_file_with_invalid_syntax(tmp_path: Path) -> None:
     Syntax errors are caught by CheckOrchestrator._check_file (it parses the
     AST once for all checks), not by RedundantAssignmentCheck itself.
     """
-    from pre_commit_hooks.ast_checks import CheckOrchestrator
 
     filepath = tmp_path / "broken.py"
     filepath.write_text("x = (((")
@@ -810,15 +795,6 @@ def test_orchestrator_skips_file_with_invalid_syntax(tmp_path: Path) -> None:
 
 
 def test_autofix_should_autofix_simple_call() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "get_value()"
     rhs_node = ast.parse(source, mode="eval").body
@@ -865,15 +841,6 @@ def example():
 
 
 def test_should_autofix_with_single_use_pattern() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "get_value()"
     rhs_node = ast.parse(source, mode="eval").body
@@ -916,9 +883,6 @@ def test_should_autofix_with_single_use_pattern() -> None:
 
 
 def test_semantic_scoring_medium_length_expression() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     # Test with exactly 45 characters (between 40 and 60)
     rhs_source = "some_function_with_exactly_45_characters("
@@ -929,15 +893,6 @@ def test_semantic_scoring_medium_length_expression() -> None:
 
 
 def test_should_autofix_call_with_simple_args() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "func(1, 2)"
     rhs_node = ast.parse(source, mode="eval").body
@@ -972,15 +927,6 @@ def test_should_autofix_call_with_simple_args() -> None:
 
 
 def test_should_autofix_no_args_call() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "func()"
     rhs_node = ast.parse(source, mode="eval").body
@@ -1015,10 +961,6 @@ def test_should_autofix_no_args_call() -> None:
 
 
 def test_lifecycle_no_uses_not_immediate() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        VariableLifecycle,
-    )
 
     source = "func()"
     rhs_node = ast.parse(source, mode="eval").body
@@ -1056,9 +998,6 @@ def outer():
 
 
 def test_get_source_segment_error_handling() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-    )
 
     node = ast.Constant(value=1, lineno=-1, col_offset=-1)
 
@@ -1114,15 +1053,6 @@ def example():
 
 
 def test_should_autofix_complex_call_args() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "func({k: v for k, v in items})"
     rhs_node = ast.parse(source, mode="eval").body
@@ -1291,9 +1221,6 @@ def func(index):
 
 
 def test_chained_operations_scoring() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "obj[x][y]"
     rhs_node = ast.parse(source, mode="eval").body
@@ -1349,9 +1276,6 @@ def func():
 
 
 def test_semantic_scoring_very_long_expression() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
@@ -1707,9 +1631,6 @@ def test_cleanup_blank_lines_only_excess_below() -> None:
     Exercises the False branch of ``if blank_above > 1`` when there are no
     excess blanks above the removed line but there are excess blanks below it.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
-        _cleanup_blank_lines_around_removals,
-    )
 
     # removed_idx=0, blank_above=0, blank_below=2 → total=3
     # "if blank_above > 1" is False → branch 161->167 taken
@@ -1727,9 +1648,6 @@ def test_cleanup_blank_lines_only_excess_above() -> None:
     Exercises the False branch of ``if blank_below > 1`` when there are no
     excess blanks below the removed line but there are excess blanks above it.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.autofix import (
-        _cleanup_blank_lines_around_removals,
-    )
 
     # removed_idx=2, blank_above=2, blank_below=0 → total=3
     # "if blank_above > 1" is True  → excess above removed
@@ -1920,36 +1838,24 @@ def func():
 
 
 def test_would_require_parentheses_binop() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _would_require_parentheses,
-    )
 
     rhs_node = ast.parse("len(x) + 1", mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_boolop() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _would_require_parentheses,
-    )
 
     rhs_node = ast.parse("a and b", mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_compare() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _would_require_parentheses,
-    )
 
     rhs_node = ast.parse("x == y", mode="eval").body
     assert _would_require_parentheses(rhs_node) is True
 
 
 def test_would_require_parentheses_simple() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _would_require_parentheses,
-    )
 
     rhs_node = ast.parse("len(x)", mode="eval").body
     assert _would_require_parentheses(rhs_node) is False
@@ -1968,15 +1874,6 @@ def func():
 
 
 def test_should_autofix_single_use_with_attribute() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "obj.attr"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2010,15 +1907,6 @@ def test_should_autofix_single_use_with_attribute() -> None:
 
 
 def test_should_autofix_single_use_with_keywords() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "func(key=value)"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2060,15 +1948,6 @@ def test_should_autofix_single_use_with_keywords() -> None:
 
 
 def test_should_autofix_single_use_high_semantic_score() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     source = "value"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2103,15 +1982,6 @@ def test_should_autofix_single_use_high_semantic_score() -> None:
 
 
 def test_should_not_autofix_single_use_complex_call() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        PatternType,
-        UsageInfo,
-        VariableLifecycle,
-    )
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        should_autofix,
-    )
 
     # Call with 3 args (exceeds limit of 2)
     source = "func(a, b, c)"
@@ -2269,11 +2139,6 @@ def test_func():
 
 
 def test_lifecycle_is_immediate_use_with_closure() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     assignment = AssignmentInfo(
         var_name="x",
@@ -2396,9 +2261,6 @@ def process_input(data):
 
 
 def test_adds_verbosity_or_context_function_directly() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     # Test Pattern 1: Descriptive prefix
     rhs_node = ast.parse("fetch_data()", mode="eval").body
@@ -2462,9 +2324,6 @@ def func():
 
 
 def test_semantic_value_descriptive_boolean_prefix() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_node = ast.parse("check_something()", mode="eval").body
     # has_ prefix scores +50
@@ -2475,18 +2334,12 @@ def test_semantic_value_descriptive_boolean_prefix() -> None:
 
 
 def test_semantic_value_descriptive_suffix() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_node = ast.parse("len(items)", mode="eval").body
     assert calculate_semantic_value("item_count", "len(items)", rhs_node, False) >= 40
 
 
 def test_semantic_value_list_comprehension() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "[x for x in items]"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2494,9 +2347,6 @@ def test_semantic_value_list_comprehension() -> None:
 
 
 def test_semantic_value_unary_operation() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "-value"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2504,9 +2354,6 @@ def test_semantic_value_unary_operation() -> None:
 
 
 def test_semantic_value_lambda_expression() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "lambda x: x * 2"
     rhs_node = ast.parse(source, mode="eval").body
@@ -2514,9 +2361,6 @@ def test_semantic_value_lambda_expression() -> None:
 
 
 def test_semantic_value_very_long_expression() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "a" * 85
     rhs_node = ast.parse(source, mode="eval").body
@@ -2524,9 +2368,6 @@ def test_semantic_value_very_long_expression() -> None:
 
 
 def test_semantic_value_long_expression_60_plus() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     source = "a" * 65
     rhs_node = ast.parse(source, mode="eval").body
@@ -3032,9 +2873,6 @@ def outer():
 
 
 def test_has_inline_comment_detection() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        _has_inline_comment,
-    )
 
     # Test with inline comment
     lines = ["x = value  # this is a comment"]
@@ -3058,9 +2896,6 @@ def test_has_inline_comment_detection() -> None:
 
 
 def test_is_named_constant_pattern() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _is_named_constant_pattern,
-    )
 
     # Test with multi-part name and number
     node = ast.parse("10", mode="eval").body
@@ -3170,9 +3005,6 @@ def func():
 
 
 def test_inline_comment_with_string_containing_hash() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        _has_inline_comment,
-    )
 
     # String with # followed by actual comment
     lines = ['x = "test#test"  # real comment']
@@ -3606,9 +3438,6 @@ def test_calculate_semantic_value_test_context_list_literal() -> None:
     before they reach calculate_semantic_value, so this branch needs a
     direct test.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_source = '["AES", "BYJ", "BTS"]'
     rhs_node = ast.parse(rhs_source, mode="eval").body
@@ -3627,9 +3456,6 @@ def test_calculate_semantic_value_test_context_list_literal() -> None:
 
 
 def test_calculate_semantic_value_test_context_dict_literal() -> None:
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_source = '{"key": "value"}'
     rhs_node = ast.parse(rhs_source, mode="eval").body
@@ -3652,9 +3478,6 @@ def test_calculate_semantic_value_test_context_range_call() -> None:
     comprehension before it reaches calculate_semantic_value, so this
     needs a direct test.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_source = "range(70)"
     rhs_node = ast.parse(rhs_source, mode="eval").body
@@ -3677,9 +3500,6 @@ def test_calculate_semantic_value_test_context_no_semantic_word() -> None:
     Before Rule 10, 'days_with_routes_in_a_row' (no semantic test words) covered
     this branch, but it is now intercepted by Rule 10.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_source = "42"
     rhs_node = ast.parse(rhs_source, mode="eval").body
@@ -3815,9 +3635,6 @@ def test_has_inline_comment_mismatched_quote_in_string() -> None:
     continue without closing the string context.  Without this branch being
     taken we would incorrectly detect the apostrophe as a comment delimiter.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        _has_inline_comment,
-    )
 
     # Single-quote inside a double-quoted string — no real comment
     lines = ['x = "it\'s fine"']
@@ -3830,9 +3647,6 @@ def test_has_inline_comment_mismatched_quote_in_string() -> None:
 
 def test_has_comment_above_first_line_returns_false() -> None:
     """Branch coverage: an assignment on line 1 has no line above to check."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        _has_comment_above,
-    )
 
     lines = ['x = "foo"', "process(x)"]
     assert _has_comment_above(1, lines) is False
@@ -3918,9 +3732,6 @@ def func():
 
 def test_calculate_semantic_value_binop() -> None:
     """Branch coverage: BinOp RHS adds 15 to semantic score (line 399)."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_node = ast.parse("a + b", mode="eval").body
     assert calculate_semantic_value("x", "a + b", rhs_node, False) >= 15
@@ -3928,9 +3739,6 @@ def test_calculate_semantic_value_binop() -> None:
 
 def test_calculate_semantic_value_ifexp() -> None:
     """Branch coverage: IfExp RHS adds 20 to semantic score (line 405)."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        calculate_semantic_value,
-    )
 
     rhs_node = ast.parse("1 if c else 0", mode="eval").body
     assert calculate_semantic_value("x", "1 if c else 0", rhs_node, False) >= 20
@@ -3989,11 +3797,6 @@ def _make_single_use_lifecycle(
     (var_name is the first thing evaluated), or
     `sink(side_effect(), {var_name})` when True (a sibling call precedes it).
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        AssignmentInfo,
-        UsageInfo,
-        VariableLifecycle,
-    )
 
     assignment = AssignmentInfo(
         var_name=var_name,
@@ -4034,7 +3837,6 @@ def _make_single_use_lifecycle(
 
 def test_should_autofix_returns_false_for_loop_assignment() -> None:
     """Branch coverage: should_autofix returns False when in_loop=True (line 821)."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse('"foo"', mode="eval").body
     lifecycle = _make_single_use_lifecycle('"foo"', rhs_node, in_loop=True)
@@ -4043,7 +3845,6 @@ def test_should_autofix_returns_false_for_loop_assignment() -> None:
 
 def test_should_autofix_returns_false_for_multiline_rhs() -> None:
     """Branch coverage: should_autofix returns False when RHS contains newline."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse('"foo"', mode="eval").body
     lifecycle = _make_single_use_lifecycle('"foo"\n"bar"', rhs_node)
@@ -4060,7 +3861,6 @@ def test_should_autofix_returns_false_for_long_var_name_immediate() -> None:
 
     This guard applies only to IMMEDIATE_SINGLE_USE / LITERAL_IDENTITY patterns.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("something1", mode="eval").body
     lifecycle = _make_single_use_lifecycle(
@@ -4075,7 +3875,6 @@ def test_should_autofix_returns_false_for_high_semantic_score_single_use() -> No
     A multi-part variable name gets +10 from name_parts scoring alone, and using
     a descriptive prefix pushes it over 20.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     # "has_something" gets +50 for "has_" prefix → semantic score > 20
     rhs_node = ast.parse("check()", mode="eval").body
@@ -4091,7 +3890,6 @@ def test_should_autofix_returns_true_for_single_use_constant_rhs() -> None:
     Low-semantic-score variable with a constant RHS and SINGLE_USE pattern reaches
     ``return True`` at the Constant/Name isinstance check in the SINGLE_USE block.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("42", mode="eval").body
     lifecycle = _make_single_use_lifecycle("42", rhs_node, var_name="x")
@@ -4104,7 +3902,6 @@ def test_should_autofix_returns_false_for_non_call_non_attr_rhs_single_use() -> 
     A list literal falls through all isinstance checks in the SINGLE_USE block
     and reaches the final ``return False`` (branch 884->893).
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("[1, 2, 3]", mode="eval").body
     lifecycle = _make_single_use_lifecycle("[1, 2, 3]", rhs_node)
@@ -4118,7 +3915,6 @@ def test_should_autofix_allows_zero_arg_call_for_immediate_single_use() -> None:
     use's statement) has no sibling operand whose order inlining could
     disturb, so it gets a narrow carve-out here.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("ForbidVarsCheck()", mode="eval").body
     lifecycle = _make_single_use_lifecycle(
@@ -4138,7 +3934,6 @@ def test_should_autofix_rejects_zero_arg_call_preceded_by_a_call() -> None:
     not become `sink(side_effect(), next_value())` — that runs next_value()
     after side_effect() instead of before it.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("next_value()", mode="eval").body
     lifecycle = _make_single_use_lifecycle(
@@ -4157,10 +3952,6 @@ def test_is_preceded_by_call_across_multiline_statement() -> None:
     wrongly calls it safe, even though side_effect() (on the previous
     physical line, same statement) already ran first.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4184,10 +3975,6 @@ def test_is_preceded_by_call_true_for_attribute_sibling() -> None:
     call, so a sibling attribute access must count as "preceding" too, not
     just bare ast.Call nodes.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4210,10 +3997,6 @@ def test_is_preceded_by_call_true_for_dict_key_after_earlier_pair() -> None:
     even reached, even though a naive field-order walk would see x right
     after "a" (before side_effect()).
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4234,10 +4017,6 @@ def test_is_preceded_by_call_false_for_dict_sibling_without_calls() -> None:
     key/value pairs match, so this exercises the loop completing without
     an early exit.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4256,10 +4035,6 @@ def test_is_preceded_by_call_false_for_dict_first_key() -> None:
     """The dict fix must stay precise: x as the very first key (nothing
     evaluates before it, not even its own paired value) is still safe.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4279,10 +4054,6 @@ def test_is_preceded_by_call_true_for_dict_value_after_unpacking() -> None:
     paired value, no separate key) — a value after one must still see it
     as a preceding effect if that unpacked expression is a call.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4304,10 +4075,6 @@ def test_is_preceded_by_call_true_for_assign_target_base_after_value() -> None:
     side_effect()` must see `side_effect()` as preceding `x`, or inlining
     would produce `make().attr = side_effect()`, reversing real order.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4329,10 +4096,6 @@ def test_is_preceded_by_call_true_for_ifexp_branch() -> None:
     must be treated as unsafe, since inlining would make the call
     conditional on `flag` instead of always running.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4353,10 +4116,6 @@ def test_is_preceded_by_call_true_for_boolop_non_first_operand() -> None:
     and x)` must be treated as unsafe — if `flag` is falsy, `x` (and thus an
     inlined call) never evaluates, unlike the original unconditional call.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4380,10 +4139,6 @@ def test_is_preceded_by_call_true_for_ifexp_sibling_without_target() -> None:
     check does, it's still treated as a preceding effect even though it
     doesn't contain the target.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4407,10 +4162,6 @@ def test_is_preceded_by_call_true_for_boolop_sibling_without_target() -> None:
     preceding effect (same reasoning as the operator-dunder-overload fix),
     even though it doesn't contain the target.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4431,9 +4182,6 @@ def test_evaluation_order_children_assign_yields_value_before_targets() -> None:
     Assign._fields, which lists targets first — matching Python's real
     evaluate-RHS-then-target(s) order.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        _evaluation_order_children,
-    )
 
     tree = ast.parse("x.attr = value_expr")
     assign_node = tree.body[0]
@@ -4447,10 +4195,6 @@ def test_is_preceded_by_call_false_for_boolop_first_operand() -> None:
     """The BoolOp fix must stay precise: the *first* operand always
     evaluates unconditionally, so `sink(x and flag)` is still safe.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4470,10 +4214,6 @@ def test_is_preceded_by_call_false_for_method_call_receiver() -> None:
     receiver of `check.check(...)`, evaluated before any of that call's own
     arguments — nothing precedes it.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        VariableTracker,
-        is_preceded_by_call,
-    )
 
     source = """
 def f():
@@ -4493,10 +4233,6 @@ def test_is_preceded_by_call_defaults_to_true_for_unknown_container() -> None:
     is_preceded_by_call must default to the conservative "unsafe" answer
     rather than guessing.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
-        UsageInfo,
-        is_preceded_by_call,
-    )
 
     use = UsageInfo(
         var_name="x", line=1, col=0, stmt_index=0, context="unknown", scope_id=1
@@ -4509,7 +4245,6 @@ def test_should_autofix_rejects_call_with_args_for_immediate_single_use() -> Non
     still rejected for IMMEDIATE_SINGLE_USE/LITERAL_IDENTITY, unlike the more
     permissive allowance already granted to SINGLE_USE.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("make_check(1)", mode="eval").body
     lifecycle = _make_single_use_lifecycle("make_check(1)", rhs_node, var_name="check")
@@ -4523,7 +4258,6 @@ def test_should_autofix_uses_real_use_line_length_when_available() -> None:
     reported [FIXABLE] and then silently skipped by apply_fixes' own,
     accurate length check.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import should_autofix
 
     rhs_node = ast.parse("ast.parse(source)", mode="eval").body
     lifecycle = _make_single_use_lifecycle(
@@ -4552,9 +4286,6 @@ def test_adds_verbosity_subscript_with_variable_slice() -> None:
     Pattern 2 enters the Subscript branch but the slice is a Name, not a Constant,
     so rhs_key_or_method stays None and the check at line 226 is reached with None.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     # obj[key] where key is a variable, not a string constant
     rhs_node = ast.parse("obj[key]", mode="eval").body
@@ -4574,9 +4305,6 @@ def test_adds_verbosity_call_with_subscript_func() -> None:
     ``funcs["load"](data)``), ``rhs_node.func`` is a Subscript, not a Name or
     Attribute, so rhs_key_or_method stays None.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     rhs_node = ast.parse('funcs["load"](data)', mode="eval").body
     assert isinstance(
@@ -4587,9 +4315,6 @@ def test_adds_verbosity_call_with_subscript_func() -> None:
 
 def test_adds_verbosity_get_call_key_not_in_var() -> None:
     """Branch coverage: Pattern 3 (.get() call) where key is not in var name."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     # var_name "x" does not contain "email" → Pattern 3 condition is False
     rhs_node = ast.parse('data.get("email")', mode="eval").body
@@ -4598,9 +4323,6 @@ def test_adds_verbosity_get_call_key_not_in_var() -> None:
 
 def test_adds_verbosity_parse_func_with_subscript_func() -> None:
     """Branch coverage: Pattern 4 parse func where func is a Subscript (271->276)."""
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     # parsers["json"](data) — func is a Subscript, not Name or Attribute
     rhs_node = ast.parse('parsers["json"](data)', mode="eval").body
@@ -4616,9 +4338,6 @@ def test_adds_verbosity_parse_func_with_generic_var_name() -> None:
     When the var name IS in generic_names (e.g. "result"), the inner check returns
     False without executing ``return True``.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _adds_verbosity_or_context,
-    )
 
     # json.loads() is a generic parse function; "result" is in generic_names
     rhs_node = ast.parse("json.loads(data)", mode="eval").body
@@ -4632,9 +4351,6 @@ def test_contains_nondeterministic_call_with_subscript_func() -> None:
     ``node.func`` is a Subscript — neither Name nor Attribute.  The detector
     must continue visiting child nodes rather than crashing or silently skipping.
     """
-    from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
-        _contains_nondeterministic_call,
-    )
 
     # funcs[0]() — func is a Subscript, func_name stays ""
     rhs_node = ast.parse("funcs[0]()", mode="eval").body

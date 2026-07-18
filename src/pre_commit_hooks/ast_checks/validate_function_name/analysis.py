@@ -504,8 +504,7 @@ def collect_suggestions(
     Returns:
         List of Suggestion objects for functions that should be renamed
     """
-    # Import here to avoid circular dependency
-    from .suggestion import suggest_name_for
+    from .suggestion import suggest_name_for  # avoid circular dependency
 
     # attach parent links for better analysis
     attach_parents(tree)
