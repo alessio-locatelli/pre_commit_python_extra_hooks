@@ -6,8 +6,6 @@ import ast
 
 from pre_commit_hooks.ast_checks.validate_function_name.analysis import (
     analyze_function,
-)
-from pre_commit_hooks.ast_checks.validate_function_name.suggestion import (
     derive_entity_from_name,
     extract_first_verb,
     first_docstring_line,
