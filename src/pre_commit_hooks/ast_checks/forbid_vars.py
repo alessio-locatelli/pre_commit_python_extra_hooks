@@ -202,10 +202,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             self.scope_used_suggestions[scope_id] = set()
 
         # Check conflicts - only add suffix if there's a conflict in THIS scope
-        if (
-            suggestion not in scope_names
-            and suggestion not in self.scope_used_suggestions[scope_id]
-        ):
+        if suggestion not in scope_names and suggestion not in self.scope_used_suggestions[scope_id]:
             self.scope_used_suggestions[scope_id].add(suggestion)
             self.scope_var_suggestions[cache_key] = suggestion
             return suggestion
@@ -266,9 +263,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
                     if regex_match:
                         suggested_name = regex_match.expand(suggested_name)
 
-                violation["suggestion"] = self._generate_unique_name(
-                    suggested_name, name
-                )
+                violation["suggestion"] = self._generate_unique_name(suggested_name, name)
             self.violations.append(violation)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -295,15 +290,11 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             else:
                 match = None
 
-            self._check_name(
-                node.target.id, node.target.lineno, node.target.col_offset, match
-            )
+            self._check_name(node.target.id, node.target.lineno, node.target.col_offset, match)
         self.generic_visit(node)
 
     @staticmethod
-    def _has_decorator_named(
-        node: ast.FunctionDef | ast.AsyncFunctionDef, name: str
-    ) -> bool:
+    def _has_decorator_named(node: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
         """Return True if the function has a decorator identified by *name*.
 
         Handles both bare decorators (``@model_validator``) and called
@@ -312,11 +303,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         for dec in node.decorator_list:
             if isinstance(dec, ast.Name) and dec.id == name:
                 return True
-            if (
-                isinstance(dec, ast.Call)
-                and isinstance(dec.func, ast.Name)
-                and dec.func.id == name
-            ):
+            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id == name:
                 return True
         return False
 
@@ -352,9 +339,7 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
             if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 self.visit(stmt)
 
-    def _check_function_args(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
+    def _check_function_args(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Check all function arguments for forbidden names."""
         for arg in node.args.args:
             self._check_name(arg.arg, arg.lineno, arg.col_offset)
@@ -369,14 +354,10 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
                 node.args.vararg.col_offset,
             )
         if node.args.kwarg:
-            self._check_name(
-                node.args.kwarg.arg, node.args.kwarg.lineno, node.args.kwarg.col_offset
-            )
+            self._check_name(node.args.kwarg.arg, node.args.kwarg.lineno, node.args.kwarg.col_offset)
 
 
-def _collect_scope_replacements(
-    scope: ast.AST, replace_names: dict[str, str]
-) -> list[tuple[int, int, str, str]]:
+def _collect_scope_replacements(scope: ast.AST, replace_names: dict[str, str]) -> list[tuple[int, int, str, str]]:
     """Find (line, col, old_name, new_name) for every `Name` node within
     `scope` (not nested scopes) whose id is being replaced.
 
@@ -391,9 +372,7 @@ def _collect_scope_replacements(
     ]
 
 
-def _find_enclosing_function(
-    tree: ast.Module, line: int
-) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+def _find_enclosing_function(tree: ast.Module, line: int) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     """Find the innermost function containing `line`, resolved fresh against `tree`.
 
     CheckOrchestrator re-reads and re-parses the file before every check's
@@ -463,9 +442,7 @@ def _apply_fixes(
     # Step 3: Collect replacements for each scope
     all_replacements: list[tuple[int, int, str, str]] = []
     for scope_id, replacements in scope_replacements.items():
-        all_replacements.extend(
-            _collect_scope_replacements(scope_nodes[scope_id], replacements)
-        )
+        all_replacements.extend(_collect_scope_replacements(scope_nodes[scope_id], replacements))
 
     # Step 4: Sort reverse and apply replacements
     all_replacements.sort(key=lambda x: (x[0], x[1]), reverse=True)
@@ -525,9 +502,7 @@ class ForbidVarsCheck(BaseCheck):
         # Lazy tokenization: only tokenize if violations found
         if visitor.violations:
             ignored_lines = find_ignored_lines(source, IGNORE_PATTERN)
-            raw_violations = [
-                v for v in visitor.violations if v["line"] not in ignored_lines
-            ]
+            raw_violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
         else:
             raw_violations = []
 
@@ -579,11 +554,7 @@ class ForbidVarsCheck(BaseCheck):
             True if fixes were applied successfully
         """
         # Extract fixable violations with suggestions
-        fixable = [
-            cast("ForbidVarsFixData", v.fix_data)
-            for v in violations
-            if v.fixable and v.fix_data
-        ]
+        fixable = [cast("ForbidVarsFixData", v.fix_data) for v in violations if v.fixable and v.fix_data]
 
         if not fixable:
             return False

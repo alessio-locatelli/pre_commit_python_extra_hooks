@@ -48,9 +48,7 @@ class SuperInitChecker(ast.NodeVisitor):
         # Continue visiting child nodes
         self.generic_visit(node)
 
-    def _check_init_method(
-        self, class_node: ast.ClassDef, init_node: ast.FunctionDef
-    ) -> None:
+    def _check_init_method(self, class_node: ast.ClassDef, init_node: ast.FunctionDef) -> None:
         # Check if __init__ has **kwargs parameter
         has_kwargs = init_node.args.kwarg is not None
         if not has_kwargs:
@@ -105,9 +103,7 @@ def _forwards_kwargs(node: ast.Call) -> bool:
     return any(keyword.arg is None for keyword in node.keywords)
 
 
-def _parent_accepts_args(
-    class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]
-) -> bool:
+def _parent_accepts_args(class_node: ast.ClassDef, classes: dict[str, ast.ClassDef]) -> bool:
     """Recursively traverses the inheritance chain to determine
     if any ancestor class accepts arguments through its __init__ method.
 

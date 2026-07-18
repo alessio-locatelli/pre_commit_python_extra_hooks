@@ -13,9 +13,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "redundant_super_init"
 
 
 def _check(source: str) -> list[str]:
-    violations = RedundantSuperInitCheck().check(
-        Path("test.py"), ast.parse(source), source
-    )
+    violations = RedundantSuperInitCheck().check(Path("test.py"), ast.parse(source), source)
     return [v.message for v in violations]
 
 
@@ -74,9 +72,7 @@ class Child(Base):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 """
-    violations = RedundantSuperInitCheck().check(
-        Path("test.py"), ast.parse(source), source
-    )
+    violations = RedundantSuperInitCheck().check(Path("test.py"), ast.parse(source), source)
 
     assert len(violations) == 1
     violation = violations[0]

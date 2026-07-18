@@ -28,8 +28,7 @@ def _func(source: str, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     return next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == name
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
     )
 
 
@@ -58,15 +57,12 @@ def get_or_create_bound_logger(query) -> FilteringBoundLogger:
     func_node = next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "get_or_create_bound_logger"
+        if isinstance(node, ast.FunctionDef) and node.name == "get_or_create_bound_logger"
     )
 
     analysis = analyze_function(func_node)
 
-    assert not analysis["mutates_args"], (
-        "get_or_create pattern with module cache should not be flagged as mutation"
-    )
+    assert not analysis["mutates_args"], "get_or_create pattern with module cache should not be flagged as mutation"
 
 
 def test_get_with_argument_mutation_is_flagged() -> None:
@@ -78,11 +74,7 @@ def get_users(database, filters):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_users"
-    )
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_users")
 
     analysis = analyze_function(func_node)
 
@@ -100,11 +92,7 @@ class Cache:
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_value"
-    )
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_value")
 
     analysis = analyze_function(func_node)
 
@@ -120,12 +108,7 @@ def get_items(container, new_item):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_items"
-    )
-
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_items")
 
     attach_parents(tree)
 
@@ -145,20 +128,13 @@ def get_items(source):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_items"
-    )
-
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_items")
 
     attach_parents(tree)
 
     analysis = analyze_function(func_node)
 
-    assert not analysis["mutates_args"], (
-        "Function appending to local variable should not be flagged as mutation"
-    )
+    assert not analysis["mutates_args"], "Function appending to local variable should not be flagged as mutation"
     assert analysis["collects"], "Function should be flagged as collecting"
 
 
@@ -171,17 +147,11 @@ def get_total(amount):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_total"
-    )
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_total")
 
     analysis = analyze_function(func_node)
 
-    assert analysis["mutates_args"], (
-        "Augmented assignment to parameter should be flagged"
-    )
+    assert analysis["mutates_args"], "Augmented assignment to parameter should be flagged"
 
 
 def test_get_with_module_global_append_not_flagged() -> None:
@@ -196,19 +166,14 @@ def get_cached_item(key):
 
     tree = ast.parse(source)
     func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_cached_item"
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_cached_item"
     )
-
 
     attach_parents(tree)
 
     analysis = analyze_function(func_node)
 
-    assert not analysis["mutates_args"], (
-        "Appending to module global should not be flagged as mutation"
-    )
+    assert not analysis["mutates_args"], "Appending to module global should not be flagged as mutation"
 
 
 def test_process_file_with_get_or_create_cache_pattern(tmp_path: Path) -> None:
@@ -227,8 +192,7 @@ def get_or_create_item(key):
 
     for suggestion in process_file(filepath):
         assert not suggestion.suggested_name.startswith("update_"), (
-            f"Should not suggest update_ for cache pattern, "
-            f"got: {suggestion.suggested_name}"
+            f"Should not suggest update_ for cache pattern, got: {suggestion.suggested_name}"
         )
 
 
@@ -245,20 +209,13 @@ def get_data(regular, /, posonly, *args, kwonly=None, **kwargs):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_data"
-    )
-
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_data")
 
     attach_parents(tree)
 
     analysis = analyze_function(func_node)
 
-    assert analysis["mutates_args"], (
-        "Function mutating various parameter types should be flagged"
-    )
+    assert analysis["mutates_args"], "Function mutating various parameter types should be flagged"
 
 
 def test_nested_attribute_access_mutation() -> None:
@@ -270,11 +227,7 @@ def get_config(settings):
 """
 
     tree = ast.parse(source)
-    func_node = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "get_config"
-    )
+    func_node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "get_config")
 
     analysis = analyze_function(func_node)
 
@@ -295,9 +248,7 @@ def get_placeholder_backend(original_exception):
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
 
-    assert process_file(filepath) == [], (
-        "Functions returning classes should keep get_ prefix"
-    )
+    assert process_file(filepath) == [], "Functions returning classes should keep get_ prefix"
 
 
 def test_docstring_verb_combine_detected(tmp_path: Path) -> None:
@@ -455,12 +406,7 @@ def test_fix_applies_safe_suggestion(tmp_path: Path) -> None:
 def test_fix_skips_unsafe_suggestion(tmp_path: Path) -> None:
     """A suggestion should_autofix rejects (e.g. a method) isn't applied."""
     filepath = tmp_path / "mod.py"
-    source = (
-        "class Reader:\n"
-        "    def get_data(self):\n"
-        '        f = open("f.txt")\n'
-        "        return f.read()\n"
-    )
+    source = 'class Reader:\n    def get_data(self):\n        f = open("f.txt")\n        return f.read()\n'
     filepath.write_text(source)
     tree = ast.parse(source)
 
@@ -502,9 +448,7 @@ def test_fix_returns_false_when_apply_fix_fails_without_raising(
     assert not (violations[0].fix_data and violations[0].fix_data.get("fixed"))
 
 
-def test_fix_logs_and_continues_when_apply_fix_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_fix_logs_and_continues_when_apply_fix_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     filepath = tmp_path / "mod.py"
     source = "def get_data() -> bool:\n    return True\n"
@@ -572,10 +516,7 @@ def test_is_decorator_override_or_abstract_detects_attribute_form() -> None:
 
 def test_is_property_detected_via_attribute_decorator() -> None:
     func_node = _func(
-        "class Foo:\n"
-        "    @cached.property\n"
-        "    def get_data(self):\n"
-        "        return self._data\n",
+        "class Foo:\n    @cached.property\n    def get_data(self):\n        return self._data\n",
         "get_data",
     )
     assert analyze_function(func_node)["is_property"] is True
@@ -591,9 +532,7 @@ def test_yields_flag_detected_for_generator() -> None:
 
 def test_disk_write_flag_detected() -> None:
     func_node = _func(
-        "def get_data(path, content):\n"
-        "    with open(path, 'w') as f:\n"
-        "        f.write(content)\n",
+        "def get_data(path, content):\n    with open(path, 'w') as f:\n        f.write(content)\n",
         "get_data",
     )
     assert analyze_function(func_node)["disk_write"] is True
@@ -635,9 +574,7 @@ def test_outputs_flag_detected_for_print() -> None:
 
 
 def test_outputs_flag_detected_for_logger_call() -> None:
-    func_node = _func(
-        "def get_data(x):\n    logger.info(x)\n    return x\n", "get_data"
-    )
+    func_node = _func("def get_data(x):\n    logger.info(x)\n    return x\n", "get_data")
     assert analyze_function(func_node)["outputs"] is True
 
 
@@ -660,9 +597,7 @@ def test_validates_flag_detected() -> None:
 
 
 def test_transforms_flag_detected() -> None:
-    func_node = _func(
-        "def get_data(items):\n    return items.transform()\n", "get_data"
-    )
+    func_node = _func("def get_data(items):\n    return items.transform()\n", "get_data")
     assert analyze_function(func_node)["transforms"] is True
 
 
@@ -679,11 +614,7 @@ def test_delegates_get_flag_detected_via_assigned_variable() -> None:
 
 def test_collects_flag_detected_for_list_call_container() -> None:
     func_node = _func(
-        "def get_items(source):\n"
-        "    items = list()\n"
-        "    for x in source:\n"
-        "        items.append(x)\n"
-        "    return items\n",
+        "def get_items(source):\n    items = list()\n    for x in source:\n        items.append(x)\n    return items\n",
         "get_items",
     )
     assert analyze_function(func_node)["collects"] is True
@@ -737,10 +668,7 @@ def test_searches_flag_detected_via_exists_loop() -> None:
     as a search/find heuristic.
     """
     func_node = _func(
-        "def get_root(path):\n"
-        "    while not path.exists():\n"
-        "        path = path.parent\n"
-        "    return path\n",
+        "def get_root(path):\n    while not path.exists():\n        path = path.parent\n    return path\n",
         "get_root",
     )
     assert analyze_function(func_node)["searches"] is True
@@ -801,9 +729,7 @@ def test_decorator_name_from_attribute_unresolvable_base_returns_none() -> None:
     assert decorator_name(func_node.decorator_list[0]) is None
 
 
-def test_is_decorator_override_or_abstract_continues_past_non_matching_decorator() -> (
-    None
-):
+def test_is_decorator_override_or_abstract_continues_past_non_matching_decorator() -> None:
     source = "@staticmethod\n@abc.abstractmethod\ndef get_data():\n    pass\n"
     tree = ast.parse(source)
     func_node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
@@ -858,19 +784,14 @@ def test_mutation_detection_skips_unresolvable_call_name() -> None:
 
 def test_exists_loop_scan_skips_non_exists_call() -> None:
     func_node = _func(
-        "def get_value(counter):\n"
-        "    while counter < 10:\n"
-        "        counter = process(counter)\n"
-        "    return counter\n",
+        "def get_value(counter):\n    while counter < 10:\n        counter = process(counter)\n    return counter\n",
         "get_value",
     )
     assert analyze_function(func_node)["searches"] is False
 
 
 def test_returns_class_flag_detected_for_type_call() -> None:
-    func_node = _func(
-        "def get_class(name):\n    return type(name, (), {})\n", "get_class"
-    )
+    func_node = _func("def get_class(name):\n    return type(name, (), {})\n", "get_class")
     assert analyze_function(func_node)["returns_class"] is True
 
 

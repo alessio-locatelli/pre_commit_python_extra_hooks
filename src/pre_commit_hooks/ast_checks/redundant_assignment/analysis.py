@@ -766,12 +766,8 @@ class VariableTracker(ast.NodeVisitor):
                     in_loop=self.loop_depth > 0,
                     in_control_flow=self.control_flow_depth > 0,
                     in_global_scope=(scope_id == 0),
-                    has_comment_above=_has_comment_above(
-                        node.lineno, self.source_lines
-                    ),
-                    has_inline_comment=_has_inline_comment(
-                        node.lineno, self.source_lines
-                    ),
+                    has_comment_above=_has_comment_above(node.lineno, self.source_lines),
+                    has_inline_comment=_has_inline_comment(node.lineno, self.source_lines),
                     rhs_has_await=_has_await_expression(node.value),
                 )
 
@@ -792,9 +788,7 @@ class VariableTracker(ast.NodeVisitor):
         # Clear currently assigning
         self.currently_assigning.clear()
 
-    def _track_attribute_or_subscript_base_usage(
-        self, node: ast.Attribute | ast.Subscript, stmt_index: int
-    ) -> None:
+    def _track_attribute_or_subscript_base_usage(self, node: ast.Attribute | ast.Subscript, stmt_index: int) -> None:
         """Track usage of base variable in attribute/subscript assignments.
 
         When we have `obj.attr = value` or `obj[key] = value`, the `obj` variable
@@ -982,9 +976,7 @@ class VariableTracker(ast.NodeVisitor):
         stmt_index = self._get_current_stmt_index()
 
         # Check if this usage is wrapped in an await expression
-        usage_has_await = any(
-            isinstance(parent, ast.Await) for parent in self.parent_stack
-        )
+        usage_has_await = any(isinstance(parent, ast.Await) for parent in self.parent_stack)
 
         # Determine context
         context = "unknown"
@@ -1033,9 +1025,7 @@ class VariableTracker(ast.NodeVisitor):
 
                 # Filter uses that come after this assignment
                 # (by comparing statement indices)
-                relevant_uses = [
-                    use for use in all_uses if use.stmt_index >= assignment.stmt_index
-                ]
+                relevant_uses = [use for use in all_uses if use.stmt_index >= assignment.stmt_index]
 
                 # CLOSURE DETECTION: Also check for uses in nested scopes
                 # Variables captured by closures should not be marked as redundant
@@ -1045,8 +1035,7 @@ class VariableTracker(ast.NodeVisitor):
                 # This means the closure captures and potentially modifies it,
                 # so we should not flag the outer assignment as redundant
                 is_captured_by_nonlocal = any(
-                    (child_scope_id, var_name) in self.nonlocal_vars
-                    for child_scope_id in child_scopes
+                    (child_scope_id, var_name) in self.nonlocal_vars for child_scope_id in child_scopes
                 )
                 if is_captured_by_nonlocal:
                     # Skip this assignment entirely - it's captured by a closure
@@ -1063,8 +1052,7 @@ class VariableTracker(ast.NodeVisitor):
                 next_assignment = None
                 for other_assignment in assignment_list:
                     if other_assignment.stmt_index > assignment.stmt_index and (
-                        next_assignment is None
-                        or other_assignment.stmt_index < next_assignment.stmt_index
+                        next_assignment is None or other_assignment.stmt_index < next_assignment.stmt_index
                     ):
                         next_assignment = other_assignment
 
@@ -1074,8 +1062,7 @@ class VariableTracker(ast.NodeVisitor):
                     relevant_uses = [
                         use
                         for use in relevant_uses
-                        if use.stmt_index < next_assignment.stmt_index
-                        or use.scope_id in child_scopes
+                        if use.stmt_index < next_assignment.stmt_index or use.scope_id in child_scopes
                     ]
 
                 # Create lifecycle

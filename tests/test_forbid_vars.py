@@ -24,9 +24,7 @@ class ChosenEdge(NamedTuple):
 
     violations = ForbidVarsCheck().check(Path("test.py"), ast.parse(source), source)
 
-    assert len(violations) == 0, (
-        "Class attributes should not be analyzed - class name provides context"
-    )
+    assert len(violations) == 0, "Class attributes should not be analyzed - class name provides context"
 
 
 def test_dataclass_fields_not_analyzed() -> None:
@@ -180,9 +178,7 @@ def create_model():
 
     violations = ForbidVarsCheck().check(Path("test.py"), ast.parse(source), source)
 
-    assert len(violations) == 0, (
-        "Class attributes inside functions should not be analyzed"
-    )
+    assert len(violations) == 0, "Class attributes inside functions should not be analyzed"
 
 
 def test_inline_ignore_comment() -> None:
@@ -285,9 +281,7 @@ def process():
 
     violations = ForbidVarsCheck().check(Path("test.py"), ast.parse(source), source)
 
-    assert len(violations) == 1, (
-        "Annotated assignments without value should be analyzed"
-    )
+    assert len(violations) == 1, "Annotated assignments without value should be analyzed"
     assert "data" in violations[0].message
 
 

@@ -126,9 +126,7 @@ def _count_chained_operations(node: ast.expr) -> int:
     return count
 
 
-def _adds_verbosity_or_context(
-    var_name: str, rhs_source: str, rhs_node: ast.expr
-) -> bool:
+def _adds_verbosity_or_context(var_name: str, rhs_source: str, rhs_node: ast.expr) -> bool:
     """Check if variable name adds verbosity or context beyond the RHS.
 
     This detects cases where the variable name provides more descriptive or
@@ -212,11 +210,7 @@ def _adds_verbosity_or_context(
         # Check if variable name contains the RHS key/method but with additional context
         # Example: "raw_headers" contains "headers" but adds "raw_"
         # Example: "firestore_client" contains "client" but adds "firestore_"
-        if (
-            rhs_key_or_method
-            and rhs_key_or_method in var_lower
-            and var_lower != rhs_key_or_method
-        ):
+        if rhs_key_or_method and rhs_key_or_method in var_lower and var_lower != rhs_key_or_method:
             # Variable contains the RHS key but is more verbose
             return True
 
@@ -334,7 +328,7 @@ def calculate_semantic_value(
             score += 25
 
         # Variables storing function/method call results before assertions
-        # Example: result = landmark.__eq__(None); assert result is NotImplemented  # noqa: ERA001, E501
+        # Example: result = landmark.__eq__(None); assert result is NotImplemented  # noqa: ERA001
         if isinstance(rhs_node, ast.Call) and var_lower in {
             "result",
             "output",
@@ -353,11 +347,7 @@ def calculate_semantic_value(
 
         # Range objects with descriptive names
         # Example: days_with_routes_in_a_row = range(70)  # noqa: ERA001
-        if (
-            isinstance(rhs_node, ast.Call)
-            and isinstance(rhs_node.func, ast.Name)
-            and rhs_node.func.id == "range"
-        ):
+        if isinstance(rhs_node, ast.Call) and isinstance(rhs_node.func, ast.Name) and rhs_node.func.id == "range":
             score += 25
 
     # Check if variable adds verbosity or context (+50 points)
@@ -379,9 +369,7 @@ def calculate_semantic_value(
         score += 40
 
     # Expression complexity scoring
-    if isinstance(
-        rhs_node, ast.ListComp | ast.DictComp | ast.SetComp | ast.GeneratorExp
-    ):
+    if isinstance(rhs_node, ast.ListComp | ast.DictComp | ast.SetComp | ast.GeneratorExp):
         # Comprehensions benefit from naming (+30)
         score += 30
     elif isinstance(rhs_node, ast.BinOp):
@@ -731,11 +719,7 @@ def should_report_violation(
     #   sample_class = SampleClass()  # setup outside  # noqa: ERA001
     #   with pytest.raises(Error):     # usage inside
     #       sample_class.method()  # noqa: ERA001
-    if (
-        not assignment.in_control_flow
-        and lifecycle.uses
-        and all(use.in_control_flow for use in lifecycle.uses)
-    ):
+    if not assignment.in_control_flow and lifecycle.uses and all(use.in_control_flow for use in lifecycle.uses):
         return False
 
     # Rule 9: Don't report when assignment is inside control flow but usage is outside
@@ -744,19 +728,15 @@ def should_report_violation(
     #       config = load(f)  # assignment inside  # noqa: ERA001
     #   # Use config outside to avoid deep nesting
     #   data = config.get(...)  # noqa: ERA001
-    if (
-        assignment.in_control_flow
-        and lifecycle.uses
-        and all(not use.in_control_flow for use in lifecycle.uses)
-    ):
+    if assignment.in_control_flow and lifecycle.uses and all(not use.in_control_flow for use in lifecycle.uses):
         return False
 
     # Rule 10: Don't report when all usages are inside a comprehension
     # Inlining would re-evaluate the RHS expression on every iteration,
     # causing a performance regression. For example:
     #   iso_country = obj.iso_country          # cached once  # noqa: ERA001
-    #   result = [x for x in items if x.country == iso_country]  # O(1) lookup  # noqa: ERA001, E501
-    # Inlining would become O(n) attribute lookups inside the comprehension.  # noqa: E501
+    #   result = [x for x in items if x.country == iso_country]  # O(1) lookup  # noqa: ERA001
+    # Inlining would become O(n) attribute lookups inside the comprehension.
     if lifecycle.uses and all(use.in_comprehension for use in lifecycle.uses):
         return False
 
@@ -863,9 +843,7 @@ def should_autofix(
     # more costly than a missed report) when the usage line isn't available.
     use_line_idx = lifecycle.uses[0].line - 1
     if source_lines is not None and 0 <= use_line_idx < len(source_lines):
-        if exceeds_line_length_when_inlined(
-            assignment.var_name, rhs_source, source_lines[use_line_idx]
-        ):
+        if exceeds_line_length_when_inlined(assignment.var_name, rhs_source, source_lines[use_line_idx]):
             return False
     elif _would_exceed_line_length(lifecycle, absolute_threshold=40):
         return False
@@ -906,11 +884,7 @@ def should_autofix(
         # preceded by another call/effect within its statement (see
         # analysis.is_preceded_by_call), either of which could change how
         # often, or in what order, the call's side effects occur.
-        if (
-            isinstance(rhs_node, ast.Call)
-            and not rhs_node.args
-            and not rhs_node.keywords
-        ):
+        if isinstance(rhs_node, ast.Call) and not rhs_node.args and not rhs_node.keywords:
             return _call_use_is_safe_to_inline(lifecycle.uses[0])
 
         return False
@@ -936,9 +910,7 @@ def should_autofix(
     # the call executes, e.g. moving it from once (at the assignment) into a
     # loop body that runs N times.
     # Example: datetime.now(UTC), str(value), len(items)
-    if isinstance(rhs_node, ast.Call) and _call_use_is_safe_to_inline(
-        lifecycle.uses[0]
-    ):
+    if isinstance(rhs_node, ast.Call) and _call_use_is_safe_to_inline(lifecycle.uses[0]):
         # Only allow calls with simple arguments (no keyword unpacking, etc.)
         # and no more than 2 positional args
         if len(rhs_node.args) <= 2 and not rhs_node.keywords:

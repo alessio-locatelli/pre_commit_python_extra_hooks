@@ -110,11 +110,7 @@ def check_file_violations(source: str, tree: ast.Module) -> list[_BlankRunViolat
         else:
             # Non-blank line found
             # Only report violations before the first code line
-            if (
-                not found_first_code_line
-                and blank_count >= 2
-                and start_blank is not None
-            ):
+            if not found_first_code_line and blank_count >= 2 and start_blank is not None:
                 # anchor_line is this line — the violation's own start_blank
                 # line is blank and can't carry a trailing ignore comment.
                 anchor_line = i + 1

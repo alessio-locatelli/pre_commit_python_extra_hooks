@@ -22,9 +22,7 @@ def temp_cache_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def cache_manager(temp_cache_dir: Path) -> CacheManager:
-    return CacheManager(
-        cache_dir=temp_cache_dir, hook_name="test-hook", cache_version="1"
-    )
+    return CacheManager(cache_dir=temp_cache_dir, hook_name="test-hook", cache_version="1")
 
 
 @pytest.fixture
@@ -46,9 +44,7 @@ def test_cachedir_tag_has_correct_signature(temp_cache_dir: Path) -> None:
     assert "Signature: 8a477f597d28d172789f06886806bc55" in tag_content
 
 
-def test_cache_miss_on_first_access(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_cache_miss_on_first_access(cache_manager: CacheManager, sample_file: Path) -> None:
     assert cache_manager.get_cached_result(sample_file, "test-hook") is None
 
 
@@ -63,9 +59,7 @@ def test_cache_hit_after_set(cache_manager: CacheManager, sample_file: Path) -> 
     assert "checked_at" in cached
 
 
-def test_get_cached_result_defaults_to_constructor_hook_name(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_get_cached_result_defaults_to_constructor_hook_name(cache_manager: CacheManager, sample_file: Path) -> None:
     """hook_name is optional on get_cached_result: it falls back to the
     hook_name the CacheManager was constructed with (`cache_manager` fixture
     uses "test-hook")."""
@@ -77,9 +71,7 @@ def test_get_cached_result_defaults_to_constructor_hook_name(
     assert cached["violations"] == []
 
 
-def test_cache_invalidated_on_content_change(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_cache_invalidated_on_content_change(cache_manager: CacheManager, sample_file: Path) -> None:
     test_result: dict[str, list[str]] = {"violations": []}
 
     cache_manager.set_cached_result(sample_file, "test-hook", test_result)
@@ -91,9 +83,7 @@ def test_cache_invalidated_on_content_change(
     assert cached is None
 
 
-def test_mtime_fast_path_skips_rehash_on_unmodified_file(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_mtime_fast_path_skips_rehash_on_unmodified_file(cache_manager: CacheManager, sample_file: Path) -> None:
     test_result: dict[str, list[str]] = {"violations": []}
 
     cache_manager.set_cached_result(sample_file, "test-hook", test_result)
@@ -102,9 +92,7 @@ def test_mtime_fast_path_skips_rehash_on_unmodified_file(
     assert cached is not None
 
 
-def test_mtime_changed_but_content_same(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_mtime_changed_but_content_same(cache_manager: CacheManager, sample_file: Path) -> None:
     original_content = sample_file.read_text()
     test_result: dict[str, list[str]] = {"violations": []}
 
@@ -117,9 +105,7 @@ def test_mtime_changed_but_content_same(
     assert cached is not None  # content hash still matches despite mtime change
 
 
-def test_multiple_hooks_same_file(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_multiple_hooks_same_file(cache_manager: CacheManager, sample_file: Path) -> None:
     result1 = {"violations": ["hook1"]}
     result2 = {"violations": ["hook2"]}
 
@@ -145,9 +131,7 @@ def test_cache_version_mismatch(temp_cache_dir: Path, sample_file: Path) -> None
     assert cached is None
 
 
-def test_cache_version_mismatch_recovers_on_rewrite(
-    temp_cache_dir: Path, sample_file: Path
-) -> None:
+def test_cache_version_mismatch_recovers_on_rewrite(temp_cache_dir: Path, sample_file: Path) -> None:
     """A version bump must not pin a file to permanent cache misses.
 
     set_cached_result() used to load the on-disk blob (still tagged with
@@ -186,9 +170,7 @@ def test_compute_tree_hash_stable_for_unchanged_tree(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("x = 1\n")
     (tmp_path / "b.py").write_text("y = 2\n")
 
-    assert CacheManager.compute_tree_hash(tmp_path) == CacheManager.compute_tree_hash(
-        tmp_path
-    )
+    assert CacheManager.compute_tree_hash(tmp_path) == CacheManager.compute_tree_hash(tmp_path)
 
 
 def test_compute_tree_hash_changes_when_any_file_changes(tmp_path: Path) -> None:
@@ -220,9 +202,7 @@ def test_atomic_write(cache_manager: CacheManager, sample_file: Path) -> None:
     assert len(tmp_files) == 0
 
 
-def test_corrupted_cache_returns_miss_instead_of_crashing(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_corrupted_cache_returns_miss_instead_of_crashing(cache_manager: CacheManager, sample_file: Path) -> None:
     cache_manager.set_cached_result(sample_file, "test-hook", {"violations": []})
 
     cache_path = cache_manager._get_cache_path(sample_file)
@@ -232,9 +212,7 @@ def test_corrupted_cache_returns_miss_instead_of_crashing(
     assert cached is None
 
 
-def test_cache_write_errors_do_not_crash(
-    cache_manager: CacheManager, sample_file: Path, temp_cache_dir: Path
-) -> None:
+def test_cache_write_errors_do_not_crash(cache_manager: CacheManager, sample_file: Path, temp_cache_dir: Path) -> None:
     temp_cache_dir.chmod(0o444)  # read-only dir triggers a write error
 
     try:
@@ -258,18 +236,14 @@ def test_write_cache_cleans_up_temp_file_on_write_error(
     assert not cache_file.exists()
 
 
-def test_cache_path_uses_two_level_structure(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_cache_path_uses_two_level_structure(cache_manager: CacheManager, sample_file: Path) -> None:
     cache_path = cache_manager._get_cache_path(sample_file)
 
     assert cache_path.parent.parent == cache_manager.cache_dir
     assert len(cache_path.parent.name) == 2  # two-char prefix
 
 
-def test_different_files_different_cache_paths(
-    cache_manager: CacheManager, tmp_path: Path
-) -> None:
+def test_different_files_different_cache_paths(cache_manager: CacheManager, tmp_path: Path) -> None:
     file1 = tmp_path / "file1.py"
     file2 = tmp_path / "file2.py"
     file1.write_text("content1")
@@ -281,9 +255,7 @@ def test_different_files_different_cache_paths(
     assert path1 != path2
 
 
-def test_concurrent_writers_do_not_lose_updates(
-    cache_manager: CacheManager, sample_file: Path
-) -> None:
+def test_concurrent_writers_do_not_lose_updates(cache_manager: CacheManager, sample_file: Path) -> None:
     """Concurrent set_cached_result calls for different hook names on the same
     file must not clobber each other's entries.
 
@@ -295,10 +267,7 @@ def test_concurrent_writers_do_not_lose_updates(
 
     with ThreadPoolExecutor(max_workers=len(hook_names)) as executor:
         futures = [
-            executor.submit(
-                cache_manager.set_cached_result, sample_file, name, {"value": name}
-            )
-            for name in hook_names
+            executor.submit(cache_manager.set_cached_result, sample_file, name, {"value": name}) for name in hook_names
         ]
         for future in futures:
             future.result()

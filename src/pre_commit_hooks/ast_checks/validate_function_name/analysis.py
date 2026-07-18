@@ -189,23 +189,13 @@ def analyze_function(
             if lname.endswith(("json.dumps", "yaml.dump")):
                 flags["renders"] = True
             # network
-            if any(
-                lib in lname
-                for lib in ("requests", "httpx", "urllib", "aiohttp", "socket", "grpc")
-            ):
-                if any(
-                    verb in lname
-                    for verb in ("get", "fetch", "download", "read", "recv", "request")
-                ):
+            if any(lib in lname for lib in ("requests", "httpx", "urllib", "aiohttp", "socket", "grpc")):
+                if any(verb in lname for verb in ("get", "fetch", "download", "read", "recv", "request")):
                     flags["network_read"] = True
-                if any(
-                    verb in lname for verb in ("post", "put", "send", "upload", "patch")
-                ):
+                if any(verb in lname for verb in ("post", "put", "send", "upload", "patch")):
                     flags["network_write"] = True
             # logger / print
-            if lname == "print" or (
-                lname.endswith(".write") and ("stdout" in lname or "stderr" in lname)
-            ):
+            if lname == "print" or (lname.endswith(".write") and ("stdout" in lname or "stderr" in lname)):
                 flags["outputs"] = True
             if lname.endswith((".info", ".debug", ".warning", ".error")):
                 flags["outputs"] = True
@@ -228,11 +218,7 @@ def analyze_function(
             if lname.endswith(".transform") or lname.endswith(".map"):
                 flags["transforms"] = True
             # object creation: constructor calls heuristic
-            if (
-                isinstance(node.func, ast.Name)
-                and node.func.id
-                and node.func.id[0].isupper()
-            ):
+            if isinstance(node.func, ast.Name) and node.func.id and node.func.id[0].isupper():
                 flags["creates_object"] = True
 
             # detect calls to other get_ functions and assignments (delegation)
@@ -304,9 +290,7 @@ def analyze_function(
                 # Try to find which variable is being appended to
                 parent = getattr(node, "parent", None)
                 # 'x.append(...)' -> node.func is Attribute with value Name('x')
-                if isinstance(node.func, ast.Attribute) and isinstance(
-                    node.func.value, ast.Name
-                ):
+                if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
                     var_name = node.func.value.id
                     appended_to.add(var_name)
                     # Only flag mutation if appending to a parameter
@@ -434,9 +418,7 @@ def is_simple_accessor(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> boo
     # obj.get(...) or some_dict.get(...)  # noqa: ERA001
     if isinstance(value, ast.Call):
         call_name = _call_name(value.func)
-        if (call_name and call_name.endswith(".get")) or (
-            isinstance(value.func, ast.Name) and value.func.id == "get"
-        ):
+        if (call_name and call_name.endswith(".get")) or (isinstance(value.func, ast.Name) and value.func.id == "get"):
             return True
     return False
 
@@ -471,9 +453,7 @@ def process_file(filepath: Path) -> list[Suggestion]:
     return collect_suggestions(filepath, tree, source)
 
 
-def collect_suggestions(
-    filepath: Path, tree: ast.Module, source: str
-) -> list[Suggestion]:
+def collect_suggestions(filepath: Path, tree: ast.Module, source: str) -> list[Suggestion]:
     """Walk an already-parsed tree and return naming suggestions.
 
     Args:
@@ -491,9 +471,7 @@ def collect_suggestions(
     suggestions: list[Suggestion] = []
 
     for node in ast.walk(tree):
-        if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef)
-        ) and node.name.startswith(GET_PREFIX):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(GET_PREFIX):
             # skip if decorated with override/abstract
             if is_decorator_override_or_abstract(node):
                 continue
@@ -567,9 +545,7 @@ def extract_first_verb(docstring_line: str) -> str | None:
     return first_word
 
 
-def suggest_name_for(
-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, analysis: dict[str, bool]
-) -> tuple[str, str]:
+def suggest_name_for(func_node: ast.FunctionDef | ast.AsyncFunctionDef, analysis: dict[str, bool]) -> tuple[str, str]:
     """Suggest a better name for a function based on behavioral analysis.
 
     Args:
@@ -669,12 +645,7 @@ def suggest_name_for(
     old_lower = old.lower()
 
     # Check if the function name or entity contains test patterns and creates object
-    if (
-        any(
-            pattern in entity_lower or pattern in old_lower for pattern in test_patterns
-        )
-        and analysis["creates_object"]
-    ):
+    if any(pattern in entity_lower or pattern in old_lower for pattern in test_patterns) and analysis["creates_object"]:
         suggested = f"create_{entity}" if entity else "create"
         return suggested, "creates test object/mock/fixture"
 

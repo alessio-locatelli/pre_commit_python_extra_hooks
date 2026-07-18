@@ -18,8 +18,7 @@ def _func(source: str, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     return next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == name
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
     )
 
 
@@ -67,10 +66,7 @@ def test_suggest_name_for_decorated_function_is_untouched() -> None:
 
 def test_suggest_name_for_collects_and_parses_prefers_parse() -> None:
     func_node = _func(
-        "def get_data(text):\n"
-        "    items = []\n"
-        "    items.append(json.loads(text))\n"
-        "    return items\n",
+        "def get_data(text):\n    items = []\n    items.append(json.loads(text))\n    return items\n",
         "get_data",
     )
     analysis = analyze_function(func_node)
@@ -99,9 +95,7 @@ def test_suggest_name_for_validates_only_suggests_validate() -> None:
 
 
 def test_suggest_name_for_transforms_only_suggests_transform() -> None:
-    func_node = _func(
-        "def get_data(items):\n    return items.transform()\n", "get_data"
-    )
+    func_node = _func("def get_data(items):\n    return items.transform()\n", "get_data")
     analysis = analyze_function(func_node)
     suggested, reason = suggest_name_for(func_node, analysis)
     assert suggested == "transform_data"
@@ -110,11 +104,7 @@ def test_suggest_name_for_transforms_only_suggests_transform() -> None:
 
 def test_first_docstring_line_returns_first_stripped_line() -> None:
     func_node = _func(
-        "def get_data():\n"
-        '    """First line.\n'
-        "    Second line.\n"
-        '    """\n'
-        "    return 1\n",
+        'def get_data():\n    """First line.\n    Second line.\n    """\n    return 1\n',
         "get_data",
     )
     assert first_docstring_line(func_node) == "First line."

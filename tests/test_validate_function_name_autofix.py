@@ -31,21 +31,15 @@ def _suggestion_for(filepath: Path, func_name: str) -> Suggestion:
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "validate_function_name" / "autofix"
 
 
-@pytest.mark.parametrize(
-    "func_name", ["get_config", "get_active", "get_items"], ids=lambda n: n
-)
+@pytest.mark.parametrize("func_name", ["get_config", "get_active", "get_items"], ids=lambda n: n)
 def test_safe_small_fixtures_are_autofixable(func_name: str) -> None:
     filepath = FIXTURES_DIR / "safe_small.py"
     suggestion = _suggestion_for(filepath, func_name)
     assert should_autofix(filepath, suggestion) is True
 
 
-@pytest.mark.parametrize(
-    ("func_name", "lineno"), [("get_value", 4), ("get_result", 14)], ids=lambda v: v
-)
-def test_unsafe_complex_fixtures_are_not_autofixable(
-    func_name: str, lineno: int
-) -> None:
+@pytest.mark.parametrize(("func_name", "lineno"), [("get_value", 4), ("get_result", 14)], ids=lambda v: v)
+def test_unsafe_complex_fixtures_are_not_autofixable(func_name: str, lineno: int) -> None:
     """Neither function matches a naming heuristic strongly enough for
     process_file to suggest a rename, so should_autofix is exercised
     directly with a hand-built Suggestion instead.
@@ -159,12 +153,7 @@ def test_apply_fix_renames_recursive_call(tmp_path: Path) -> None:
     logic is what's under test here, independent of suggestion detection.
     """
     test_file = tmp_path / "module.py"
-    test_file.write_text(
-        "def get_data(n):\n"
-        "    if n <= 0:\n"
-        "        return 0\n"
-        "    return get_data(n - 1) + 1\n"
-    )
+    test_file.write_text("def get_data(n):\n    if n <= 0:\n        return 0\n    return get_data(n - 1) + 1\n")
 
     suggestion = Suggestion(
         path=test_file,
@@ -221,15 +210,7 @@ def test_apply_fix_refuses_when_name_is_rebound(tmp_path: Path) -> None:
     later `get_data()` may no longer refer to the function being renamed.
     """
     test_file = tmp_path / "module.py"
-    original = (
-        "def get_data():\n"
-        '    f = open("f.txt")\n'
-        "    return f.read()\n"
-        "\n"
-        "\n"
-        "get_data = None\n"
-        "get_data()\n"
-    )
+    original = 'def get_data():\n    f = open("f.txt")\n    return f.read()\n\n\nget_data = None\nget_data()\n'
     test_file.write_text(original)
 
     suggestion = Suggestion(
@@ -608,9 +589,7 @@ def test_apply_fix_does_not_rename_call_shadowed_by_local_import(
     assert apply_fix(test_file, suggestion)
 
     file_content = test_file.read_text()
-    assert (
-        "    from other_module import get_data\n    return get_data()\n" in file_content
-    )
+    assert "    from other_module import get_data\n    return get_data()\n" in file_content
 
 
 def test_apply_fix_refuses_when_name_rebound_via_import(tmp_path: Path) -> None:
@@ -655,10 +634,7 @@ def test_apply_fix_does_not_rename_call_shadowed_by_nested_async_function(
     assert apply_fix(test_file, suggestion)
 
     file_content = test_file.read_text()
-    assert (
-        "    async def get_data():\n        return 2\n    return await get_data()\n"
-        in file_content
-    )
+    assert "    async def get_data():\n        return 2\n    return await get_data()\n" in file_content
 
 
 def test_apply_fix_returns_false_on_read_error(tmp_path: Path) -> None:
