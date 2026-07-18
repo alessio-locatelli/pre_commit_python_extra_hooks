@@ -501,10 +501,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # List checks if requested
     if args.list_checks:
-        print("Available checks:")  # noqa: T201
+        print("Available checks:")
         instances = sorted((cls() for cls in ALL_CHECKS), key=lambda c: c.check_id)
         for check in instances:
-            print(f"  - {check.check_id}: {check.error_code}")  # noqa: T201
+            print(f"  - {check.check_id}: {check.error_code}")
         return 0
 
     # No files to check
@@ -531,13 +531,13 @@ def main(argv: list[str] | None = None) -> int:
         invalid = select - all_check_ids
         if invalid:
             checks_str = ", ".join(sorted(invalid))
-            print(f"Error: Unknown checks: {checks_str}", file=sys.stderr)  # noqa: T201
+            print(f"Error: Unknown checks: {checks_str}", file=sys.stderr)
             return 1
     if ignore:
         invalid = ignore - all_check_ids
         if invalid:
             checks_str = ", ".join(sorted(invalid))
-            print(f"Error: Unknown checks: {checks_str}", file=sys.stderr)  # noqa: T201
+            print(f"Error: Unknown checks: {checks_str}", file=sys.stderr)
             return 1
 
     # Build check-specific arguments: each check translates its own parsed
@@ -552,7 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     checks = load_checks(select=select, ignore=ignore, check_args=check_args)
 
     if not checks:
-        print("Error: No checks enabled", file=sys.stderr)  # noqa: T201
+        print("Error: No checks enabled", file=sys.stderr)
         return 1
 
     # Run orchestrator
@@ -571,7 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 tag = ""
             hint = " Run with --fix to inline automatically." if v.fixable and not fixed else ""
-            print(  # noqa: T201
+            print(
                 f"{filepath}:{v.line}: {v.error_code}: {tag}{v.message}{hint}",
                 file=sys.stderr,
             )
