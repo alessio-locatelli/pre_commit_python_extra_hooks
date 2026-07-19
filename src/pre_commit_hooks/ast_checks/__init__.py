@@ -36,7 +36,16 @@ from typing import Any
 from pre_commit_hooks._cache import CacheManager
 from pre_commit_hooks._prefilter import batch_filter_files
 
-from ._base import ASTCheck, Violation, is_fixed, mark_fixed, read_source_with_encoding
+from ._base import (
+    ASTCheck,
+    FixValidationError,
+    Violation,
+    is_fix_rejected,
+    is_fixed,
+    mark_fix_rejected,
+    mark_fixed,
+    read_source_with_encoding,
+)
 from .excessive_blank_lines import ExcessiveBlankLinesCheck
 from .forbid_vars import ForbidVarsCheck
 from .misplaced_comment import MisplacedCommentCheck
@@ -361,11 +370,18 @@ class CheckOrchestrator:
 
         Args:
             filepath: Path to file
-            violations: All violations found in file (used only to know which
-                checks reported something fixable, and to mark the caller's
-                own Violation objects as fixed for reporting — the actual
-                positions handed to each check's fix() are recomputed fresh
-                below, never taken from this stale list)
+            violations: All violations found in file so far this run.
+                Mutated in place: each fixable check's own stale entries
+                (collected once, before any fix ran) are replaced with a
+                freshly recomputed list, each marked fixed/rejected/left
+                alone against the file's actual post-fix state. Matching a
+                stale entry back to "is this the same violation, now fixed"
+                by identity isn't reliable — an earlier check's own fix can
+                shift line/col numbers, and two distinct violations can
+                share an identical message (e.g. a same-named free function
+                and method both suggesting the same rename) — so the stale
+                entries for this check_id are discarded outright rather
+                than matched.
         """
         # Which checks reported at least one fixable violation
         fixable_check_ids = {v.check_id for v in violations if v.fixable}
@@ -392,13 +408,56 @@ class CheckOrchestrator:
                 if not fresh_violations:
                     continue
 
-                success = check.fix(filepath, fresh_violations, current_source, current_tree, encoding)
-                if success:
-                    # Mark the original (stale) violations as fixed so the
-                    # caller's reporting loop shows [FIXED] correctly.
-                    for v in violations:
-                        if v.check_id == check.check_id and v.fixable:
-                            mark_fixed(v)
+                try:
+                    check.fix(filepath, fresh_violations, current_source, current_tree, encoding)
+                except FixValidationError:
+                    # atomic_write_text() refused to write — the file is
+                    # untouched, so every violation this check just tried to
+                    # fix is still exactly as it was. This is a bug in the
+                    # check's fix logic, not an expected outcome.
+                    logger.exception(
+                        "Fix for %s produced invalid syntax on %s; the file was left untouched.",
+                        check.check_id,
+                        filepath,
+                    )
+                    for v in fresh_violations:
+                        mark_fix_rejected(v)
+                else:
+                    # A check's own bool return isn't precise enough to know
+                    # which violations were actually resolved: a
+                    # per-violation guard (e.g. validate_function_name's
+                    # should_autofix) can skip some violations while fixing
+                    # others in the same call. Re-check against the file's
+                    # real post-fix state instead of trusting the return
+                    # value. fresh_violations and this re-check are computed
+                    # close enough together (only this one fix() call runs
+                    # in between) that matching by (line, col, message) is
+                    # reliable here, unlike matching against the outer,
+                    # possibly long-stale `violations` list.
+                    post_read_result = self._read_source(filepath)
+                    if post_read_result is not None:
+                        post_source, _post_encoding = post_read_result
+                        post_tree = ast.parse(post_source, filename=str(filepath))
+                        still_present = {
+                            (v.line, v.col, v.message)
+                            for v in check.check(filepath, post_tree, post_source)
+                            if v.fixable
+                        }
+                        for v in fresh_violations:
+                            if (v.line, v.col, v.message) not in still_present:
+                                mark_fixed(v)
+                            # else: still present — either rejected (already
+                            # marked via mark_fix_rejected() inside a
+                            # multi-write check's own per-violation loop) or
+                            # left alone by a per-violation guard; either
+                            # way, not fixed.
+
+                # fresh_violations replaces this check_id's stale entries
+                # wholesale: its positions are accurate as of just before
+                # this fix() call, strictly more current than the very
+                # first, pre-any-fix snapshot in `violations`.
+                violations[:] = [v for v in violations if v.check_id != check.check_id or not v.fixable]
+                violations.extend(fresh_violations)
             except Exception:
                 logger.exception("Fix failed for %s on %s", check.check_id, filepath)
 
@@ -564,13 +623,24 @@ def main(argv: list[str] | None = None) -> int:
     for filepath, violations in sorted(all_violations.items()):
         for v in violations:
             fixed = is_fixed(v)
+            rejected = is_fix_rejected(v)
             if fixed:
                 tag = "[FIXED] "
+            elif rejected:
+                tag = "[FIX REJECTED] "
             elif v.fixable:
                 tag = "[FIXABLE] "
             else:
                 tag = ""
-            hint = " Run with --fix to inline automatically." if v.fixable and not fixed else ""
+            if rejected:
+                hint = (
+                    " --fix produced invalid syntax, so the change was discarded — this is a bug, "
+                    "please report it: https://github.com/alessio-locatelli/ruff-extra-rules/issues"
+                )
+            elif v.fixable and not fixed:
+                hint = " Run with --fix to inline automatically."
+            else:
+                hint = ""
             print(
                 f"{filepath}:{v.line}: {v.error_code}: {tag}{v.message}{hint}",
                 file=sys.stderr,

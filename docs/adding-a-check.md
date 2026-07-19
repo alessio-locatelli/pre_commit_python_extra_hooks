@@ -53,6 +53,7 @@ Create `src/pre_commit_hooks/ast_checks/your_check.py` (or a package with `__ini
 - Never touch text inside string/byte literals or comments when writing an autofix — locate targets via AST node positions (`node.lineno`/`node.col_offset`/`node.end_lineno`/`node.end_col_offset`), not blind regex substitution over the whole file. See `validate_function_name/autofix.py` for a worked example of AST-scoped renaming.
 - Support inline suppression: `# pytriage: ignore=TRI00N`.
 - If the check is experimental or prone to false positives, keep it out of the default-enabled set via `args: [--ignore=your-check-id]` in `.pre-commit-hooks.yaml`.
+- Write fixed content via `atomic_write_text()` (`_base.py`), never a direct `open()`/`Path.write_text()` — it validates the content parses as Python before committing, refusing (via `FixValidationError`) rather than ever writing broken syntax to disk. If your `fix()` writes once per call (most checks), let `FixValidationError` propagate uncaught — `CheckOrchestrator._apply_fixes` attributes the rejection to the check's violations for you. If it writes more than once per call, looping over violations individually (like `validate_function_name`), catch `FixValidationError` around each write and call `mark_fix_rejected()` on that specific violation so a later write in the same call still gets attempted. See `docs/adr/0010-fix-validation-before-write.md`.
 
 ## 3. Write tests
 

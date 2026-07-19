@@ -125,6 +125,17 @@ class ASTCheck(Protocol):
 
         Returns:
             True if fixes were successfully applied, False otherwise
+
+        A check with a single write per `fix()` call needs no special
+        handling: let `FixValidationError` (raised by `atomic_write_text()`
+        if the fix would produce invalid syntax) propagate uncaught —
+        `CheckOrchestrator._apply_fixes` catches it and attributes the
+        rejection to every violation passed in. A check that writes more
+        than once per `fix()` call (looping over violations individually,
+        like `validate_function_name`) should instead catch
+        `FixValidationError` around each individual write and call
+        `mark_fix_rejected()` on that specific violation, so a later write
+        in the same call still gets attempted.
         """
         ...
 
@@ -209,8 +220,22 @@ def read_source_with_encoding(filepath: Path) -> tuple[str, str]:
     return raw.decode(encoding), encoding
 
 
+class FixValidationError(Exception):
+    """Raised by `atomic_write_text()` when the content it was asked to
+    write doesn't parse as valid Python — the check that produced it has a
+    bug. `path` is left completely untouched: validation runs before the
+    temp file is even created, so there's nothing to roll back.
+    """
+
+    def __init__(self, path: Path, syntax_error: SyntaxError) -> None:
+        super().__init__(f"Fix for {path} would produce invalid syntax: {syntax_error}")
+        self.path = path
+        self.syntax_error = syntax_error
+
+
 def atomic_write_text(path: Path, content: str, encoding: str) -> None:
-    """Write `content` to `path` via temp-file-then-rename, atomic on POSIX.
+    """Validate `content` parses as Python, then write it to `path` via
+    temp-file-then-rename, atomic on POSIX.
 
     Mirrors `_cache.py`'s `_write_cache`, with three refinements needed for
     a source file rather than a cache blob: the write targets `path.resolve()`
@@ -227,7 +252,27 @@ def atomic_write_text(path: Path, content: str, encoding: str) -> None:
     the process is killed mid-write; writing to a temp file first and
     renaming it into place means the target always ends up either fully old
     or fully new.
+
+    Every check's `fix()` ultimately writes through this one function, so
+    validating here — rather than in each check — guarantees no fix, from
+    any check, can ever leave a file syntactically broken on disk: a bad fix
+    never gets far enough to create a temp file, let alone rename it into
+    place.
+
+    Raises:
+        FixValidationError: if `content` isn't valid Python. Raised before
+            any file I/O, so `path` still holds its prior content.
     """
+    try:
+        # compile(), not ast.parse(): some invalid code is only rejected at
+        # compile time, not by the grammar alone — e.g. `return`/`yield`
+        # outside a function, `break`/`continue` outside a loop, or a
+        # `from __future__ import` that isn't the first statement. All
+        # still raise SyntaxError, just later in the pipeline than parsing.
+        compile(content, str(path), "exec")
+    except SyntaxError as syntax_error:
+        raise FixValidationError(path, syntax_error) from syntax_error
+
     real_path = path.resolve()
     fd, temp_name = tempfile.mkstemp(dir=real_path.parent, prefix=f".{real_path.name}.", suffix=".tmp")
     temp_path = Path(temp_name)
@@ -297,3 +342,18 @@ def mark_fixed(violation: Violation) -> None:
 def is_fixed(violation: Violation) -> bool:
     """Whether `mark_fixed()` has already been called on `violation`."""
     return bool(violation.fix_data and violation.fix_data.get("fixed", False))
+
+
+def mark_fix_rejected(violation: Violation) -> None:
+    """Record that a fix was attempted for `violation` but rejected by
+    `atomic_write_text()` because it would have produced invalid syntax.
+    Mirrors `mark_fixed()`/`is_fixed()`'s `fix_data["fixed"]` convention.
+    """
+    if violation.fix_data is None:
+        violation.fix_data = {}
+    violation.fix_data["fix_rejected"] = True
+
+
+def is_fix_rejected(violation: Violation) -> bool:
+    """Whether `mark_fix_rejected()` has already been called on `violation`."""
+    return bool(violation.fix_data and violation.fix_data.get("fix_rejected", False))

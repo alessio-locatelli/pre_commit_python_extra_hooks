@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+import pre_commit_hooks.ast_checks.validate_function_name as vfn_module
 from pre_commit_hooks import ast_checks
 from pre_commit_hooks.ast_checks import (
     ALL_CHECKS,
@@ -12,7 +13,7 @@ from pre_commit_hooks.ast_checks import (
     load_checks,
     main,
 )
-from pre_commit_hooks.ast_checks._base import Violation
+from pre_commit_hooks.ast_checks._base import Violation, atomic_write_text, is_fix_rejected
 from pre_commit_hooks.ast_checks.excessive_blank_lines import ExcessiveBlankLinesCheck
 from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck
 from pre_commit_hooks.ast_checks.redundant_super_init import RedundantSuperInitCheck
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
     import ast
     from collections.abc import Callable
     from pathlib import Path
+
+    from pre_commit_hooks.ast_checks import ASTCheck
+    from pre_commit_hooks.ast_checks.validate_function_name.analysis import Suggestion
 
 
 @pytest.mark.parametrize(
@@ -313,6 +317,161 @@ def test_apply_fixes_skips_check_with_no_fixable_violations(tmp_path: Path) -> N
     assert by_check["redundant-super-init"].fixable is False
 
 
+def test_apply_fixes_does_not_mark_fixed_a_violation_fix_left_untouched(tmp_path: Path) -> None:
+    # Regression: validate-function-name's fix() loops over violations and
+    # can skip some (should_autofix refuses to rename methods) while fixing
+    # others in the same call. _apply_fixes used to mark every violation of
+    # a check as fixed whenever fix() returned True at all, regardless of
+    # whether that specific violation was actually touched — a rename that
+    # should_autofix skipped was reported [FIXED] even though the file
+    # still had the old name.
+    filepath = tmp_path / "module.py"
+    filepath.write_text(
+        "import json\n\n\n"
+        "def get_config():\n"
+        '    with open("config.json") as f:\n'
+        "        return json.load(f)\n\n\n"
+        "class Reader:\n"
+        "    def get_data(self):\n"
+        '        f = open("f.txt")\n'
+        "        return f.read()\n"
+    )
+
+    checks = load_checks(select={"validate-function-name"})
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    by_func_name = {v.fix_data["suggestion"].func_name: v for v in violations[str(filepath)] if v.fix_data}
+
+    get_config_fix_data = by_func_name["get_config"].fix_data
+    get_data_fix_data = by_func_name["get_data"].fix_data
+    assert get_config_fix_data is not None
+    assert get_data_fix_data is not None
+    assert get_config_fix_data["fixed"] is True
+    assert not get_data_fix_data.get("fixed")
+    fixed_content = filepath.read_text()
+    assert "def get_config" not in fixed_content
+    assert "def get_data(self):" in fixed_content
+
+
+def test_apply_fixes_distinguishes_violations_with_identical_messages(tmp_path: Path) -> None:
+    # Regression: a free function and an unrelated method can produce
+    # byte-identical violation messages (same func_name, same suggested
+    # name, same reason). Marking "fixed" by message text alone would lose
+    # their identity — after the free function is renamed, its own old
+    # message is still "present" via the method's untouched violation, so
+    # the fixed one must not be reported as still-fixable just because
+    # something with the same text remains.
+    filepath = tmp_path / "module.py"
+    filepath.write_text(
+        "def get_data():\n"
+        '    with open("f.txt") as f:\n'
+        "        return f.read()\n"
+        "\n\n"
+        "class Reader:\n"
+        "    def get_data(self):\n"
+        '        f = open("g.txt")\n'
+        "        return f.read()\n"
+    )
+
+    checks = load_checks(select={"validate-function-name"})
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    by_line = {v.line: v for v in violations[str(filepath)]}
+    assert by_line[1].message == by_line[7].message
+
+    free_function_fix_data = by_line[1].fix_data
+    method_fix_data = by_line[7].fix_data
+    assert free_function_fix_data is not None
+    assert method_fix_data is not None
+    assert free_function_fix_data.get("fixed") is True
+    assert not method_fix_data.get("fixed")
+    assert "def load_data():" in filepath.read_text()
+    assert "def get_data(self):" in filepath.read_text()
+
+
+def test_apply_fixes_marks_violation_rejected_when_fix_produces_invalid_syntax(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Simulates a bug in a check's fix logic that would write invalid
+    # syntax: atomic_write_text() must refuse the write, and only that
+    # check's own violation is reported as rejected — an unrelated check's
+    # violation in the same file must still be fixed normally, matching the
+    # existing per-check try/except isolation (one check's bad fix doesn't
+    # block another's unrelated one).
+    filepath = tmp_path / "module.py"
+    filepath.write_text("\n\n\ndata = requests.get(url)\n")
+
+    forbid_vars = ForbidVarsCheck()
+
+    def broken_fix(fp: Path, *_args: object, **_kwargs: object) -> None:
+        atomic_write_text(fp, "def broken(:\n", "utf-8")
+
+    monkeypatch.setattr(forbid_vars, "fix", broken_fix)
+
+    checks: list[ASTCheck] = [forbid_vars, ExcessiveBlankLinesCheck()]
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    by_check = {v.check_id: v for v in violations[str(filepath)]}
+    forbid_vars_violation = by_check["forbid-vars"]
+    blank_lines_violation = by_check["excessive-blank-lines"]
+
+    assert is_fix_rejected(forbid_vars_violation)
+    assert not (forbid_vars_violation.fix_data and forbid_vars_violation.fix_data.get("fixed"))
+    assert not is_fix_rejected(blank_lines_violation)
+    assert blank_lines_violation.fix_data == {"fixed": True}
+    assert "data = requests.get(url)" in filepath.read_text()
+
+
+def test_apply_fixes_marks_only_the_rejected_violation_of_a_multi_write_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # validate-function-name's fix() writes once per violation rather than
+    # once per check. When one of those writes is rejected, the orchestrator
+    # must attribute the rejection to that specific violation, not the
+    # whole check — an earlier rename that already committed must still be
+    # reported [FIXED], not swept into [FIX REJECTED] alongside it.
+    filepath = tmp_path / "module.py"
+    filepath.write_text(
+        "def get_config():\n"
+        '    with open("config.json") as f:\n'
+        "        return f.read()\n"
+        "\n\n"
+        "def get_active(user: dict) -> bool:\n"
+        '    return user.get("status") == "active"\n'
+    )
+
+    original_apply_fix = vfn_module.apply_fix
+
+    def flaky_apply_fix(fp: Path, suggestion: Suggestion) -> bool:
+        if suggestion.func_name == "get_active":
+            atomic_write_text(fp, "def broken(:\n", "utf-8")
+        return original_apply_fix(fp, suggestion)
+
+    monkeypatch.setattr(vfn_module, "apply_fix", flaky_apply_fix)
+
+    checks = load_checks(select={"validate-function-name"})
+    orchestrator = CheckOrchestrator(checks=checks, fix_mode=True)
+    violations = orchestrator.process_files([str(filepath)])
+
+    by_func_name = {v.fix_data["suggestion"].func_name: v for v in violations[str(filepath)] if v.fix_data}
+    get_config_violation = by_func_name["get_config"]
+    get_active_violation = by_func_name["get_active"]
+    get_config_fix_data = get_config_violation.fix_data
+    assert get_config_fix_data is not None
+
+    assert get_config_fix_data.get("fixed") is True
+    assert not is_fix_rejected(get_config_violation)
+    assert is_fix_rejected(get_active_violation)
+    assert not (get_active_violation.fix_data and get_active_violation.fix_data.get("fixed"))
+
+    fixed_content = filepath.read_text()
+    assert "def get_config" not in fixed_content
+    assert 'def get_active(user: dict) -> bool:\n    return user.get("status") == "active"\n' in fixed_content
+
+
 def _disappear_before_refetch(
     orchestrator: CheckOrchestrator, _forbid_vars: ForbidVarsCheck, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -324,6 +483,28 @@ def _disappear_before_refetch(
     def flaky_read(fp: Path) -> tuple[str, str] | None:
         calls["n"] += 1
         if calls["n"] == 1:
+            return original_read(fp)
+        return None
+
+    monkeypatch.setattr(orchestrator, "_read_source", flaky_read)
+
+
+def _disappear_after_fix(
+    orchestrator: CheckOrchestrator, _forbid_vars: ForbidVarsCheck, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # If the file can't be re-read for the post-fix verification (e.g.
+    # deleted right after the fix wrote it), the fix isn't reported as
+    # fixed even though it actually happened — this run just can't confirm
+    # it, so it stays conservative rather than guessing.
+    original_read = orchestrator._read_source
+    calls = {"n": 0}
+
+    def flaky_read(fp: Path) -> tuple[str, str] | None:
+        calls["n"] += 1
+        # Call 1 is _check_file's own initial read, call 2 is _apply_fixes'
+        # pre-fix read — both must succeed so the real fix actually runs.
+        # Call 3 is the new post-fix verification read.
+        if calls["n"] <= 2:
             return original_read(fp)
         return None
 
@@ -362,8 +543,20 @@ def _fix_raises(
 
 @pytest.mark.parametrize(
     "configure",
-    [_disappear_before_refetch, _recompute_finds_no_fixable_violations, _fix_returns_false, _fix_raises],
-    ids=["file-disappears-before-refetch", "recompute-finds-no-fixable-violations", "fix-returns-false", "fix-raises"],
+    [
+        _disappear_before_refetch,
+        _disappear_after_fix,
+        _recompute_finds_no_fixable_violations,
+        _fix_returns_false,
+        _fix_raises,
+    ],
+    ids=[
+        "file-disappears-before-refetch",
+        "file-disappears-after-fix",
+        "recompute-finds-no-fixable-violations",
+        "fix-returns-false",
+        "fix-raises",
+    ],
 )
 def test_apply_fixes_marks_nothing_fixed(
     tmp_path: Path,
@@ -512,6 +705,32 @@ def test_main_fix_flag_marks_violation_fixed(tmp_path: Path, capsys: pytest.Capt
     err = capsys.readouterr().err
     assert "[FIXED]" in err
     assert "Run with --fix" not in err
+
+
+def test_main_fix_flag_reports_rejected_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A fix rejected for invalid syntax must be reported distinctly from
+    # both [FIXED] and the ordinary [FIXABLE]/"Run with --fix" hint, since
+    # re-running --fix would just fail identically again.
+    def broken_fix(fp: Path, *_args: object, **_kwargs: object) -> None:
+        atomic_write_text(fp, "def broken(:\n", "utf-8")
+
+    monkeypatch.setattr(ForbidVarsCheck, "fix", broken_fix)
+
+    filepath = tmp_path / "module.py"
+    filepath.write_text("data = requests.get(url)\n")
+
+    exit_code = main([str(filepath), "--select", "forbid-vars", "--fix"])
+    assert exit_code == 1
+
+    err = capsys.readouterr().err
+    assert "[FIX REJECTED]" in err
+    assert "please report it" in err
+    assert "https://github.com/alessio-locatelli/ruff-extra-rules/issues" in err
+    assert "[FIXED]" not in err
+    assert "Run with --fix" not in err
+    assert filepath.read_text() == "data = requests.get(url)\n"
 
 
 def test_main_exclude_pattern_excludes_all_files_returns_zero(

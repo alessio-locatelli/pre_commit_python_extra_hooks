@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from pre_commit_hooks.ast_checks._base import atomic_write_text, byte_col_to_char_col
+from pre_commit_hooks.ast_checks._base import (
+    FixValidationError,
+    atomic_write_text,
+    byte_col_to_char_col,
+    is_fix_rejected,
+    mark_fix_rejected,
+)
+from tests.factories import ViolationFactory
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -104,3 +111,59 @@ def test_atomic_write_text(
     if verify is not None:
         verify(target)
     assert list(tmp_path.glob(f".{target.name}.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "def broken(:\n",
+        # Valid per the grammar alone (ast.parse accepts it) but invalid at
+        # compile time — a fix producing this must be rejected too, not
+        # just fixes with a plain grammar error.
+        "return 1\n",
+    ],
+    ids=["grammar-error", "compile-time-only-error"],
+)
+def test_atomic_write_text_rejects_invalid_syntax(tmp_path: Path, content: str) -> None:
+    # A bad fix must never reach disk: validation runs before the temp file
+    # is even created, so the target keeps its prior content untouched.
+    target = tmp_path / "mod.py"
+    target.write_text("old = 1\n")
+
+    with pytest.raises(FixValidationError):
+        atomic_write_text(target, content, "utf-8")
+
+    assert target.read_text() == "old = 1\n"
+    assert list(tmp_path.glob(f".{target.name}.*.tmp")) == []
+
+
+def test_fix_validation_error_exposes_path_and_syntax_error(tmp_path: Path) -> None:
+    target = tmp_path / "mod.py"
+
+    with pytest.raises(FixValidationError) as exc_info:
+        atomic_write_text(target, "def broken(:\n", "utf-8")
+
+    assert exc_info.value.path == target
+    assert isinstance(exc_info.value.syntax_error, SyntaxError)
+
+
+@pytest.mark.parametrize(
+    "fix_data",
+    [None, {"other_key": 1}],
+    ids=["no-fix-data", "existing-fix-data"],
+)
+def test_mark_fix_rejected(fix_data: dict[str, int] | None) -> None:
+    violation = ViolationFactory.build(fix_data=fix_data)
+    assert not is_fix_rejected(violation)
+
+    mark_fix_rejected(violation)
+
+    assert is_fix_rejected(violation)
+    assert violation.fix_data is not None
+    if fix_data is not None:
+        assert violation.fix_data["other_key"] == 1
+
+
+def test_is_fix_rejected_false_when_only_marked_fixed() -> None:
+    violation = ViolationFactory.build(fix_data={"fixed": True})
+    assert not is_fix_rejected(violation)

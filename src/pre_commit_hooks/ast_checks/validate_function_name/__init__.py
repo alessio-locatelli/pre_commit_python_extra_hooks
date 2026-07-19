@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from pre_commit_hooks.ast_checks._base import BaseCheck, Violation
+from pre_commit_hooks.ast_checks._base import BaseCheck, FixValidationError, Violation, mark_fix_rejected
 
 from .analysis import Suggestion, collect_suggestions
 from .autofix import apply_fix, should_autofix
@@ -159,6 +159,13 @@ class ValidateFunctionNameCheck(BaseCheck):
                 try:
                     if apply_fix(filepath, suggestion):
                         applied_any = True
+                except FixValidationError:
+                    # Reject only this rename; a rename earlier in this loop
+                    # already committed and stays, and a later one is still
+                    # attempted (mark_fix_rejected() lets the orchestrator's
+                    # post-fix re-check attribute the rejection to this
+                    # specific violation instead of the whole batch).
+                    mark_fix_rejected(violation)
                 except Exception:
                     logger_check.exception("Failed to apply fix for %s in %s", suggestion.func_name, filepath)
 
