@@ -25,5 +25,9 @@ A `# pytriage: ignore=TRI00N` (or `=STYLE-001`) comment suppressing one violatio
 _Avoid_: pragma — this repo's own suppression comment is distinct from the _third-party_ linter pragmas (`noqa`, `type: ignore`, `pylint:`, etc.) that `misplaced-comment` recognizes and refuses to ever move; don't conflate the two.
 
 **Fix**:
-An in-place edit a check applies to resolve its own violations, requested via `--fix` and applied by the check's own `fix()` method against a freshly re-read file/tree.
+An in-place edit a check applies to resolve its own violations, requested via `--fix` and applied by the check's own `fix()` method against a freshly re-read file/tree. Every fix is written through `atomic_write_text()`, which validates the result parses as Python before committing it — a fix that would produce invalid syntax is rejected and the file is left untouched (see `docs/adr/0010-fix-validation-before-write.md`).
 _Avoid_: autofix is fine informally; "fix" is the protocol method name
+
+**Fix rejection**:
+The outcome when `atomic_write_text()` refuses a fix because the content it was asked to write doesn't parse as valid Python. Reported as `[FIX REJECTED]`, distinct from `[FIXED]`/`[FIXABLE]` — it signals a bug in the check's own fix logic, not something re-running `--fix` will resolve.
+_Avoid_: failed fix, broken fix — "rejected" is the term the CLI output and `is_fix_rejected()`/`mark_fix_rejected()` use

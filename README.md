@@ -16,6 +16,8 @@ Extra Python rule checks and fixups for pre-commit/prek, meant to run alongside 
 
 This repository registers a single hook, `ruff-extra-rules`, in `.pre-commit-hooks.yaml` (there's one orchestrator, one cache, one prefilter — not a duplicated pipeline). It runs every AST-based check (TRI001–TRI005, STYLE-001) against each file in a single parse pass, report-only by default. Individual checks are toggled with `--select`/`--ignore`, and `--fix` applies whatever each check's own fix logic considers safe — mirroring `ruff check`'s own `--select`/`--ignore`/`--fix` flags.
 
+**Fix safety guarantee:** every check writes fixed files through one shared function that parses the fixed content before writing it, so a bug in a check's fix logic can never leave a file with broken syntax on disk — the write is refused and the file stays exactly as it was. A refused fix is reported as `[FIX REJECTED]` with a link to file a bug, instead of the usual `[FIXABLE]`/`[FIXED]`.
+
 There are no other installable hook ids and no console-script entry points (`[project.scripts]` in `pyproject.toml` is intentionally empty) — every check runs via `python -m pre_commit_hooks.ast_checks`.
 
 ## Available Checks
