@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import os
+import signal
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+from pre_commit_hooks.ast_checks import CheckOrchestrator
+from pre_commit_hooks.ast_checks.__main__ import _install_sigterm_handler, _raise_keyboard_interrupt, run
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from pre_commit_hooks.ast_checks._base import Violation
+
+
+@pytest.fixture(autouse=True)
+def _restore_sigterm_handler() -> Iterator[None]:
+    # Every test in this module either installs the real SIGTERM handler or
+    # calls run() (which does the same as a side effect) -- restore
+    # whatever was in place before so a test here can't leave a handler
+    # live for unrelated tests running later in the same process.
+    original = signal.getsignal(signal.SIGTERM)
+    yield
+    signal.signal(signal.SIGTERM, original)
+
+
+def test_raise_keyboard_interrupt_raises_keyboard_interrupt() -> None:
+    with pytest.raises(KeyboardInterrupt):
+        _raise_keyboard_interrupt(signal.SIGTERM, None)
+
+
+def test_install_sigterm_handler_registers_handler() -> None:
+    _install_sigterm_handler()
+
+    assert signal.getsignal(signal.SIGTERM) is _raise_keyboard_interrupt
+
+
+def test_install_sigterm_handler_degrades_when_signal_signal_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise_value_error(*_args: object, **_kwargs: object) -> None:
+        msg = "signal only works in main thread of the main interpreter"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(signal, "signal", _raise_value_error)
+
+    _install_sigterm_handler()  # must not raise
+
+
+def test_run_prints_message_and_returns_one_on_keyboard_interrupt(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def _interrupted(_argv: list[str] | None = None) -> int:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("pre_commit_hooks.ast_checks.__main__.main", _interrupted)
+
+    assert run([]) == 1
+    assert "Interrupted." in capsys.readouterr().err
+
+
+def test_run_returns_mains_exit_code_normally(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("pre_commit_hooks.ast_checks.__main__.main", lambda _argv=None: 0)
+
+    assert run([]) == 0
+
+
+def test_real_sigterm_mid_run_stops_gracefully_without_leftover_temp_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A SIGTERM delivered mid-run (e.g. prek's own timeout, or a CI job
+    killing this process) must unwind through run()'s KeyboardInterrupt
+    handling -- proven with a real `os.kill()`-delivered signal, not a
+    mocked exception, since converting SIGTERM into a catchable exception is
+    exactly the new behavior under test. `atomic_write_text()`'s own
+    try/finally cleanup on an arbitrary exception is already covered
+    elsewhere (test_atomic_write_text's directory-raises case in
+    tests/test_base.py); what's new here is that a real SIGTERM actually
+    reaches that cleanup at all instead of terminating the process outright.
+    """
+    filepaths = []
+    for i in range(10):
+        filepath = tmp_path / f"module_{i}.py"
+        filepath.write_text("data = requests.get(url)\n")
+        filepaths.append(str(filepath))
+
+    original_check_file = CheckOrchestrator._check_file
+    calls = 0
+
+    def _check_file_then_send_sigterm_on_third_call(self: CheckOrchestrator, filepath: Path) -> list[Violation] | None:
+        nonlocal calls
+        calls += 1
+        violations = original_check_file(self, filepath)
+        if calls == 3:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return violations
+
+    monkeypatch.setattr(CheckOrchestrator, "_check_file", _check_file_then_send_sigterm_on_third_call)
+
+    exit_code = run(["--select", "forbid-vars", "--fix", *filepaths])
+
+    assert exit_code == 1
+    assert "Interrupted." in capsys.readouterr().err
+    # Stopped before every file was processed -- the signal actually cut
+    # the run short rather than being silently ignored.
+    assert calls < len(filepaths)
+    # Every fix that did run replaced its target atomically: no dangling
+    # temp file left behind by a write the signal happened to interrupt.
+    assert list(tmp_path.glob("*.tmp")) == []
+    # Every file on disk is still valid Python -- either untouched or fully
+    # fixed, never a partial write.
+    for filepath_str in filepaths:
+        content = Path(filepath_str).read_text()
+        assert content in {"data = requests.get(url)\n", "response = requests.get(url)\n"}
