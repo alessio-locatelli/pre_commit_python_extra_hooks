@@ -1533,6 +1533,47 @@ def test_autofix_follows_closure_into_type_parameter_bound_and_default() -> None
     assert param_spec.__default__ == "runtime value"
 
 
+def test_autofix_does_not_rename_type_parameter_bound_referencing_a_peer_type_parameter() -> None:
+    # Regression: within one `type_params` list, a *later* type parameter's
+    # own bound/default expression can reference an *earlier* type
+    # parameter by name — confirmed against CPython that this resolves to
+    # the peer type parameter, not to whatever the enclosing scope happens
+    # to bind under the same name. Treating every bound/default expression
+    # as an unconditional enclosing-scope reference (previous test) would
+    # wrongly rename such a reference, repointing it at the renamed outer
+    # variable instead of the peer it actually resolves to.
+    source = """def outer(response):
+    data = response.json()
+
+    def inner[data, T: data]():
+        return T, data
+
+    return inner
+"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filepath = Path(tmpdir) / "test.py"
+        filepath.write_text(source)
+
+        tree = ast.parse(source)
+        check = ForbidVarsCheck()
+        violations = check.check(filepath, tree, source)
+        assert check.fix(filepath, violations, source, tree) is True
+
+        fixed_content = filepath.read_text()
+
+    assert "def inner[data, T: data]():" in fixed_content
+    module_namespace: dict[str, Any] = {}
+    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
+
+    class FakeResponse:
+        def json(self) -> str:
+            return "runtime value"
+
+    inner = module_namespace["outer"](FakeResponse())
+    peer_type_var, type_var = inner.__type_params__
+    assert type_var.__bound__ is peer_type_var
+
+
 def test_scope_names_ignore_unnamed_except_and_match_captures() -> None:
     # Branch coverage: a bare `except:` or wildcard `case _:` produces an
     # ExceptHandler/MatchAs node with `name=None` — `_get_scope_names()`

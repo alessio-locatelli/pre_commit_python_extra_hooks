@@ -737,9 +737,17 @@ def _outer_scope_children(
     *enclosing* scope rather than its own — so a rename must still visit
     them even when `scope_node`'s own body shadows the name being renamed.
 
-    Decorators, parameter defaults, and a PEP 695 type parameter's own
-    `bound`/`default_value` expressions (see
-    `_type_param_defaults_and_bounds`) always run once when the `def`/
+    A PEP 695 type parameter's own `bound`/`default_value` expression (see
+    `_type_param_defaults_and_bounds`) is deliberately *not* included here,
+    even though it's evaluated lazily through a closure over this same
+    enclosing scope: unlike a decorator or parameter default, it can also
+    reference an earlier type parameter from the same `type_params` list,
+    which shares the implicit type-parameter scope rather than this
+    enclosing one — so it needs its own replacement mapping with those peer
+    names filtered out first. `_collect_replacements` handles it directly
+    instead of through this function.
+
+    Decorators and parameter defaults always run once when the `def`/
     `lambda` statement itself executes, in whatever scope contains it —
     never inside the function's own body scope. Parameter/return
     annotations do too, *except* when the function has PEP 695 type
@@ -767,7 +775,6 @@ def _outer_scope_children(
     if isinstance(scope_node, ast.FunctionDef | ast.AsyncFunctionDef):
         yield from scope_node.decorator_list
         yield from _signature_defaults(scope_node.args)
-        yield from _type_param_defaults_and_bounds(scope_node.type_params)
         if not scope_node.type_params and not has_future_annotations:
             yield from _signature_annotations(scope_node.args)
             if scope_node.returns is not None:
@@ -869,6 +876,17 @@ def _collect_replacements(
     regardless of what the nested scope's own body shadows — only its
     `_own_scope_children` are visited with the shadowed name filtered out.
 
+    A `FunctionDef`/`AsyncFunctionDef`'s own PEP 695 type parameter
+    `bound`/`default_value` expressions (`_type_param_defaults_and_bounds`)
+    get a *third*, separately-filtered mapping: unlike every other outer
+    child, one of these can also reference an *earlier* type parameter from
+    the same `type_params` list (confirmed against CPython: within one
+    list, a later type parameter's bound/default sees every peer as a real
+    binding, not the enclosing scope) — renaming such a reference would
+    silently repoint it at the enclosing scope's variable instead of the
+    peer it actually resolves to, the same failure class as any other
+    wrong-scope rename.
+
     A class body is never recursed into: `self.x`/`cls.x` access is a
     distinct `ast.Attribute` node, not `ast.Name`, so a bare class-body
     reference to an enclosing scope's variable is a separate, rarer pattern
@@ -891,6 +909,21 @@ def _collect_replacements(
             results.extend(
                 _collect_replacements(outer_child, replace_names, has_future_annotations=has_future_annotations)
             )
+
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.type_params:
+            peer_type_param_names = {
+                type_param.name
+                for type_param in node.type_params
+                if isinstance(type_param, ast.TypeVar | ast.ParamSpec | ast.TypeVarTuple)
+            }
+            bound_default_names = {
+                name: new for name, new in replace_names.items() if name not in peer_type_param_names
+            }
+            if bound_default_names:
+                for expr in _type_param_defaults_and_bounds(node.type_params):
+                    results.extend(
+                        _collect_replacements(expr, bound_default_names, has_future_annotations=has_future_annotations)
+                    )
 
         nested_names = {
             name: new
