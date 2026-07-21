@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest import mock
@@ -201,6 +202,42 @@ def test_git_grep_filter_includes_gitignored_file(tmp_path: Path) -> None:
         assert matches == [str(ignored)]
     finally:
         os.chdir(original_dir)
+
+
+def test_git_grep_filter_match_order_is_independent_of_hash_seed(tmp_path: Path) -> None:
+    # Regression: matches used to come from iterating an unordered `set` of
+    # git's own output paths, so the return order depended on
+    # PYTHONHASHSEED -- randomized per process by default -- rather than on
+    # the input file order (ch. 9: "MUST NOT allow hash-table ... order to
+    # affect the result"). Spawns real subprocesses with different explicit
+    # seeds and asserts they agree, rather than relying on whatever seed
+    # this test's own process happened to already start with.
+    git = shutil.which("git")
+    assert git is not None
+    subprocess.run([git, "init", "-q"], check=True, cwd=tmp_path)  # noqa: S603
+
+    names = [f"file{i}.py" for i in range(10)]
+    for name in names:
+        (tmp_path / name).write_text("data = 1\n")
+
+    script = (
+        "from pre_commit_hooks._prefilter import git_grep_filter\n"
+        f"print(git_grep_filter({names!r}, 'data', fixed_string=True))\n"
+    )
+
+    outputs = set()
+    for seed in ("0", "1", "2"):
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            check=True,
+        )
+        outputs.add(result.stdout)
+
+    assert len(outputs) == 1
 
 
 def test_git_grep_filter_skips_unresolvable_git_paths(tmp_path: Path) -> None:
