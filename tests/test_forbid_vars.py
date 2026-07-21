@@ -1471,9 +1471,7 @@ result = response.json()
 def f(x: data) -> result:
     return x
 """
-    tree = ast.parse(source)
-    check = ForbidVarsCheck()
-    violations = check.check(Path("test.py"), tree, source)
+    violations = ForbidVarsCheck().check(Path("test.py"), ast.parse(source), source)
 
     assert len(violations) == 2
     assert all(
@@ -1572,6 +1570,91 @@ def test_autofix_does_not_rename_type_parameter_bound_referencing_a_peer_type_pa
     inner = module_namespace["outer"](FakeResponse())
     peer_type_var, type_var = inner.__type_params__
     assert type_var.__bound__ is peer_type_var
+
+
+def test_autofix_does_not_reuse_a_nested_functions_own_mapping_for_its_default() -> None:
+    # Regression: a parameter default is evaluated in the *enclosing* scope,
+    # not the function it belongs to — `_collect_scope_replacements()` (the
+    # entry point used when a violation's own enclosing scope is the nested
+    # function itself, here `inner`'s body-local `data`) walked every one of
+    # `inner`'s immediate children unfiltered, including its own default
+    # value, and renamed that default's reference using `inner`'s own
+    # mapping instead of leaving it to the enclosing scope's. Since the two
+    # scopes' suggested names differ in length, this corrupted the source
+    # outright (`x=data` became `x=payload_2oad`) rather than merely
+    # mis-renaming it.
+    source = """def outer(response):
+    data = response.json()
+
+    def inner(x=data):
+        data = response.json()
+        return x, data
+
+    return inner
+"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filepath = Path(tmpdir) / "test.py"
+        filepath.write_text(source)
+
+        tree = ast.parse(source)
+        check = ForbidVarsCheck()
+        violations = check.check(filepath, tree, source)
+        assert check.fix(filepath, violations, source, tree) is True
+
+        fixed_content = filepath.read_text()
+
+    assert "data" not in fixed_content
+    assert "def inner(x=payload):" in fixed_content
+    module_namespace: dict[str, Any] = {}
+    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
+
+    class FakeResponse:
+        def json(self) -> str:
+            return "runtime value"
+
+    inner = module_namespace["outer"](FakeResponse())
+    assert inner() == ("runtime value", "runtime value")
+
+
+def test_autofix_does_not_rename_a_nested_functions_own_type_parameter_bound_via_its_own_scope() -> None:
+    # Regression: same root cause as the test above, but reached through
+    # `inner`'s own type parameter bound instead of a default — the
+    # violation here is `data`'s reassignment inside `inner`'s own body, so
+    # `_collect_scope_replacements()` is entered directly on `inner`, and its
+    # old unfiltered child walk reached into `inner.type_params` too,
+    # renaming `T`'s bound (which references the peer type parameter `data`,
+    # unaffected by the body-local reassignment) to a name nothing else
+    # binds.
+    source = """def outer(response):
+    def inner[data, T: data](response2):
+        data = response2.json()
+        return T, data
+
+    return inner
+"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filepath = Path(tmpdir) / "test.py"
+        filepath.write_text(source)
+
+        tree = ast.parse(source)
+        check = ForbidVarsCheck()
+        violations = check.check(filepath, tree, source)
+        assert check.fix(filepath, violations, source, tree) is True
+
+        fixed_content = filepath.read_text()
+
+    assert "def inner[data, T: data](response2):" in fixed_content
+    module_namespace: dict[str, Any] = {}
+    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
+
+    class FakeResponse:
+        def json(self) -> str:
+            return "runtime value"
+
+    inner = module_namespace["outer"](None)
+    peer_type_var, type_var = inner.__type_params__
+    assert type_var.__bound__ is peer_type_var
+    assert inner(FakeResponse()) == (type_var, "runtime value")
 
 
 def test_scope_names_ignore_unnamed_except_and_match_captures() -> None:

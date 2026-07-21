@@ -954,13 +954,31 @@ def _collect_scope_replacements(
     above, but only ever inspects `scope`'s children, never `scope` itself.
 
     `scope` is always the violation's own enclosing function or the module
-    (from `_find_enclosing_function()`/`_apply_fixes()`), never a node whose
-    own shadowing status needs checking — it's already been chosen as the
-    scope to rename *within*, not a candidate to recurse into or skip.
+    (from `_find_enclosing_function()`/`_apply_fixes()`). When it's a
+    function, `scope`'s own decorators/defaults/annotations/type-parameter
+    bounds run in whatever scope *contains* `scope`, not inside `scope`
+    itself (see `_outer_scope_children`) — that syntax is already visited,
+    with the *enclosing* scope's own mapping, when the enclosing scope's own
+    `_collect_scope_replacements` call crosses into `scope` as a nested node
+    via `_collect_replacements`'s `_CROSSABLE_SCOPE_NODES` branch. Walking
+    every one of `scope`'s immediate children unfiltered here too — as
+    `ast.iter_child_nodes` would — reused *this* mapping (`scope`'s own, for
+    names shadowed inside its body) for that same outer-scope syntax a
+    second time, e.g. renaming a parameter default's reference
+    (`def inner(x=data): data = ...`) or a type parameter's bound
+    referencing an earlier peer (`def inner[data, T: data](): data = ...`)
+    using the *inner* rename instead of leaving it untouched — corrupting
+    the source outright when the two renames differ in length. Restricting
+    this to `_own_scope_children()` keeps `scope`'s own mapping scoped to
+    the syntax that actually runs inside `scope`.
     """
+    if isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef):
+        children: Iterator[ast.AST] = _own_scope_children(scope, has_future_annotations=has_future_annotations)
+    else:
+        children = ast.iter_child_nodes(scope)
     return [
         replacement
-        for child in ast.iter_child_nodes(scope)
+        for child in children
         for replacement in _collect_replacements(child, replace_names, has_future_annotations=has_future_annotations)
     ]
 
