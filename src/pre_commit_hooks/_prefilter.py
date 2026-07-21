@@ -57,7 +57,22 @@ def git_grep_filter(filepaths: Sequence[str], pattern: str, *, fixed_string: boo
     unreadable = [fp for fp in filepaths if not os.access(fp, os.R_OK)]
 
     try:
-        cmd = ["git", "grep", "--files-with-matches", "--null"]
+        # --untracked --no-exclude-standard: without these, git grep only
+        # searches files already in the index. A file passed explicitly on
+        # this hook's own CLI (AGENTS.md's documented direct-CLI workflow)
+        # that hasn't been `git add`ed yet -- a brand-new file, or one
+        # matched by .gitignore -- is otherwise never actually searched:
+        # git grep still exits 1 with empty stdout *and* empty stderr, the
+        # same signal as "searched and no match", so the file was silently
+        # dropped from every check's candidate list with zero trace, giving
+        # a false-clean exit 0 for content that was never examined. These
+        # flags make git grep search the exact files this function was
+        # asked about regardless of their VCS status, matching "an
+        # explicitly requested file is always in scope" (ch. 12: "MUST
+        # process only the requested scope"). This is unaffected by
+        # pre-commit/prek's own normal invocation, which only ever passes
+        # already-staged files.
+        cmd = ["git", "grep", "--files-with-matches", "--null", "--untracked", "--no-exclude-standard"]
         if fixed_string:
             cmd.append("--fixed-strings")
         cmd.extend(["-e", pattern, "--"])

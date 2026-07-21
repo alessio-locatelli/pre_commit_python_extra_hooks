@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -296,14 +297,26 @@ class CacheManager:
         return sha1.hexdigest()
 
     def _write_cache(self, cache_file: Path, cache_data: dict[str, Any]) -> None:
-        """Uses temp file + rename for atomic write on POSIX systems."""
-        temp_file = cache_file.with_suffix(".tmp")
+        """Uses temp file + rename for atomic write on POSIX systems.
+
+        The temp file comes from `tempfile.mkstemp()` rather than a fixed
+        `<name>.tmp` sibling (matching `_base.py`'s `atomic_write_text()`,
+        which needed the same hardening for source-file writes): a
+        predictable path lets anyone who can write to `cache_dir` pre-plant
+        a symlink there, which a plain `open(..., "w")` would silently
+        follow -- writing cache content into whatever the symlink points at
+        -- instead of creating a fresh file. `mkstemp()` creates the file
+        itself, exclusively, so no pre-existing symlink at that name can
+        ever exist to follow.
+        """
+        fd, temp_name = tempfile.mkstemp(dir=cache_file.parent, prefix=f".{cache_file.name}.", suffix=".tmp")
+        temp_path = Path(temp_name)
         try:
-            with temp_file.open("w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, indent=2)
-            temp_file.replace(cache_file)  # Atomic on POSIX
+            temp_path.replace(cache_file)  # Atomic on POSIX
         finally:
             # Safety cleanup for error cases; temp file is atomically
             # renamed in success path, so this only runs on errors
-            if temp_file.exists():
-                temp_file.unlink()
+            if temp_path.exists():
+                temp_path.unlink()

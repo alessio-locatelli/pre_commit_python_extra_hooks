@@ -153,6 +153,56 @@ def test_git_grep_filter_includes_file_deleted_since_discovery(tmp_path: Path) -
         os.chdir(original_dir)
 
 
+def test_git_grep_filter_includes_untracked_file(tmp_path: Path) -> None:
+    # Regression: a file that exists, is readable, and was passed
+    # explicitly, but was never `git add`ed, is invisible to a plain `git
+    # grep` -- it exits 1 with empty stdout *and* empty stderr, identical
+    # to "searched and found no match". The old code trusted that as proof
+    # of "no match" and silently dropped the file, so a brand-new file
+    # linted directly via the CLI (before `git add`) could report zero
+    # violations for content that was never actually examined.
+    git = shutil.which("git")
+    assert git is not None
+
+    original_dir = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        subprocess.run([git, "init", "-q"], check=True)  # noqa: S603
+
+        untracked = tmp_path / "untracked.py"
+        untracked.write_text("data = 1\n")
+        # Deliberately not `git add`ed.
+
+        matches = git_grep_filter([str(untracked)], "data", fixed_string=True)
+
+        assert matches == [str(untracked)]
+    finally:
+        os.chdir(original_dir)
+
+
+def test_git_grep_filter_includes_gitignored_file(tmp_path: Path) -> None:
+    # Regression: same root cause as the untracked case above, but for a
+    # file matched by .gitignore -- explicitly naming a file on this hook's
+    # own CLI must still check it, regardless of VCS ignore status.
+    git = shutil.which("git")
+    assert git is not None
+
+    original_dir = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        subprocess.run([git, "init", "-q"], check=True)  # noqa: S603
+        (tmp_path / ".gitignore").write_text("ignored.py\n")
+
+        ignored = tmp_path / "ignored.py"
+        ignored.write_text("data = 1\n")
+
+        matches = git_grep_filter([str(ignored)], "data", fixed_string=True)
+
+        assert matches == [str(ignored)]
+    finally:
+        os.chdir(original_dir)
+
+
 def test_git_grep_filter_skips_unresolvable_git_paths(tmp_path: Path) -> None:
     # Defensive: if git's null-separated output includes a path that
     # doesn't resolve back to one of the requested filepaths, it's skipped
