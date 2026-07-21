@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Literal
 
-from pre_commit_hooks.ast_checks._base import fast_get_source_segment, split_lines_like_ast
+from pre_commit_hooks.ast_checks._base import classify_comment_lines, fast_get_source_segment, split_lines_like_ast
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -246,40 +246,6 @@ def is_preceded_by_call(use: UsageInfo) -> bool:
     return effect_before
 
 
-def _has_comment_above(line_number: int, source_lines: list[str]) -> bool:
-    if line_number <= 1 or line_number > len(source_lines):
-        return False
-
-    # -2, not -1: the line *above* `line_number`, converted to 0-indexed.
-    prev_line = source_lines[line_number - 2].strip()
-
-    return prev_line.startswith("#")
-
-
-def _has_inline_comment(line_number: int, source_lines: list[str]) -> bool:
-    if line_number < 1 or line_number > len(source_lines):
-        return False
-
-    line = source_lines[line_number - 1]
-
-    # Simple check: look for # that's not inside a string
-    # This is a heuristic - a full solution would need tokenization
-    # but for our purposes, checking if '#' appears after code is sufficient
-    in_string = False
-    string_char = None
-    for i, char in enumerate(line):
-        if char in ('"', "'") and (i == 0 or line[i - 1] != "\\"):
-            if not in_string:
-                in_string = True
-                string_char = char
-            elif char == string_char:
-                in_string = False
-        elif char == "#" and not in_string:
-            return True
-
-    return False
-
-
 class VariableTracker(ast.NodeVisitor):
     """Builds a map of variable lifecycles: where each variable is assigned and where it's used, across scopes."""
 
@@ -290,6 +256,11 @@ class VariableTracker(ast.NodeVisitor):
         # ast's own lineno/end_lineno use, unlike self.source_lines above
         # (see split_lines_like_ast).
         self._ast_lines = split_lines_like_ast(source)
+        # Computed once per file (not per assignment) since it tokenizes
+        # the whole source — see AssignmentInfo.has_comment_above/
+        # has_inline_comment for why a tokenize-based classification is
+        # needed instead of a naive text scan.
+        self._comment_only_lines, self._trailing_comment_lines = classify_comment_lines(source)
 
         self.current_scope_id = 0
         self.scope_stack: list[int] = [0]  # 0 = module scope
@@ -533,8 +504,8 @@ class VariableTracker(ast.NodeVisitor):
                     in_loop=self.loop_depth > 0,
                     in_control_flow=self.control_flow_depth > 0,
                     in_global_scope=(scope_id == 0),
-                    has_comment_above=_has_comment_above(node.lineno, self.source_lines),
-                    has_inline_comment=_has_inline_comment(node.lineno, self.source_lines),
+                    has_comment_above=(node.lineno - 1) in self._comment_only_lines,
+                    has_inline_comment=node.lineno in self._trailing_comment_lines,
                     rhs_has_await=_has_await_expression(node.value),
                 )
 
@@ -607,8 +578,8 @@ class VariableTracker(ast.NodeVisitor):
                 in_loop=self.loop_depth > 0,
                 in_control_flow=self.control_flow_depth > 0,
                 in_global_scope=(scope_id == 0),
-                has_comment_above=_has_comment_above(node.lineno, self.source_lines),
-                has_inline_comment=_has_inline_comment(node.lineno, self.source_lines),
+                has_comment_above=(node.lineno - 1) in self._comment_only_lines,
+                has_inline_comment=node.lineno in self._trailing_comment_lines,
                 rhs_has_await=_has_await_expression(node.value),
             )
 

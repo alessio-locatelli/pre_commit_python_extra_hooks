@@ -24,7 +24,9 @@ from ._base import (
     atomic_write_text,
     find_ignored_lines,
     ignore_pattern_for,
+    line_terminator,
     mark_fix_failed,
+    normalize_for_tokenize,
 )
 
 if TYPE_CHECKING:
@@ -147,7 +149,7 @@ class MisplacedCommentCheck(BaseCheck):
 
     def check(self, _filepath: Path, _tree: ast.Module, source: str) -> list[Violation]:
         try:
-            tokens = tuple(tokenize.generate_tokens(StringIO(source).readline))
+            tokens = tuple(tokenize.generate_tokens(StringIO(normalize_for_tokenize(source)).readline))
         # Defensive: source is already parsed by AST, so tokenizing it can't
         # realistically fail. If it ever does, treat it as no violations.
         except tokenize.TokenError as token_error:  # pragma: no cover
@@ -185,7 +187,7 @@ class MisplacedCommentCheck(BaseCheck):
         encoding: str = "utf-8",
     ) -> bool:
         try:
-            tokens = tuple(tokenize.generate_tokens(StringIO(source).readline))
+            tokens = tuple(tokenize.generate_tokens(StringIO(normalize_for_tokenize(source)).readline))
         # Defensive: source is already parsed by AST, so tokenizing it can't
         # realistically fail. If it ever does, skip fixing rather than crash.
         except tokenize.TokenError as token_error:  # pragma: no cover
@@ -210,16 +212,22 @@ class MisplacedCommentCheck(BaseCheck):
             # precedes it on an earlier line, so prev_line_idx is never < 0.
             assert prev_line_idx >= 0
 
+            # Reuse each touched line's own terminator instead of a bare
+            # "\n": a CRLF file must not end up with mixed line endings on
+            # exactly the lines this fix rewrites (ch. 3/21: preserve the
+            # newline convention and avoid unrelated formatting changes).
+            prev_terminator = line_terminator(lines[prev_line_idx])
             prev_line = lines[prev_line_idx].rstrip()
             indent = len(lines[prev_line_idx]) - len(lines[prev_line_idx].lstrip())
             potential_inline = f"{prev_line}  {item.comment_text}"
 
             if len(potential_inline) <= 88:
-                lines[prev_line_idx] = f"{prev_line}  {item.comment_text}\n"
+                lines[prev_line_idx] = f"{prev_line}  {item.comment_text}{prev_terminator}"
             else:
-                lines[prev_line_idx] = f"{' ' * indent}{item.comment_text}\n{prev_line}\n"
+                lines[prev_line_idx] = f"{' ' * indent}{item.comment_text}{prev_terminator}{prev_line}{prev_terminator}"
 
-            lines[bracket_line_idx] = lines[bracket_line_idx][: item.comment_col].rstrip() + "\n"
+            bracket_terminator = line_terminator(lines[bracket_line_idx])
+            lines[bracket_line_idx] = lines[bracket_line_idx][: item.comment_col].rstrip() + bracket_terminator
             fixed_any = True
 
         if fixed_any:

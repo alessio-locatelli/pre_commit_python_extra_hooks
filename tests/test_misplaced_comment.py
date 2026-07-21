@@ -105,6 +105,60 @@ def test_fix_is_noop_when_nothing_to_fix(source: str, tmp_path: Path) -> None:
     assert test_file.read_text() == source
 
 
+@pytest.mark.parametrize(
+    ("source", "fixed_source"),
+    [
+        (
+            "foo(\r\n    bar,\r\n)  # comment\r\n",
+            "foo(\r\n    bar,  # comment\r\n)\r\n",
+        ),
+        (
+            "result = some_function_with_very_long_name(\r\n"
+            "    argument_one,\r\n"
+            "    argument_two,\r\n"
+            ")  # This comment is deliberately long enough to force preceding placement\r\n",
+            "result = some_function_with_very_long_name(\r\n"
+            "    argument_one,\r\n"
+            "    # This comment is deliberately long enough to force preceding placement\r\n"
+            "    argument_two,\r\n"
+            ")\r\n",
+        ),
+    ],
+    ids=["inline-placement", "preceding-placement"],
+)
+def test_fix_preserves_crlf_on_touched_lines(source: str, fixed_source: str, tmp_path: Path) -> None:
+    # Regression: fix() used to hardcode "\n" when rewriting the expression
+    # and bracket lines, silently converting a CRLF file's touched lines to
+    # LF (ch. 3: "MUST preserve the intended newline convention"; ch. 21:
+    # "MUST NOT unexpectedly reformat unrelated code").
+    test_file = tmp_path / "test.py"
+    test_file.write_bytes(source.encode())
+    tree = ast.parse(source)
+    check = MisplacedCommentCheck()
+    violations = check.check(test_file, tree, source)
+
+    assert check.fix(test_file, violations, source, tree) is True
+    assert test_file.read_bytes() == fixed_source.encode()
+
+
+def test_check_and_fix_detect_comment_on_cr_only_source(tmp_path: Path) -> None:
+    # Regression: tokenize couldn't see a COMMENT token at all on an
+    # old-Mac-style CR-only file (io.StringIO.readline() doesn't split on a
+    # lone \r), so the violation went completely undetected — not just
+    # misplaced, invisible. Also confirms the fix preserves the CR-only
+    # convention on the lines it touches, same as the CRLF case above.
+    source = "foo(\r    bar,\r)  # comment\r"
+    test_file = tmp_path / "test.py"
+    test_file.write_bytes(source.encode())
+    tree = ast.parse(source)
+    check = MisplacedCommentCheck()
+    violations = check.check(test_file, tree, source)
+
+    assert len(violations) == 1
+    assert check.fix(test_file, violations, source, tree) is True
+    assert test_file.read_bytes() == b"foo(\r    bar,  # comment\r)\r"
+
+
 def test_fix_write_failure_returns_false(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     # Regression: fix() used to let atomic_write_text()'s OSError propagate
     # uncaught instead of returning False like every other check's fix().

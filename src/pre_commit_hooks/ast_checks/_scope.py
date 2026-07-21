@@ -13,7 +13,7 @@ import ast
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
 SCOPE_NODES: tuple[type[ast.AST], ...] = (
     ast.FunctionDef,
@@ -60,7 +60,25 @@ def iter_within_scope(node: ast.AST) -> Iterator[ast.AST]:
     exception is a walrus (`:=`) target inside a comprehension, which PEP
     572 binds to `node`'s own scope rather than the comprehension's.
     """
-    for child in ast.iter_child_nodes(node):
+    yield from iter_within_scope_from(ast.iter_child_nodes(node))
+
+
+def iter_within_scope_from(children: Iterable[ast.AST]) -> Iterator[ast.AST]:
+    """Like `iter_within_scope`, but starting from an explicit, caller-chosen
+    set of `children` instead of `ast.iter_child_nodes(node)` — for a caller
+    that already has its own, non-default notion of which of a node's
+    fields belong to a given scope (e.g. `forbid_vars._own_scope_children`,
+    which excludes a function's decorators/defaults/annotations: those
+    actually run in the *enclosing* scope, not the function's own).
+
+    Each child is still checked against `SCOPE_NODES`/`_COMPREHENSION_NODES`
+    itself before recursing into *its* descendants — a child that is itself
+    a nested function/lambda/comprehension is yielded but not descended
+    into, exactly as in `iter_within_scope`, so a caller can safely pass
+    children that happen to include one without wrongly crossing into its
+    own, separate scope.
+    """
+    for child in children:
         yield child
         if isinstance(child, _COMPREHENSION_NODES):
             yield from _walrus_targets(child)
