@@ -109,7 +109,7 @@ def check_file(filepath: str, forbidden_names: set[str]) -> list[str]:
 The existing optimizations a new check should reuse rather than reimplement:
 
 - **`_cache.py`**: a SHA-1 + mtime disk cache (like mypy/ruff's), keyed per file, so an unchanged file isn't re-analyzed on the next run.
-- **`_prefilter.py`**: a `git grep`-based pass that skips files that can't possibly match before any Python parsing happens. `git_grep_filter()` always keeps a file it can't confirm is readable (missing, permission-denied) as a candidate regardless of what `git grep` itself reports for it — never trust silence from a prefilter as proof a file doesn't need checking. See `docs/adr/0015-behavioral-contract-audit-file-discovery-path-handling.md`.
+- **`_prefilter.py`**: a `git grep`-based pass that skips files that can't possibly match before any Python parsing happens. `git_grep_filter()` always keeps a file it can't confirm is readable (missing, permission-denied) as a candidate regardless of what `git grep` itself reports for it — never trust silence from a prefilter as proof a file doesn't need checking. See `docs/adr/0015-behavioral-contract-audit-file-discovery-path-handling.md`. It also searches with `--untracked --no-exclude-standard`, so a file passed explicitly (by this hook's own CLI, or by pre-commit/prek) is always actually examined regardless of whether it's been `git add`ed or matches `.gitignore` — an explicit file argument is always in scope, whatever its VCS status. See `docs/adr/0024-behavioral-contract-audit-git-vcs-integration-and-security.md`.
 - **`CheckOrchestrator`**: parses each file's AST once per run and hands the same `tree`/`source` to every enabled check.
 
 Guidelines:
