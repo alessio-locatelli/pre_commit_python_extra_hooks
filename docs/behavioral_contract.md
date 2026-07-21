@@ -134,7 +134,6 @@ A requirement is a **MUST NOT** when the behavior is inherently unsafe, misleadi
 - **MUST NOT** return success merely because the process did not crash.
 - **MUST NOT** return success when files were silently skipped due to errors.
 - **MUST** distinguish, where useful, between:
-
   - no violations;
   - violations found;
   - violations fixed;
@@ -637,7 +636,6 @@ A requirement is a **MUST NOT** when the behavior is inherently unsafe, misleadi
 
 - **MUST** test the complete pipeline, not only individual edit-generation functions.
 - **MUST** test:
-
   1. source discovery;
   2. reading;
   3. parsing;

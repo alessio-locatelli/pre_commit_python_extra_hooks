@@ -4,6 +4,7 @@ import ast
 
 import pytest
 
+from pre_commit_hooks.ast_checks._base import classify_comment_lines
 from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
     AssignmentInfo,
     PatternType,
@@ -11,8 +12,6 @@ from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
     VariableLifecycle,
     VariableTracker,
     _evaluation_order_children,
-    _has_comment_above,
-    _has_inline_comment,
     detect_redundancy,
     is_preceded_by_call,
 )
@@ -547,7 +546,8 @@ def test_is_preceded_by_call_defaults_to_true_for_unknown_container() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _has_inline_comment / _has_comment_above
+# classify_comment_lines (used for AssignmentInfo.has_inline_comment /
+# has_comment_above)
 # ---------------------------------------------------------------------------
 
 
@@ -565,6 +565,17 @@ def test_is_preceded_by_call_defaults_to_true_for_unknown_container() -> None:
         # "it's") must not be mistaken for a comment delimiter.
         ('x = "it\'s fine"', False),
         ('x = "it\'s fine"  # comment', True),
+        # Regression: a naive single-char-lookback escape check used to
+        # treat this closing quote as itself escaped (only the immediately
+        # preceding backslash was checked, not the full run), leaving the
+        # scanner stuck "inside" the string through the rest of the line —
+        # silently hiding a real trailing comment, which --fix would then
+        # have deleted along with the assignment it decorated.
+        ('x = "\\\\"  # comment', True),
+        # Regression: an embedded, unescaped quote inside a triple-quoted
+        # string desyncs a single-quote-at-a-time toggle from the real
+        # triple-quote delimiter, again hiding a real trailing comment.
+        ('x = """a"b"""  # comment', True),
     ],
     ids=[
         "with-comment",
@@ -576,19 +587,42 @@ def test_is_preceded_by_call_defaults_to_true_for_unknown_container() -> None:
         "empty-string-then-comment",
         "mismatched-quote-in-string",
         "mismatched-quote-with-real-comment",
+        "escaped-backslash-before-closing-quote",
+        "embedded-quote-in-triple-quoted-string",
     ],
 )
-def test_has_inline_comment(line: str, *, expected: bool) -> None:
-    assert _has_inline_comment(1, [line]) is expected
+def test_classify_comment_lines_trailing_comment(line: str, *, expected: bool) -> None:
+    _comment_only, trailing = classify_comment_lines(line + "\n")
+    assert (1 in trailing) is expected
 
 
-def test_has_inline_comment_out_of_bounds() -> None:
-    lines = ["x = value"]
-    assert _has_inline_comment(0, lines) is False
-    assert _has_inline_comment(5, lines) is False
+def test_classify_comment_lines_comment_only_line() -> None:
+    comment_only, trailing = classify_comment_lines('# standalone\nx = "foo"\n')
+    assert comment_only == {1}
+    assert trailing == set()
 
 
-def test_has_comment_above_first_line_returns_false() -> None:
-    # Branch coverage: an assignment on line 1 has no line above to check.
-    lines = ['x = "foo"', "process(x)"]
-    assert _has_comment_above(1, lines) is False
+def test_classify_comment_lines_no_comments() -> None:
+    assert classify_comment_lines("x = 1\nprint(x)\n") == (set(), set())
+
+
+def test_has_comment_above_true_for_standalone_comment() -> None:
+    source = """
+def f():
+    # documented on purpose
+    data = "foo"
+    print(data)
+"""
+    lifecycle = _lifecycle_for(source, "data")
+    assert lifecycle.assignment.has_comment_above is True
+
+
+def test_has_comment_above_false_first_statement_in_function() -> None:
+    # Branch coverage: an assignment with no comment line above it.
+    source = """
+def f():
+    data = "foo"
+    print(data)
+"""
+    lifecycle = _lifecycle_for(source, "data")
+    assert lifecycle.assignment.has_comment_above is False

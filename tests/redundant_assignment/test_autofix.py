@@ -694,6 +694,42 @@ def test_cleanup_blank_lines_only_excess_above() -> None:
     assert lines[3] == "code\n"
 
 
+def test_fix_preserves_trailing_comment_on_string_ending_in_escaped_backslash(tmp_path: Path) -> None:
+    # Regression: the old naive comment-detection heuristic missed the
+    # trailing comment on a line like `sep = "\\"  # comment` (an escaped
+    # backslash right before the closing quote), so should_report_violation
+    # never applied its "skip if there's an inline comment" rule and --fix
+    # silently deleted the comment along with the assignment it decorated
+    # (ch. 2: "MUST preserve comments unless the rule explicitly owns the
+    # relevant comment"; ch. 21: "MUST preserve comments where possible").
+    source = 'def get_sep() -> str:\n    sep = "\\\\"  # Windows path separator\n    return sep\n'
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
+
+    check = RedundantAssignmentCheck()
+    violations = check.check(filepath, ast.parse(source), source)
+
+    assert violations == []
+    assert filepath.read_text() == source
+
+
+def test_check_reports_assignment_after_multiline_string_with_trailing_comment(tmp_path: Path) -> None:
+    # Regression: tokenize reports a multiline STRING token's line as only
+    # its start line, not every line it spans, so a comment trailing the
+    # closing `"""` on a later line was misclassified as comment-only —
+    # wrongly making has_comment_above() true for the *next* line and
+    # suppressing an otherwise-legitimate redundant-assignment report
+    # (ch. 2/21: comment detection must reflect the actual parsed source,
+    # not an under-counted token span).
+    source = 'def f():\n    x = """\nmulti\nline\n"""  # trailing comment\n    y = 5\n    return x, y\n'
+    filepath = tmp_path / "source.py"
+    filepath.write_text(source)
+
+    violations = RedundantAssignmentCheck().check(filepath, ast.parse(source), source)
+
+    assert any("'y'" in v.message for v in violations)
+
+
 def test_fix_inlines_use_on_line_with_non_ascii_text(tmp_path: Path) -> None:
     # Regression: ast.col_offset is a UTF-8 byte offset, not a character
     # offset. A non-ASCII character earlier on the use's line must not

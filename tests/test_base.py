@@ -11,13 +11,18 @@ from pre_commit_hooks.ast_checks._base import (
     FixValidationError,
     atomic_write_text,
     byte_col_to_char_col,
+    classify_comment_lines,
     fast_get_source_segment,
+    find_ignored_lines,
+    ignore_pattern_for,
     is_fix_errored,
     is_fix_failed,
     is_fix_rejected,
+    line_terminator,
     mark_fix_errored,
     mark_fix_failed,
     mark_fix_rejected,
+    normalize_for_tokenize,
     split_lines_like_ast,
 )
 from tests.factories import ViolationFactory
@@ -102,6 +107,80 @@ def test_split_lines_like_ast_matches_ast_own_line_numbering(source: str) -> Non
     # split_lines_like_ast deliberately reimplements rather than depends
     # on directly; this proves the two stay in agreement.
     assert split_lines_like_ast(source) == ast._splitlines_no_ff(source)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("x = 1\r\n", "\r\n"),
+        ("x = 1\n", "\n"),
+        ("x = 1\r", "\r"),
+        ("x = 1", ""),
+        ("", ""),
+    ],
+    ids=["crlf", "lf", "cr", "no-newline", "empty"],
+)
+def test_line_terminator(line: str, expected: str) -> None:
+    assert line_terminator(line) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "comment_only", "trailing"),
+    [
+        ("x = 1\nprint(x)\n", set(), set()),
+        ("# standalone\nx = 1\n", {1}, set()),
+        ("x = 1  # trailing\n", set(), {1}),
+        ("    # indented standalone\nx = 1\n", {1}, set()),
+        ("x = 1  # trailing\n# standalone\ny = 2\n", {2}, {1}),
+    ],
+    ids=["no-comments", "comment-only", "trailing-comment", "indented-comment-only", "both-kinds"],
+)
+def test_classify_comment_lines(source: str, comment_only: set[int], trailing: set[int]) -> None:
+    assert classify_comment_lines(source) == (comment_only, trailing)
+
+
+def test_classify_comment_lines_multiline_string_closing_line_is_code() -> None:
+    # Regression: tokenize reports a multiline STRING token's line as only
+    # its *start* line, not every line it spans — so a comment trailing the
+    # closing `"""` (on a later line) used to be misclassified as
+    # comment-only instead of trailing, since that later line was never
+    # recorded as containing code at all.
+    source = 'x = """\nmulti\nline\n"""  # trailing comment\ny = 5\n'
+    comment_only, trailing = classify_comment_lines(source)
+    assert trailing == {4}
+    assert comment_only == set()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("x = 1\rprint(x)\r", "x = 1\nprint(x)\n"),
+        ("x = 1\r\nprint(x)\r\n", "x = 1\r\nprint(x)\r\n"),
+        ("x = 1\nprint(x)\n", "x = 1\nprint(x)\n"),
+        ("x = 1\r\nprint(x)\r", "x = 1\r\nprint(x)\n"),
+    ],
+    ids=["lone-cr", "crlf-unchanged", "lf-unchanged", "mixed-crlf-then-lone-cr"],
+)
+def test_normalize_for_tokenize(source: str, expected: str) -> None:
+    assert normalize_for_tokenize(source) == expected
+
+
+def test_classify_comment_lines_on_cr_only_source() -> None:
+    # Regression: io.StringIO.readline() (unlike ast.parse(), which treats
+    # a bare \r as a line boundary the same as \n/\r\n) doesn't split on a
+    # lone \r at all, so tokenize used to see an old-Mac-style CR-only file
+    # as one giant physical line and never emit a COMMENT token on the
+    # line that actually has one — silently hiding a real trailing comment
+    # the same way the pre-tokenize naive heuristic did, just for files
+    # using a different newline convention.
+    source = 'x = 1\rsep = "\\\\"  # trailing comment\rprint(x, sep)\r'
+    _comment_only, trailing = classify_comment_lines(source)
+    assert trailing == {2}
+
+
+def test_find_ignored_lines_on_cr_only_source() -> None:
+    source = "x = 1\rdata = 2  # pytriage: ignore=TRI001\r"
+    assert find_ignored_lines(source, ignore_pattern_for("TRI001")) == {2}
 
 
 def _setup_plain(tmp_path: Path) -> Path:

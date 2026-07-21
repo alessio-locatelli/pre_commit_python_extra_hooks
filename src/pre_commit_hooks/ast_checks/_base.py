@@ -172,6 +172,48 @@ def split_lines_like_ast(source: str) -> list[str]:
     return _AST_LINE_PATTERN.findall(source)
 
 
+def line_terminator(line: str) -> str:
+    """Return whichever of `\\r\\n`/`\\n`/`\\r` `line` (from
+    `splitlines(keepends=True)`) ends with, or `""` if it has none (the
+    file's last line, when the file doesn't end in a newline).
+
+    A fixer that reconstructs a line's text from scratch (rather than
+    slicing the original string, which naturally keeps its own trailing
+    terminator attached) must reuse this instead of hardcoding `"\\n"`, or a
+    CRLF file gets silently mixed line endings on exactly the lines the fix
+    touched.
+    """
+    if line.endswith("\r\n"):
+        return "\r\n"
+    if line.endswith("\n"):
+        return "\n"
+    if line.endswith("\r"):
+        return "\r"
+    return ""
+
+
+_LONE_CR_PATTERN = re.compile(r"\r(?!\n)")
+
+
+def normalize_for_tokenize(source: str) -> str:
+    """Replace a bare `\\r` line ending with `\\n` before handing `source` to
+    `tokenize`.
+
+    Unlike `ast.parse()`/`split_lines_like_ast()` (which, like Python's own
+    grammar, treat a lone `\\r` as a line boundary), `io.StringIO.readline()`
+    does not — it only splits on `\\n` — so `tokenize.generate_tokens()` over
+    an old-Mac-style CR-only file sees the whole file as one giant physical
+    line and never emits a `COMMENT` token on the lines that actually have
+    one. Every call site in this codebase that tokenizes source for comment
+    detection must normalize through this first, or a real trailing comment
+    on such a file goes undetected — the same failure mode a naive
+    string-based `#` scan has, just from a different cause. Only ever
+    replaces a bare `\\r` (never one that's part of `\\r\\n`), so it can't
+    change the line count/line numbering `tokenize` reports.
+    """
+    return _LONE_CR_PATTERN.sub("\n", source)
+
+
 def fast_get_source_segment(source: str, ast_lines: list[str], node: ast.expr) -> str | None:
     """Equivalent to `ast.get_source_segment(source, node)` for a
     single-line node, without that stdlib function's own per-call cost.
@@ -313,7 +355,7 @@ def find_ignored_lines(source: str, pattern: re.Pattern[str]) -> set[int]:
     ignored: set[int] = set()
 
     try:
-        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        tokens = tokenize.generate_tokens(io.StringIO(normalize_for_tokenize(source)).readline)
 
         for tok_type, tok_string, (line, _), _, _ in tokens:
             if tok_type != tokenize.COMMENT:
@@ -327,6 +369,57 @@ def find_ignored_lines(source: str, pattern: re.Pattern[str]) -> set[int]:
         logger.debug(repr(token_error))
 
     return ignored
+
+
+_NON_CODE_TOKEN_TYPES = frozenset(
+    {
+        tokenize.COMMENT,
+        tokenize.NL,
+        tokenize.NEWLINE,
+        tokenize.INDENT,
+        tokenize.DEDENT,
+        tokenize.ENCODING,
+        tokenize.ENDMARKER,
+    }
+)
+
+
+def classify_comment_lines(source: str) -> tuple[set[int], set[int]]:
+    """Classify every 1-indexed line containing a `#` comment via
+    `tokenize`, into (comment_only_lines, trailing_comment_lines).
+
+    A naive single-quote-at-a-time text scan for `#` outside string
+    literals (checking only whether the immediately preceding character is
+    a backslash) misparses a line whose string content has an odd number of
+    the delimiter's own quote character before the comment — e.g. a string
+    ending in an escaped backslash (`"\\\\"  # comment`, where the escape
+    check wrongly treats the closing quote as itself escaped) or a
+    triple-quoted string with an embedded single quote — silently missing a
+    real trailing comment. `tokenize` parses the same lexical grammar
+    Python itself uses, so it can't be fooled the same way.
+    """
+    comment_lines: set[int] = set()
+    code_lines: set[int] = set()
+
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(normalize_for_tokenize(source)).readline)
+        for tok_type, _tok_string, start, end, _ in tokens:
+            if tok_type == tokenize.COMMENT:
+                comment_lines.add(start[0])
+            elif tok_type not in _NON_CODE_TOKEN_TYPES:
+                # A multiline token (a triple-quoted string spanning
+                # several lines) reports only its *start* line in
+                # start[0] — every line up to and including end[0] (e.g.
+                # the closing line, which can carry its own trailing
+                # comment) is just as much "code" as the first.
+                code_lines.update(range(start[0], end[0] + 1))
+    except tokenize.TokenError as token_error:  # pragma: no cover
+        # Defensive: source is already parsed by AST, so tokenizing it can't
+        # realistically fail. If it ever does, treat it as no comments found.
+        logger.debug(repr(token_error))
+        return set(), set()
+
+    return comment_lines - code_lines, comment_lines & code_lines
 
 
 def mark_fixed(violation: Violation) -> None:
