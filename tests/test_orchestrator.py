@@ -546,6 +546,36 @@ def test_process_files_second_call_uses_cache(tmp_path: Path, monkeypatch: pytes
     assert second[str(filepath)][0].error_code == "TRI001"
 
 
+def test_cache_hit_and_cache_miss_report_equivalent_violations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ch. 9: "MUST ensure that cache hits and cache misses produce
+    # equivalent lint results." fix_data is deliberately dropped from the
+    # cached JSON blob (see _cache_violations' own comment, since it may
+    # hold AST nodes) -- report-only mode is the only mode that ever reads
+    # from the cache (fix mode always bypasses it), and report-only mode
+    # never touches fix_data, so every field a printed diagnostic actually
+    # depends on must still match exactly between a fresh check and a
+    # cached one.
+    filepath = tmp_path / "module.py"
+    filepath.write_text("\n\n\ndata = 1\n")
+    checks: list[ASTCheck] = [ForbidVarsCheck(), ExcessiveBlankLinesCheck()]
+
+    cache_miss_orchestrator = CheckOrchestrator(checks=checks)
+    cache_miss = cache_miss_orchestrator.process_files([str(filepath)])[str(filepath)]
+    assert {v.error_code for v in cache_miss} == {"TRI001", "TRI002"}
+
+    def boom(*_args: object, **_kws: object) -> None:
+        raise AssertionError("_check_file should not run on a cache hit")
+
+    cache_hit_orchestrator = CheckOrchestrator(checks=checks)
+    monkeypatch.setattr(cache_hit_orchestrator, "_check_file", boom)
+    cache_hit = cache_hit_orchestrator.process_files([str(filepath)])[str(filepath)]
+
+    def as_comparable(v: Violation) -> tuple[str, str, int, int, str, bool]:
+        return (v.check_id, v.error_code, v.line, v.col, v.message, v.fixable)
+
+    assert [as_comparable(v) for v in cache_hit] == [as_comparable(v) for v in cache_miss]
+
+
 def test_process_files_different_check_set_forces_recheck(tmp_path: Path) -> None:
     # Changing which checks are enabled between runs must invalidate the
     # cache entry from a previous run with a different check set.
@@ -1838,3 +1868,33 @@ def test_main_malformed_cli_argument_exits_via_argparse(capsys: pytest.CaptureFi
 
     assert exc_info.value.code == 2
     assert "unrecognized arguments" in capsys.readouterr().err
+
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_BAD_FIXTURE_PATHS = sorted(_FIXTURES_DIR.glob("**/bad/*.py"))
+
+
+@pytest.mark.parametrize(
+    "fixture_path",
+    _BAD_FIXTURE_PATHS,
+    ids=[str(p.relative_to(_FIXTURES_DIR)) for p in _BAD_FIXTURE_PATHS],
+)
+def test_fix_converges_after_one_pass_across_all_checks(fixture_path: Path, tmp_path: Path) -> None:
+    # ch. 10: "MUST ensure that applying the same fix repeatedly converges
+    # to a stable result"; "MUST test fix idempotence explicitly". Runs
+    # --fix (every check together, matching real pre-commit/prek usage)
+    # twice over every existing bad/*.py fixture and asserts the second
+    # pass leaves the file exactly as the first pass did. Previously this
+    # was only ever verified once, ad hoc, by docs/audits/0002's own manual
+    # spot-check script -- never as a committed regression test that would
+    # actually catch a future fix-cycle regression.
+    target = tmp_path / fixture_path.name
+    target.write_text(fixture_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    CheckOrchestrator(checks=load_checks(), fix_mode=True).process_files([str(target)])
+    first_pass = target.read_text(encoding="utf-8")
+
+    CheckOrchestrator(checks=load_checks(), fix_mode=True).process_files([str(target)])
+    second_pass = target.read_text(encoding="utf-8")
+
+    assert second_pass == first_pass

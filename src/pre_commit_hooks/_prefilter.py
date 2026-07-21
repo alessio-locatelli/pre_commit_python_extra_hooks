@@ -95,15 +95,16 @@ def git_grep_filter(filepaths: Sequence[str], pattern: str, *, fixed_string: boo
         if git_grep_result.returncode == 0 and not git_grep_result.stderr:
             # git grep returns paths relative to repo root, but the format
             # of the input paths (absolute vs relative) must be preserved.
-            git_matches = {f for f in git_grep_result.stdout.split("\0") if f}
+            git_matches = {Path(f).resolve() for f in git_grep_result.stdout.split("\0") if f}
 
+            # Iterating a dict (insertion-ordered, following filepaths' own
+            # order) rather than the git_matches set itself: string hashing
+            # is randomized per process by default (PYTHONHASHSEED), so
+            # iterating the set directly would make this function's own
+            # return order vary run-to-run for identical input -- ch. 9:
+            # "MUST NOT allow hash-table ... order to affect the result".
             input_map = {Path(fp).resolve(): fp for fp in filepaths}
-
-            matches = []
-            for git_path in git_matches:
-                resolved = Path(git_path).resolve()
-                if resolved in input_map:
-                    matches.append(input_map[resolved])
+            matches = [fp for resolved, fp in input_map.items() if resolved in git_matches]
 
             return matches + unreadable
         if git_grep_result.returncode == 1 and not git_grep_result.stderr:
