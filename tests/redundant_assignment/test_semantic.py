@@ -7,13 +7,13 @@ import pytest
 
 from pre_commit_hooks.ast_checks.redundant_assignment.analysis import (
     AssignmentInfo,
-    PatternType,
     UsageInfo,
     VariableLifecycle,
 )
 from pre_commit_hooks.ast_checks.redundant_assignment.semantic import (
     _adds_verbosity_or_context,
     _contains_nondeterministic_call,
+    _is_generic_call_result_name,
     _is_named_constant_pattern,
     _is_test_file,
     _would_require_parentheses,
@@ -90,7 +90,14 @@ def _lifecycle_no_node(rhs_source: str, var_name: str = "x") -> VariableLifecycl
 
 
 def _lifecycle_with_use_node(
-    rhs_source: str, var_name: str = "x", use_stmt_source: str = "x.method()"
+    rhs_source: str,
+    var_name: str = "x",
+    use_stmt_source: str = "x.method()",
+    # Defaults to immediate (assignment at stmt_index 0, use at 1) — an
+    # Attribute/Call RHS use must be the very next statement to be
+    # mechanically safe to inline (issue #76). Callers testing a
+    # non-immediate use pass a larger value explicitly.
+    use_stmt_index: int = 1,
 ) -> VariableLifecycle:
     rhs_node = ast.parse(rhs_source, mode="eval").body
     assignment = AssignmentInfo(
@@ -114,7 +121,7 @@ def _lifecycle_with_use_node(
                 var_name=var_name,
                 line=5,
                 col=0,
-                stmt_index=4,
+                stmt_index=use_stmt_index,
                 context="unknown",
                 scope_id=0,
                 node=use_node,
@@ -126,25 +133,32 @@ def _lifecycle_with_use_node(
 
 # ---------------------------------------------------------------------------
 # should_autofix
+#
+# Issue #76 unified autofix eligibility: it's no longer pattern-dependent
+# and no longer gated by a semantic-score ceiling (that ceiling now only
+# governs *reporting*, via should_report_violation's AggressivenessLevel).
+# Autofix is purely mechanical safety — loop/control-flow position, RHS
+# shape/arg count, line length, and call-reordering/deferral hazards.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("rhs_source", "var_name", "pattern", "expected"),
+    ("rhs_source", "var_name"),
     [
-        # "unknown" context, no real use node attached.
-        ("get_value()", "x", PatternType.IMMEDIATE_SINGLE_USE, False),
-        ("func(1, 2)", "x", PatternType.IMMEDIATE_SINGLE_USE, False),
-        ("func()", "x", PatternType.IMMEDIATE_SINGLE_USE, False),
-        ("func({k: v for k, v in items})", "x", PatternType.IMMEDIATE_SINGLE_USE, False),
-        # "has_" prefix scores +50, well above the semantic-score cutoff.
-        ("check()", "has_something", PatternType.SINGLE_USE, False),
+        # "unknown" context, no real use node attached, so
+        # is_preceded_by_call defaults to the conservative "unsafe" answer
+        # regardless of RHS shape or variable name.
+        ("get_value()", "x"),
+        ("func(1, 2)", "x"),
+        ("func()", "x"),
+        ("func({k: v for k, v in items})", "x"),
+        ("check()", "has_something"),
     ],
-    ids=["simple-call", "call-with-simple-args", "no-args-call", "complex-call-args", "high-semantic-score"],
+    ids=["simple-call", "call-with-simple-args", "no-args-call", "complex-call-args", "descriptive-name"],
 )
-def test_should_autofix_no_node(rhs_source: str, var_name: str, pattern: PatternType, *, expected: bool) -> None:
+def test_should_autofix_no_node(rhs_source: str, var_name: str) -> None:
     lifecycle = _lifecycle_no_node(rhs_source, var_name)
-    assert should_autofix(lifecycle, pattern) is expected
+    assert should_autofix(lifecycle) is False
 
 
 @pytest.mark.parametrize(
@@ -152,69 +166,80 @@ def test_should_autofix_no_node(rhs_source: str, var_name: str, pattern: Pattern
     [
         ("obj.attr", True),
         ("func(key=value)", True),
-        ("func(a, b, c)", False),  # Exceeds the 2-arg limit for SINGLE_USE.
+        ("func(a, b, c)", False),  # Exceeds the 2-arg limit.
     ],
     ids=["attribute", "keywords", "complex-call-rejected"],
 )
-def test_should_autofix_single_use_with_real_node(rhs_source: str, *, expected: bool) -> None:
+def test_should_autofix_with_real_node(rhs_source: str, *, expected: bool) -> None:
     lifecycle = _lifecycle_with_use_node(rhs_source)
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is expected
+    assert should_autofix(lifecycle) is expected
 
 
-def test_should_autofix_with_single_use_pattern() -> None:
-    # SINGLE_USE pattern CAN be auto-fixed for simple cases (simple call
-    # with no args).
+def test_should_autofix_allows_simple_zero_arg_call() -> None:
     lifecycle = _lifecycle_with_use_node("get_value()")
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
+    assert should_autofix(lifecycle) is True
+
+
+@pytest.mark.parametrize("rhs_source", ["get_value()", "obj.attr"], ids=["call", "attribute"])
+def test_should_autofix_rejects_non_immediate_attribute_or_call_use(rhs_source: str) -> None:
+    # Regression (code review of issue #76): Attribute/Call RHS can run
+    # arbitrary code when evaluated, so inlining one is only safe when the
+    # use is the very next statement — otherwise an intervening
+    # statement's own effects could end up reordered relative to it, e.g.
+    # `result = pop(queue); queue.clear(); return result` must not become
+    # `queue.clear(); return pop(queue)`, which pops after clearing
+    # instead of before. A Constant/Name RHS has no such hazard (see
+    # test_should_autofix_returns_true_for_single_use_constant_rhs), so
+    # this restriction is specific to Attribute/Call.
+    lifecycle = _lifecycle_with_use_node(rhs_source, use_stmt_index=4)
+    assert should_autofix(lifecycle) is False
 
 
 def test_should_autofix_returns_false_for_loop_assignment() -> None:
     rhs_node = ast.parse('"foo"', mode="eval").body
     lifecycle = _make_single_use_lifecycle('"foo"', rhs_node, in_loop=True)
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+    assert should_autofix(lifecycle) is False
 
 
 def test_should_autofix_returns_false_for_multiline_rhs() -> None:
     rhs_node = ast.parse('"foo"', mode="eval").body
     lifecycle = _make_single_use_lifecycle('"foo"\n"bar"', rhs_node)
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+    assert should_autofix(lifecycle) is False
 
 
-def test_should_autofix_returns_false_for_long_var_name_immediate() -> None:
-    # Uses 'myvariablex' (11 chars, no underscores) with a 10-char Name
-    # RHS to keep semantic_score=0 — the name/rhs length ratio stays below
-    # 1.1 so no score is added from the ratio check. The code therefore
-    # reaches the len(var_name) > 10 guard rather than returning early at
-    # the semantic_score > 10 check. This guard applies only to
-    # IMMEDIATE_SINGLE_USE / LITERAL_IDENTITY patterns.
+def test_should_autofix_allows_long_var_name_when_line_length_is_fine() -> None:
+    # Issue #76: the old var-name-length > 10 guard was only ever a crude
+    # proxy for "inlining might push the line too long" — now superseded
+    # entirely by the real line-length check below (with the actual use
+    # line, or the RHS-length estimate as a fallback), so a long name on
+    # its own is no longer disqualifying.
     rhs_node = ast.parse("something1", mode="eval").body
     lifecycle = _make_single_use_lifecycle("something1", rhs_node, var_name="myvariablex")
-    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
+    assert should_autofix(lifecycle) is True
 
 
 def test_should_autofix_returns_true_for_single_use_constant_rhs() -> None:
     rhs_node = ast.parse("42", mode="eval").body
     lifecycle = _make_single_use_lifecycle("42", rhs_node, var_name="x")
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
+    assert should_autofix(lifecycle) is True
 
 
-def test_should_autofix_returns_false_for_non_call_non_attr_rhs_single_use() -> None:
-    # A list literal falls through all isinstance checks in the
-    # SINGLE_USE block and reaches the final ``return False``.
+def test_should_autofix_returns_false_for_non_call_non_attr_rhs() -> None:
+    # A list literal falls through every isinstance check and reaches the
+    # final ``return False``.
     rhs_node = ast.parse("[1, 2, 3]", mode="eval").body
     lifecycle = _make_single_use_lifecycle("[1, 2, 3]", rhs_node)
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is False
+    assert should_autofix(lifecycle) is False
 
 
-def test_should_autofix_allows_zero_arg_call_for_immediate_single_use() -> None:
-    # Issue #22 gap 2: IMMEDIATE_SINGLE_USE previously excluded every Call
-    # RHS, even trivial zero-arg ones like `check = ForbidVarsCheck()`. A
-    # zero-arg call with nothing else evaluating before its use (within
-    # the use's statement) has no sibling operand whose order inlining
-    # could disturb, so it gets a narrow carve-out here.
+def test_should_autofix_allows_zero_arg_call() -> None:
+    # Issue #22 gap 2 (now generalized by issue #76 to every pattern, not
+    # just SINGLE_USE): a zero-arg call with nothing else evaluating
+    # before its use (within the use's statement) has no sibling operand
+    # whose order inlining could disturb, so it's safe to inline.
     rhs_node = ast.parse("ForbidVarsCheck()", mode="eval").body
     lifecycle = _make_single_use_lifecycle("ForbidVarsCheck()", rhs_node, var_name="check", preceded_by_call=False)
-    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is True
+    assert should_autofix(lifecycle) is True
 
 
 def test_should_autofix_rejects_zero_arg_call_preceded_by_a_call() -> None:
@@ -227,16 +252,18 @@ def test_should_autofix_rejects_zero_arg_call_preceded_by_a_call() -> None:
     # of before it.
     rhs_node = ast.parse("next_value()", mode="eval").body
     lifecycle = _make_single_use_lifecycle("next_value()", rhs_node, var_name="value", preceded_by_call=True)
-    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
+    assert should_autofix(lifecycle) is False
 
 
-def test_should_autofix_rejects_call_with_args_for_immediate_single_use() -> None:
-    # The zero-arg carve-out must stay narrow: a call with any argument is
-    # still rejected for IMMEDIATE_SINGLE_USE/LITERAL_IDENTITY, unlike the
-    # more permissive allowance already granted to SINGLE_USE.
+def test_should_autofix_allows_call_with_one_arg() -> None:
+    # Issue #76: autofix eligibility is no longer pattern-dependent — a
+    # call with a single simple argument used to be rejected whenever the
+    # pattern was IMMEDIATE_SINGLE_USE/LITERAL_IDENTITY (only a bare
+    # zero-arg carve-out was allowed there); the same ≤2-arg allowance
+    # SINGLE_USE already had now applies uniformly.
     rhs_node = ast.parse("make_check(1)", mode="eval").body
     lifecycle = _make_single_use_lifecycle("make_check(1)", rhs_node, var_name="check")
-    assert should_autofix(lifecycle, PatternType.IMMEDIATE_SINGLE_USE) is False
+    assert should_autofix(lifecycle) is True
 
 
 def test_should_autofix_uses_real_use_line_length_when_available() -> None:
@@ -250,12 +277,48 @@ def test_should_autofix_uses_real_use_line_length_when_available() -> None:
 
     # Without the real use line, the conservative RHS/var-name estimate
     # says inlining is safe (both are short).
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE) is True
+    assert should_autofix(lifecycle) is True
 
     # _make_single_use_lifecycle fixes the use at line 2 (1-indexed).
     long_use_line = '    violations = check.check(Path("tests/test_something_with_a_long_name.py"), tree, source)'
     source_lines = ["def f():", long_use_line]
-    assert should_autofix(lifecycle, PatternType.SINGLE_USE, source_lines=source_lines) is False
+    assert should_autofix(lifecycle, source_lines=source_lines) is False
+
+
+# ---------------------------------------------------------------------------
+# _is_generic_call_result_name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("var_name", "rhs_source", "expected"),
+    [
+        ("result", "get_value()", True),
+        ("value", "get_value()", True),
+        ("x", "get_value()", True),  # Too short (<=2 chars) to carry any domain meaning.
+        ("check", "ForbidVarsCheck()", True),  # Restates the callee's own name.
+        ("state", "me.state(State)", True),  # Restates the callee's own (attribute) name.
+        ("warning", "conn.recv()", False),
+        ("ci_headers", "CIMultiDict(headers)", False),
+        # Branch coverage: the called function is neither a Name nor an
+        # Attribute (e.g. a subscript), so callee_name stays None.
+        ("something_descriptive", "funcs[0]()", False),
+    ],
+    ids=[
+        "generic-result",
+        "generic-value",
+        "short-name",
+        "self-referential-name-call",
+        "self-referential-name-attribute-call",
+        "descriptive-name",
+        "descriptive-multipart-name",
+        "call-with-subscript-func",
+    ],
+)
+def test_is_generic_call_result_name(var_name: str, rhs_source: str, *, expected: bool) -> None:
+    rhs_node = ast.parse(rhs_source, mode="eval").body
+    assert isinstance(rhs_node, ast.Call)
+    assert _is_generic_call_result_name(var_name, rhs_node) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +332,7 @@ def test_should_autofix_uses_real_use_line_length_when_available() -> None:
         ("x", "a + b", 15),  # BinOp adds 15.
         ("x", "1 if c else 0", 20),  # IfExp adds 20.
         ("has_permission", "check_something()", 50),  # has_ prefix.
+        ("formatted_result", "raw_ts", 60),  # transformative verb.
         ("item_count", "len(items)", 40),  # descriptive suffix.
         ("result", "[x for x in items]", 30),  # list comprehension.
         ("result", "-value", 10),  # unary op.
@@ -284,6 +348,7 @@ def test_should_autofix_uses_real_use_line_length_when_available() -> None:
         "binop",
         "ifexp",
         "descriptive-boolean-prefix",
+        "transformative-verb",
         "descriptive-suffix",
         "list-comprehension",
         "unary-operation",

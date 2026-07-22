@@ -219,7 +219,7 @@ def get_user(id: int) -> User:  # pytriage: ignore=TRI004
 
 **TRI005**: Detects and optionally auto-fixes redundant variable assignments where the variable doesn't add meaningful clarity or simplification to the code.
 
-**Why?** Unnecessary intermediate variables add cognitive load without providing value. However, variables that add semantic meaning (transformative verbs like "formatted", "validated") or break down complex expressions are preserved.
+**Why?** Unnecessary intermediate variables add cognitive load without providing value. However, variables that add semantic meaning (transformative verbs like "formatted", "validated") or break down complex expressions are preserved. This includes a variable introduced purely to keep a line under the length limit: a multiline call/expression is preferable to a redundant intermediate variable invented just to shorten a line — the length problem belongs to the expression's own formatting, not to naming a value that doesn't otherwise need a name.
 
 **Patterns Detected:**
 
@@ -274,16 +274,34 @@ print(msg)
   - Tuple unpacking (skipped)
   - Class attributes (skipped)
 
-**Autofix criteria:**
+**Aggressiveness level:** `--redundant-assignment-level={conservative,permissive}` (default `conservative`) controls what counts as a violation in the first place:
 
-- **Immediate single use / literal identity** (conservative): semantic value score ≤ 10, variable name ≤ 10 characters, and RHS is a literal, name, simple attribute (`obj.attr`), or a zero-argument call — the last case only when inlining can't change how often or in what order the call runs (not inside a loop or lambda, and nothing potentially effectful — a call, attribute/subscript access, `await`/`yield`, an operator, or a conditional branch — evaluates before the use)
-- **Single-use variables** (more permissive, function-scope single use): semantic value score ≤ 20, and RHS is a literal, name, attribute, or a call with at most 2 simple arguments (subject to the same execution-order safety check as above)
+- **`conservative`** (default): reports only what scores as very low semantic value — semantic value score ≤ 10 for immediate-single-use/literal-identity assignments, ≤ 20 for function-scope single-use ones — the same bar the autofixer itself used to gate on before this flag existed. It also declines to report a single-use call assignment at all when the variable's name doesn't look like a generic placeholder (`result`, `value`, `data`, …) or a restatement of the call itself (`check = ForbidVarsCheck()`) — e.g. `warning = conn.recv()` is left alone, since `warning` is presumed to be documenting a non-obvious return value rather than restating it.
+- **`permissive`**: reports the broader set TRI005 used to report by default before this flag existed — semantic value score < 50, regardless of pattern, with no generic-placeholder-name check.
+
+Defaulting to `conservative` is deliberate: someone confronted with a flood of suggestions on unfamiliar code is more likely to disable the check outright than to go discover a stricter flag, so the out-of-the-box experience undersells rather than oversells what gets flagged.
+
+**Autofix criteria:** once something is reported (at either level), `--fix` applies to it automatically whenever it's mechanically safe to inline — there's no separate, softer score-based ceiling narrowing autofix below what's reported:
+
+- NOT inside a loop or other control flow
+- RHS is a literal or name (always safe to move), or — only when the use is the very next statement after the assignment — an attribute (any chain depth) or a call with at most 2 simple positional arguments (or any number of keyword arguments up to 2, with no positional ones); the attribute/call case additionally requires that inlining can't change how often or in what order it runs (not inside a loop or lambda, and nothing potentially effectful — a call, attribute/subscript access, `await`/`yield`, an operator, or a conditional branch — evaluates before the use), since either one can run arbitrary code (e.g. a `@property` getter) when evaluated
 - Inlining must not push the usage line past 79 characters, checked against the actual line
 - RHS must not span multiple lines
 
 ```yaml
 - id: ruff-extra-rules
   args: [--select=redundant-assignment, --fix]
+```
+
+```yaml
+# Report (and fix) the broader, permissive set of violations:
+- id: ruff-extra-rules
+  args:
+    [
+      --select=redundant-assignment,
+      --redundant-assignment-level=permissive,
+      --fix,
+    ]
 ```
 
 **Example autofix:**

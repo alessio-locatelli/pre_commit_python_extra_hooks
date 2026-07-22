@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import ast
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from .analysis import PatternType, UsageInfo, VariableLifecycle, is_preceded_by_call
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class AggressivenessLevel(Enum):
+    """See `should_report_violation`."""
+
+    CONSERVATIVE = auto()
+    PERMISSIVE = auto()
 
 
 def _is_test_file(filepath: Path | None) -> bool:
@@ -512,7 +520,9 @@ def _is_named_constant_pattern(var_name: str, rhs_node: ast.expr) -> bool:
 
 def should_report_violation(
     lifecycle: VariableLifecycle,
+    pattern: PatternType,
     filepath: Path | None = None,
+    level: AggressivenessLevel = AggressivenessLevel.CONSERVATIVE,
 ) -> bool:
     assignment = lifecycle.assignment
 
@@ -593,6 +603,21 @@ def should_report_violation(
     if lifecycle.uses and all(use.in_comprehension for use in lifecycle.uses):
         return False
 
+    # Rule 11 (conservative level only): a Call RHS returns some domain
+    # object the tracker can't inspect, so a name that isn't a generic
+    # placeholder (`result`, `value`, ...) or a restatement of the callee
+    # itself (`check = ForbidVarsCheck()`) is presumed to be the author
+    # deliberately documenting what that call returns — e.g. `warning =
+    # conn.recv()` or `ci_headers = CIMultiDict(headers)` — rather than a
+    # redundant restatement of it. Doesn't apply to the permissive level,
+    # which reports the same broader set TRI005 always used to.
+    if (
+        level is AggressivenessLevel.CONSERVATIVE
+        and isinstance(assignment.rhs_node, ast.Call)
+        and not _is_generic_call_result_name(assignment.var_name, assignment.rhs_node)
+    ):
+        return False
+
     semantic_score = calculate_semantic_value(
         var_name=assignment.var_name,
         rhs_source=assignment.rhs_source,
@@ -601,17 +626,95 @@ def should_report_violation(
         filepath=filepath,
     )
 
-    return semantic_score < 50
+    return semantic_score <= _report_score_ceiling(level, pattern)
 
 
-def _call_use_is_safe_to_inline(use: UsageInfo) -> bool:
-    """True if inlining a Call RHS at `use` won't change how often, when, or
-    relative to what else the call executes.
+# Placeholder names that add no descriptive value of their own — matching
+# the generic-name sets already used elsewhere in this module (Pattern 4 of
+# `_adds_verbosity_or_context`, `_is_named_constant_pattern`) plus a handful
+# of common synonyms, including `tree` (an `ast.parse()`-style result has no
+# more specific conventional name). A name this short (<=2 characters, e.g.
+# `x`) is treated as equally generic — too short to carry any domain
+# meaning either way.
+_GENERIC_CALL_RESULT_NAMES = frozenset(
+    {
+        "data",
+        "result",
+        "value",
+        "val",
+        "output",
+        "obj",
+        "dict",
+        "num",
+        "number",
+        "count",
+        "total",
+        "temp",
+        "tmp",
+        "tree",
+    }
+)
 
-    Two independent risks, both specific to Call RHS (a Name/Attribute/
-    Constant RHS gives the same value no matter when or how many times it's
-    evaluated, given the single-assignment invariant already enforced
-    elsewhere in this module — a Call doesn't):
+
+def _is_generic_call_result_name(var_name: str, rhs_node: ast.Call) -> bool:
+    """True when `var_name` adds no descriptive value beyond what
+    `rhs_node`'s call already conveys — either a placeholder generic enough
+    to carry no domain meaning on its own, or a name that just restates the
+    callee it's assigned from (`check = ForbidVarsCheck()`, `state =
+    me.state(...)`) rather than describing the domain value the call
+    returns (`warning = conn.recv()`).
+    """
+    if len(var_name) <= 2:
+        return True
+
+    var_lower = var_name.lower()
+    if var_lower in _GENERIC_CALL_RESULT_NAMES:
+        return True
+
+    callee_name = None
+    if isinstance(rhs_node.func, ast.Name):
+        callee_name = rhs_node.func.id
+    elif isinstance(rhs_node.func, ast.Attribute):
+        callee_name = rhs_node.func.attr
+
+    return callee_name is not None and var_lower in callee_name.lower()
+
+
+# Score ceiling a violation's `calculate_semantic_value` must be at or under
+# to be reported. The conservative-level ceilings reuse the exact numbers
+# `should_autofix` used to gate autofix eligibility on before issue #76 — so
+# the conservative level now reports only what the old default used to
+# auto-fix, and reporting alone (no separate, softer autofix-specific
+# ceiling) decides what's eligible for --fix. The permissive ceiling (49,
+# i.e. score < 50) reproduces TRI005's old, single default reporting bar.
+_CONSERVATIVE_REPORT_CEILING = {
+    PatternType.IMMEDIATE_SINGLE_USE: 10,
+    PatternType.LITERAL_IDENTITY: 10,
+    PatternType.SINGLE_USE: 20,
+}
+_PERMISSIVE_REPORT_CEILING = 49
+
+
+def _report_score_ceiling(level: AggressivenessLevel, pattern: PatternType) -> int:
+    if level is AggressivenessLevel.PERMISSIVE:
+        return _PERMISSIVE_REPORT_CEILING
+    return _CONSERVATIVE_REPORT_CEILING[pattern]
+
+
+def _effectful_rhs_use_is_safe_to_inline(use: UsageInfo) -> bool:
+    """True if inlining a Call or Attribute RHS at `use` won't change how
+    often, when, or relative to what else it executes.
+
+    Applies to both — not just Call — because attribute access can run
+    arbitrary code too (a `@property` getter or `__getattr__`/descriptor),
+    exactly like `_POTENTIALLY_EFFECTFUL_NODE_TYPES` already treats it for
+    evaluation-order purposes elsewhere in this package. A Name/Constant
+    RHS needs none of this: it gives the same value no matter when or how
+    many times it's evaluated, given the single-assignment invariant (and,
+    for Name, the "reference reassigned before use" exclusion) already
+    enforced elsewhere in this module.
+
+    Two independent risks:
     - Repeated/deferred execution: a use inside a loop or lambda body runs
       0, 1, or many times, at a different point than the original
       assignment (once, immediately) — e.g. `x = make(); for _ in r: f(x)`
@@ -619,7 +722,7 @@ def _call_use_is_safe_to_inline(use: UsageInfo) -> bool:
       defer the call to whenever (if ever) the lambda is later invoked.
     - Reordering: a sibling expression evaluated before `use` within its
       statement (see `is_preceded_by_call`) could run before the inlined
-      call, when it used to run after.
+      expression, when it used to run after.
     """
     return not use.in_loop and not use.in_lambda and not is_preceded_by_call(use)
 
@@ -688,33 +791,32 @@ def fstring_splice_is_safe(rhs_node: ast.expr, use: UsageInfo) -> bool | None:
 
 def should_autofix(
     lifecycle: VariableLifecycle,
-    pattern: PatternType,
-    filepath: Path | None = None,
     # Source lines of the file being analyzed (no line endings), used to
     # check the *actual* usage line's length so the `[FIXABLE]` label
     # matches what `apply_fixes` will really do. When omitted (e.g. direct
     # unit tests), falls back to the conservative RHS-length estimate.
     source_lines: list[str] | None = None,
 ) -> bool:
-    """Auto-fix criteria:
-    1. For IMMEDIATE_SINGLE_USE or LITERAL_IDENTITY patterns (conservative):
-       - NOT inside loops or control flow
-       - Semantic score ≤ 10 (extremely low semantic value)
-       - Variable name ≤ 10 chars
-       - RHS must be simple: constant, name, simple attribute, or zero-arg
-         call with no ast.Call evaluating before its use within the use's
-         statement (see analysis.is_preceded_by_call) — otherwise inlining
-         could reorder the call's side effects relative to a sibling
-         expression
-       - Inlining must not exceed line length
-       - RHS must not be multiline
-
-    2. For SINGLE_USE patterns (more aggressive for function-scope single use):
-       - NOT inside loops or control flow
-       - Semantic score ≤ 20 (low semantic value)
-       - RHS must be reasonably simple: constant, name, attribute, or simple call
-       - Inlining must not exceed line length
-       - RHS must not be multiline
+    """Whether a *reported* violation (see `should_report_violation`) is
+    also mechanically safe to inline. This is the only gate on autofix
+    eligibility (issue #76) — pattern-independent, and with no separate,
+    softer semantic-score ceiling narrowing it further below whatever was
+    already reported. "Mechanically safe" means:
+    - NOT inside a loop or other control flow
+    - RHS is a single line, and inlining it doesn't exceed the line length
+      on the actual usage line
+    - RHS is a constant or name (always safe — see
+      `_effectful_rhs_use_is_safe_to_inline`), or an attribute (any chain
+      depth) or call whose use is the very next statement after the
+      assignment, runs exactly once at the point the assignment already
+      runs — never inside a loop/lambda, and with nothing effectful
+      evaluating before it within its statement (see
+      `_effectful_rhs_use_is_safe_to_inline`) — with a call additionally
+      capped at 2 positional args and no keywords, or vice versa, so
+      inlining doesn't turn the use site into a visually complex expression
+    - No f-string-splice hazard (issue #72); the RHS-aliasing hazard (issue
+      #74) is already ruled out upstream by `detect_redundancy` refusing to
+      report that pattern at all, so it never reaches this function
     """
     assignment = lifecycle.assignment
 
@@ -743,61 +845,32 @@ def should_autofix(
     elif _would_exceed_line_length(lifecycle, absolute_threshold=40):
         return False
 
-    semantic_score = calculate_semantic_value(
-        var_name=assignment.var_name,
-        rhs_source=assignment.rhs_source,
-        rhs_node=assignment.rhs_node,
-        has_type_annotation=assignment.has_type_annotation,
-        filepath=filepath,
-    )
-
     rhs_node = assignment.rhs_node
-
-    if pattern in {PatternType.IMMEDIATE_SINGLE_USE, PatternType.LITERAL_IDENTITY}:
-        if semantic_score > 10:
-            return False
-
-        if len(assignment.var_name) > 10:
-            return False
-
-        if isinstance(rhs_node, ast.Constant | ast.Name):
-            return True
-
-        # Only single-level attribute access (obj.attr), not a chain (obj.x.y.z).
-        if isinstance(rhs_node, ast.Attribute) and isinstance(rhs_node.value, ast.Name):
-            return True
-
-        # Zero-arg calls (e.g. `ForbidVarsCheck()`), but only when the use
-        # runs exactly once, at the same point the call already runs — not
-        # inside a loop/lambda (see _call_use_is_safe_to_inline) or preceded
-        # by another call/effect within its statement (see
-        # analysis.is_preceded_by_call), either of which could change how
-        # often, or in what order, the call's side effects occur.
-        if isinstance(rhs_node, ast.Call) and not rhs_node.args and not rhs_node.keywords:
-            return _call_use_is_safe_to_inline(lifecycle.uses[0])
-
-        return False
-
-    # All other patterns already returned above, so we're always in
-    # SINGLE_USE here — used once in the entire function, not just
-    # immediately after assignment, so it gets a higher score ceiling.
-    if semantic_score > 20:
-        return False
 
     if isinstance(rhs_node, ast.Constant | ast.Name):
         return True
 
-    # Any attribute chain is allowed here (obj.attr or obj.x.y.z), unlike
-    # the single-level-only rule above.
+    # Attribute and Call RHS can both run arbitrary code when evaluated
+    # (see _effectful_rhs_use_is_safe_to_inline), so inlining either one is
+    # only safe when the use is the very next statement after the
+    # assignment (lifecycle.is_immediate_use) — otherwise an intervening
+    # statement's own effects could end up running before or after the
+    # inlined expression's, when they didn't originally. Example:
+    # `result_data = pop(queue); queue.clear(); return result_data` must
+    # not become `queue.clear(); return pop(queue)`, which pops after
+    # clearing instead of before.
+    if not lifecycle.is_immediate_use:
+        return False
+
     if isinstance(rhs_node, ast.Attribute):
-        return True
+        return _effectful_rhs_use_is_safe_to_inline(lifecycle.uses[0])
 
     # Only when the use runs exactly once at the same point the call
-    # already runs (see _call_use_is_safe_to_inline) — otherwise inlining
-    # can change how often the call executes, e.g. moving it from once (at
-    # the assignment) into a loop body that runs N times.
+    # already runs (see _effectful_rhs_use_is_safe_to_inline) — otherwise
+    # inlining can change how often the call executes, e.g. moving it from
+    # once (at the assignment) into a loop body that runs N times.
     # Example: datetime.now(UTC), str(value), len(items)
-    if isinstance(rhs_node, ast.Call) and _call_use_is_safe_to_inline(lifecycle.uses[0]):
+    if isinstance(rhs_node, ast.Call) and _effectful_rhs_use_is_safe_to_inline(lifecycle.uses[0]):
         if len(rhs_node.args) <= 2 and not rhs_node.keywords:
             return True
         if len(rhs_node.args) == 0 and len(rhs_node.keywords) <= 2:

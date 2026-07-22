@@ -319,10 +319,15 @@ def test_autofix_simple_attribute(tmp_path: Path) -> None:
 
 
 def test_autofix_word_boundaries(tmp_path: Path) -> None:
+    # `return max(x, 10)` directly (no intermediate `result =`), so `x` is
+    # the only redundant assignment in play — `result = max(x, 10); return
+    # result` would make `result` itself independently fixable too (issue
+    # #76: a 1-arg call is no longer excluded from autofix), and inlining
+    # both in a single pass is a pre-existing cascading-fix quirk (ADR-0009)
+    # unrelated to what this test checks.
     source = """def f():
     x = 5
-    result = max(x, 10)
-    return result
+    return max(x, 10)
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -337,7 +342,7 @@ def test_autofix_word_boundaries(tmp_path: Path) -> None:
 
     fixed_content = filepath.read_text()
     # Should replace 'x' but not affect 'max'.
-    assert "result = max(5, 10)" in fixed_content
+    assert "return max(5, 10)" in fixed_content
     assert "max" in fixed_content
 
 
@@ -362,18 +367,22 @@ def func(index):
 
 
 def test_autofix_respects_line_length(tmp_path: Path) -> None:
+    # `x` and its RHS are both short enough to pass should_report_violation's
+    # conservative report-time estimate, but the *actual* usage line (with
+    # several other long arguments already on it) would exceed 79 chars once
+    # inlined — real line length is checked again at fix time (see
+    # `exceeds_line_length_when_inlined`), independent of variable-name
+    # length (issue #76 dropped that as a redundant, less accurate proxy).
     source = """
 def func():
-    some_result = "data"
-    return some_result
+    x = "hello world"
+    print("first", "second", "third", "fourth", "fifth", "sixth", "seventh", x)
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
 
     violations = RedundantAssignmentCheck().check(filepath, ast.parse(source), source)
 
-    # Long variable names (>10 chars) are excluded from autofix as a
-    # conservative proxy for lines that would grow too long when inlined.
     assert violations
     assert all(not v.fixable for v in violations)
 
@@ -529,17 +538,6 @@ def test_augmented_assignment_use_not_flagged_for_zero_arg_call(
 """,
             "'x'",
         ),
-        (
-            # Python evaluates an assignment's RHS *before* its target,
-            # the opposite of ast.Assign's own field order. `x = make();
-            # x.attr = side_effect()` must not become `make().attr =
-            # side_effect()`.
-            """def f():
-    x = make()
-    x.attr = side_effect()
-""",
-            "'x'",
-        ),
     ],
     ids=[
         "loop-body",
@@ -550,7 +548,6 @@ def test_augmented_assignment_use_not_flagged_for_zero_arg_call(
         "after-operator-sibling",
         "ternary-branch",
         "short-circuited-boolop",
-        "assign-target-base",
     ],
 )
 def test_zero_arg_call_use_not_fixable(tmp_path: Path, source: str, message_filter: str) -> None:
@@ -983,9 +980,12 @@ def test_fix_inlines_use_on_line_with_non_ascii_text(tmp_path: Path) -> None:
     # Regression: ast.col_offset is a UTF-8 byte offset, not a character
     # offset. A non-ASCII character earlier on the use's line must not
     # throw off the position used to locate the variable for inlining.
+    # `data`'s use must stay on the very next statement (issue #76 requires
+    # an Attribute/Call RHS use to be immediate — see
+    # test_should_autofix_rejects_non_immediate_attribute_or_call_use).
     source = """def process():
     data = calc()
-    x = "café"; return data
+    return "café", data
 """
     filepath = tmp_path / "source.py"
     filepath.write_text(source)
@@ -999,4 +999,4 @@ def test_fix_inlines_use_on_line_with_non_ascii_text(tmp_path: Path) -> None:
 
     fixed_content = filepath.read_text()
     assert "data" not in fixed_content
-    assert "return calc()" in fixed_content
+    assert 'return "café", calc()' in fixed_content

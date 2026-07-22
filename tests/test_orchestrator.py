@@ -2126,8 +2126,11 @@ def test_main_exclude_pattern_excludes_all_files_returns_zero(
 def test_main_check_specific_cli_arg_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # No shipped check currently registers its own CLI argument, so this
-    # exercises main()'s add_cli_arguments -> parse_args ->
+    # redundant-assignment's own --redundant-assignment-level flag (see
+    # test_main_redundant_assignment_level_flag below) already exercises
+    # this wiring against a shipped check; this synthetic one keeps that
+    # coverage independent of TRI005's own reporting rules.
+    # Exercises main()'s add_cli_arguments -> parse_args ->
     # cli_kwargs_from_args -> check_args wiring end-to-end against a
     # synthetic check.
     class ConfigurableCheck:
@@ -2183,6 +2186,45 @@ def test_main_check_specific_cli_arg_round_trip(
     assert exit_code == 1
 
     assert "custom-message" in capsys.readouterr().err
+
+
+def test_main_redundant_assignment_level_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # Issue #76: --redundant-assignment-level selects between the
+    # conservative (default) and permissive presets. A type-annotated
+    # single-use assignment scores just above the conservative report
+    # ceiling but under the permissive one (see
+    # tests/redundant_assignment/test_check.py::test_annotated_assignment_tracked),
+    # so it's a clean way to tell the two presets apart end-to-end through
+    # the real CLI.
+    filepath = tmp_path / "module.py"
+    filepath.write_text('def example():\n    x: str = "foo"\n    func(x)\n')
+
+    default_exit_code = main([str(filepath), "--select", "redundant-assignment"])
+    assert default_exit_code == 0
+
+    conservative_exit_code = main(
+        [str(filepath), "--select", "redundant-assignment", "--redundant-assignment-level", "conservative"]
+    )
+    assert conservative_exit_code == 0
+
+    permissive_exit_code = main(
+        [str(filepath), "--select", "redundant-assignment", "--redundant-assignment-level", "permissive"]
+    )
+    assert permissive_exit_code == 1
+    assert "'x'" in capsys.readouterr().err
+
+
+def test_main_redundant_assignment_level_rejects_unknown_value(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    filepath = tmp_path / "module.py"
+    filepath.write_text("x = 1\n")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([str(filepath), "--redundant-assignment-level", "bogus"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("flag", ["--select", "--ignore"], ids=["select", "ignore"])

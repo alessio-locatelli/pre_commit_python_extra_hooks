@@ -42,9 +42,10 @@ from pre_commit_hooks.ast_checks._base import (
 
 from .analysis import VariableTracker, detect_redundancy
 from .autofix import RedundantAssignmentFixData, apply_fixes
-from .semantic import should_autofix, should_report_violation
+from .semantic import AggressivenessLevel, should_autofix, should_report_violation
 
 if TYPE_CHECKING:
+    import argparse
     import ast
     from pathlib import Path
 
@@ -80,6 +81,9 @@ def format_message(var_name: str, pattern_type: str) -> str:
 
 
 class RedundantAssignmentCheck(BaseCheck):
+    def __init__(self, level: AggressivenessLevel = AggressivenessLevel.CONSERVATIVE) -> None:
+        self._level = level
+
     @property
     def check_id(self) -> str:
         return CHECK_ID
@@ -90,6 +94,28 @@ class RedundantAssignmentCheck(BaseCheck):
 
     def get_prefilter_pattern(self) -> list[str] | None:
         return [" = "]
+
+    @classmethod
+    def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--redundant-assignment-level",
+            choices=["conservative", "permissive"],
+            default="conservative",
+            help=(
+                "How eagerly redundant-assignment (TRI005) reports a "
+                "violation. 'conservative' (default) only reports what "
+                "used to qualify for --fix under the old default; "
+                "'permissive' reports the broader set TRI005 used to "
+                "report by default before this flag existed. Either way, "
+                "--fix applies to whatever is reported and mechanically "
+                "safe to inline — the level doesn't narrow autofix "
+                "separately."
+            ),
+        )
+
+    @classmethod
+    def cli_kwargs_from_args(cls, args: argparse.Namespace) -> dict[str, Any]:
+        return {"level": AggressivenessLevel[args.redundant_assignment_level.upper()]}
 
     def check(self, filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
         ignored_lines = find_ignored_lines(source, IGNORE_PATTERN)
@@ -119,15 +145,15 @@ class RedundantAssignmentCheck(BaseCheck):
             if lifecycle.assignment.line in ignored_lines:
                 continue
 
-            if not should_report_violation(lifecycle, filepath):
+            if not should_report_violation(lifecycle, pattern, filepath, level=self._level):
                 continue
 
-            # Very conservative (only the simplest cases). Pass the real
-            # source lines so the line-length check matches the actual
-            # usage line, not just a conservative RHS-length estimate (see
-            # docs: apply_fixes independently re-checks the real line, and
-            # the two must agree or [FIXABLE] can lie about --fix).
-            fixable = should_autofix(lifecycle, pattern, filepath, source_lines=tracker.source_lines)
+            # Pass the real source lines so the line-length check matches
+            # the actual usage line, not just a conservative RHS-length
+            # estimate (see docs: apply_fixes independently re-checks the
+            # real line, and the two must agree or [FIXABLE] can lie about
+            # --fix).
+            fixable = should_autofix(lifecycle, source_lines=tracker.source_lines)
 
             message = format_message(lifecycle.assignment.var_name, pattern.name)
 
