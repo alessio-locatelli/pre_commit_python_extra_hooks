@@ -565,6 +565,15 @@ def should_report_violation(
     if assignment.in_global_scope and not assignment.var_name.startswith("_"):
         return False
 
+    # Rule 1b: Never report dunder names (`__author__`, `__version__`, ...).
+    # Unlike an ordinary `_private` name, a dunder assignment's target is
+    # conventionally read via attribute access from outside the file
+    # (packaging metadata, doc generators, `importlib.metadata` fallbacks),
+    # so the assignment itself is the API surface even when this file only
+    # references the name once — inlining it would delete that surface.
+    if assignment.var_name.startswith("__") and assignment.var_name.endswith("__"):
+        return False
+
     # Rule 2: Don't report if RHS has await expression
     # Inlining await expressions requires parentheses which is bulky:
     #   json_resp = await resp.json(); return json_resp['key']  # noqa: ERA001

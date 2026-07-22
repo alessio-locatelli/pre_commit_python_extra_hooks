@@ -1082,6 +1082,18 @@ config = {"colors": [_GREY]}
     assert any("'_GREY'" in v.message for v in violations)
 
 
+@pytest.mark.parametrize("level", [AggressivenessLevel.CONSERVATIVE, AggressivenessLevel.PERMISSIVE])
+def test_dunder_assignment_never_flagged(level: AggressivenessLevel) -> None:
+    # A dunder assignment is metadata read via attribute access from
+    # outside the file, so unlike Rule 12 this exclusion isn't level-scoped.
+    source = """
+__author__ = "Hynek Schlawack"
+__copyright__ = "Copyright (c) 2013 " + __author__
+"""
+    violations = _check(source, level=level)
+    assert all("'__author__'" not in v.message for v in violations)
+
+
 def test_multiple_assignment_targets_not_tracked() -> None:
     source = """
 def func():
