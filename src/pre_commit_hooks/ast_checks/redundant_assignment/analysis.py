@@ -986,6 +986,17 @@ def detect_redundancy(lifecycle: VariableLifecycle) -> PatternType | None:
         if use.context == "augmented_assignment":
             return None
 
+    # A "mutation-only" use (`state.attr = ...` or `state[key] = ...`) never
+    # reads the assigned value at all, so it isn't a redundant pass-through
+    # either — unlike the augmented-assignment case above, inlining it would
+    # stay syntactically valid (`me.state(State).attr = ...`), but silently
+    # change behavior whenever the RHS isn't guaranteed to return the same
+    # object on a second evaluation (e.g. a factory/accessor rather than a
+    # cached singleton) — something this tracker has no way to verify.
+    for use in lifecycle.uses:
+        if use.context == "attribute_or_subscript_assignment":
+            return None
+
     # "Snapshot the old value before reassigning it" (issue #74): the RHS's
     # reference is itself reassigned/mutated between the assignment and its
     # use, so the two accesses observe genuinely different states — this

@@ -285,6 +285,21 @@ def func():
             None,
         ),
         (
+            # Issue #76 calibration case: a "single-purpose accessor
+            # assigned then immediately mutated" (`state = me.state(State);
+            # state.value = 5`) is never even read — the sole use is a
+            # mutation, not a pass-through — so it isn't a redundant
+            # assignment either, regardless of how low its semantic score
+            # would otherwise be.
+            """
+def func(me):
+    state = me.state(State)
+    state.value = 5
+""",
+            "state",
+            None,
+        ),
+        (
             # "Snapshot the old value before reassigning it" (issue #74):
             # `value` is rebound between the tracked assignment and its
             # use, so `old_value` and a later inlined `value` would read
@@ -408,6 +423,7 @@ def func(x):
         "immediate-use",
         "single-use-with-intervening-statements",
         "augmented-assignment-is-not-redundant",
+        "mutation-only-single-use-is-not-redundant",
         "snapshot-before-name-reassignment-is-not-redundant",
         "snapshot-before-name-augmented-reassignment-is-not-redundant",
         "snapshot-before-attribute-reassignment-is-not-redundant",

@@ -6,6 +6,7 @@ import pytest
 
 from pre_commit_hooks.ast_checks._orchestrator import CheckOrchestrator
 from pre_commit_hooks.ast_checks.redundant_assignment import RedundantAssignmentCheck
+from pre_commit_hooks.ast_checks.redundant_assignment.semantic import AggressivenessLevel
 from tests.redundant_assignment._helpers import _check
 
 if TYPE_CHECKING:
@@ -991,6 +992,72 @@ def test_check_never_flags_variable(source: str, path: str, excluded: str) -> No
     assert all(excluded not in v.message for v in _check(source, path))
 
 
+# ---------------------------------------------------------------------------
+# check(): issue #76 calibration cases — the conservative (default) level
+# must not flag these, even though each scores low enough to have qualified
+# under TRI005's old single reporting threshold.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "excluded"),
+    [
+        (
+            # Named color constants collected into one list, all at module
+            # scope — already covered by the global-scope rule (skipped
+            # unless `_`-prefixed), regardless of level.
+            """
+RED = "red"
+GREEN = "green"
+BLUE = "blue"
+COLORS = [RED, GREEN, BLUE]
+""",
+            "'RED'",
+        ),
+        (
+            # A single-purpose accessor assigned then immediately mutated:
+            # the sole use is a write, never a read, so it isn't a
+            # redundant pass-through (see detect_redundancy).
+            """
+def configure(me):
+    state = me.state(State)
+    state.value = 5
+""",
+            "'state'",
+        ),
+        (
+            # A locally-renamed constructor call used immediately after —
+            # the variable name doesn't restate the callee (`CIMultiDict`),
+            # so it's presumed to be deliberately descriptive.
+            """
+def format_headers(headers):
+    ci_headers = CIMultiDict(headers)
+    return ", ".join(ci_headers.getall("Cookie"))
+""",
+            "'ci_headers'",
+        ),
+        (
+            # A descriptively-named variable capturing a non-obvious return
+            # value, used once in the very next assertion.
+            """
+def check_warning(conn):
+    warning = conn.recv()
+    assert warning.category == DeprecationWarning
+""",
+            "'warning'",
+        ),
+    ],
+    ids=[
+        "color-constants-list-at-module-scope",
+        "single-purpose-accessor-mutated",
+        "locally-renamed-constructor-call",
+        "descriptive-name-for-non-obvious-return-value",
+    ],
+)
+def test_conservative_level_calibration_cases_not_flagged(source: str, excluded: str) -> None:
+    assert all(excluded not in v.message for v in _check(source))
+
+
 def test_multiple_assignment_targets_not_tracked() -> None:
     source = """
 def func():
@@ -1143,8 +1210,12 @@ def example():
     x: str = "foo"
     func(x)
 """
-    # Type annotation adds 15 points, but 'x' literal is still low value.
-    assert len(_check(source)) >= 1
+    # Type annotation adds 15 points, putting the semantic score (15) above
+    # the conservative level's report ceiling (10) but still under the
+    # permissive level's (49) — so this is tracked (not silently skipped
+    # entirely), just not reported by default.
+    assert _check(source) == []
+    assert len(_check(source, level=AggressivenessLevel.PERMISSIVE)) >= 1
 
 
 def test_fixable_marked_correctly() -> None:
@@ -1234,10 +1305,13 @@ def example():
 
 
 def test_autofix_only_simple_rhs() -> None:
+    # A call with more than 2 args is still too complex to inline (issue
+    # #76 kept this cap — unlike the removed semantic-score/var-name-length
+    # ceilings, it isn't superseded by a more accurate check elsewhere).
     source = """
 def example():
-    x = func(arg1, arg2)
-    return x
+    result = func(arg1, arg2, arg3)
+    return result
 """
     violations = _check(source)
     assert violations
