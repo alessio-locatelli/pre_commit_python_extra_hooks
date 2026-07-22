@@ -42,6 +42,12 @@ See [docs/adding-a-check.md](docs/adding-a-check.md) for the full walkthrough of
   - There is a need to explain **why** a non-obvious action is taken (e.g., "Early exit because all items were processed", "Used a real ID in a test because…").
 - Never duplicate ADRs, specifications, or any other documentation in the code. If the code requires an explanation, add a reference (e.g., `# See ADR-0042`, `# See openspec/path-to-spec/`).
 
+## README and user-facing docs
+
+- User-facing prose (README.md, `--help` text, CLI docs) must describe _current_ behavior only, in short, high-level, user-friendly language.
+- **No historical/postmortem framing.** Phrases like "the old default", "before this flag existed", "used to qualify for X" are meaningless to a reader who only has the current codebase — they imply a diff against a history the reader can't see and doesn't care about. Describe what the feature does today, full stop.
+- **No internal implementation details.** Don't expose internal scoring/threshold numbers (e.g. "semantic value score ≤ 10", "score < 50") or other implementation-level mechanics in a README. A README is a short, high-level description for a regular user, not a spec for the internals — use a concrete illustrative example instead of a formula.
+
 ## ADRs
 
 An ADR records a durable architectural decision, not the history of the investigation that led to it: the problem and context, the decision, the important alternatives/trade-offs, the consequences, and any intentional limitation a future maintainer needs to know. Keep it at that level. Do not fold in: a chronological narrative of review rounds or who/what found which issue; every individual bug reproduction (one or two representative examples is enough — prefer the general rule the examples taught over the examples themselves); regression-test names (say what behavior is covered, not which test covers it); or an inventory of private helper functions (explain why the architecture needs the concept, not which function implements it).
