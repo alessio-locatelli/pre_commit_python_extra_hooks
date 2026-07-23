@@ -79,15 +79,23 @@ uv run python -m pre_commit_hooks.ast_checks --ignore=redundant-assignment --fix
 
 ## Development
 
+### Lint
+
 ```bash
-uv run ruff check --fix .
-uv run ruff format .
+ruff check --fix .
+ruff format .
 uv run mypy src/ tests/
 npx prettier@latest . --write --cache
 taplo fmt pyproject.toml
-uv run coverage run -m pytest
-uv run coverage report
-uv run strict-no-cover
+uv run -- python -m slotscheck src tests
+```
+
+### Test
+
+```bash
+uv run -- coverage run -m pytest
+uv run -- coverage report
+strict-no-cover
 ```
 
 ## Agent skills
