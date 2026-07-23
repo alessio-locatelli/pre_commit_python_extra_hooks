@@ -49,7 +49,7 @@ This matters for the per-check `--fix` examples below: `args: [--select=redundan
 **Features:**
 
 - Detects forbidden names in assignments, function parameters, and async functions
-- **Autofixing**: suggests and optionally applies meaningful names based on context (`--fix`). The rename is scope-aware — it replaces only the AST `Name` nodes for that specific binding within its scope, not every textual occurrence in the file. Suggestions come from a fixed, built-in set of patterns (HTTP calls, file I/O, database queries, data-science idioms, and generic `get_`/`find_`/`create_` prefixes) — not configurable per-project.
+- **Autofixing**: derives names from file-local semantics such as concrete annotations, imported standard APIs, producers, and consumers (`--fix`). The rename is scope-aware — it replaces only the AST `Name` nodes for that specific binding within its scope, not every textual occurrence in the file. `--fix` applies only high-confidence local renames; weaker evidence is reported as a suggestion without changing the file.
 - Inline suppression with `# pytriage: ignore=TRI001`
 
 **Suggest mode (default):**

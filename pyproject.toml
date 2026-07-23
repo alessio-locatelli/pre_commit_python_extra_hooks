@@ -133,6 +133,7 @@ ignore_names = [
   "delegates_get",
   "collects",
   "returns_class",
+  "auto_fixable",
   "_restore_sigterm_handler",
 ]
 
