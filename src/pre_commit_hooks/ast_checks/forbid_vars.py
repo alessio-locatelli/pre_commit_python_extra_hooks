@@ -56,6 +56,11 @@ class ForbidVarsFixData(TypedDict):
 DEFAULT_FORBIDDEN_NAMES = {"data", "result"}
 
 
+def _function_name_describes_parameter(function_name: str, parameter_name: VariableName) -> bool:
+    suffix = f"_{parameter_name}"
+    return function_name.endswith(suffix) and len(function_name) > len(suffix)
+
+
 class ForbiddenNameVisitor(ast.NodeVisitor):
     """Detects forbidden variable names in every context where a variable is defined."""
 
@@ -148,19 +153,26 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
 
     def _check_function_args(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         for arg in node.args.args:
-            self._check_name(arg.arg, arg.lineno, arg.col_offset)
+            self._check_parameter(node.name, arg)
         for arg in node.args.posonlyargs:
-            self._check_name(arg.arg, arg.lineno, arg.col_offset)
+            self._check_parameter(node.name, arg)
         for arg in node.args.kwonlyargs:
-            self._check_name(arg.arg, arg.lineno, arg.col_offset)
+            self._check_parameter(node.name, arg)
         if node.args.vararg:
-            self._check_name(
-                node.args.vararg.arg,
-                node.args.vararg.lineno,
-                node.args.vararg.col_offset,
-            )
+            self._check_parameter(node.name, node.args.vararg)
         if node.args.kwarg:
-            self._check_name(node.args.kwarg.arg, node.args.kwarg.lineno, node.args.kwarg.col_offset)
+            self._check_parameter(node.name, node.args.kwarg)
+
+    def _check_parameter(self, function_name: VariableName, arg: ast.arg) -> None:
+        """Skips a parameter whose own function name already describes it
+        (``feed_data(self, data: bytes)``, ``parse_client_bulk_write_result(result)``)
+        the same way `visit_ClassDef` skips a class attribute: the enclosing
+        name already provides sufficient context, so flagging the parameter
+        too is redundant.
+        """
+        if _function_name_describes_parameter(function_name, arg.arg):
+            return
+        self._check_name(arg.arg, arg.lineno, arg.col_offset)
 
 
 _CROSSABLE_SCOPE_NODES = (

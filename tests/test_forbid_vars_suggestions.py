@@ -181,10 +181,216 @@ def test_registry_and_access_evidence_produce_autofixes(source: str, target: str
             "    return result.read()\n",
             "response",
         ),
+        (
+            "import sys\n\ndef f():\n    result = sys.exc_info()\n    return result\n",
+            "exception_information",
+        ),
     ],
 )
 def test_registry_forms_without_extra_evidence_remain_suggestions(source: str, name: str) -> None:
     _assert_plan_for(source, "result", name, Confidence.SUGGESTION_ONLY)
+
+
+@pytest.mark.parametrize(
+    ("source", "name"),
+    [
+        (
+            "import json\n\ndef f(body):\n    data = json.loads(body)\n    return data\n",
+            "deserialized_body",
+        ),
+        (
+            "import tomllib\n\ndef f(raw_config):\n    data = tomllib.loads(raw_config)\n    return data\n",
+            "deserialized_raw_config",
+        ),
+    ],
+)
+def test_deserializer_argument_name_produces_suggestion(source: str, name: str) -> None:
+    _assert_plan_for(source, "data", name, Confidence.SUGGESTION_ONLY)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import json\n\ndef f():\n    data = json.loads("{}")\n    return data\n',
+        "import json\n\ndef f(body):\n    data = json.loads(body.read())\n    return data\n",
+    ],
+)
+def test_deserializer_argument_name_requires_a_plain_name_argument(source: str) -> None:
+    _assert_plan_for(source, "data", None, None)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import httpx\n\ndef f(payload):\n"
+        '    data = "".join(payload)\n'
+        '    return httpx.post("http://example.test", content=data)\n',
+        "import requests\n\ndef f(payload):\n"
+        '    data = "".join(payload)\n'
+        '    return requests.put("http://example.test", content=data)\n',
+    ],
+    ids=["httpx-post-content", "requests-put-content"],
+)
+def test_http_body_keyword_argument_produces_content_suggestion(source: str) -> None:
+    _assert_plan_for(source, "data", "content", Confidence.SUGGESTION_ONLY)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import httpx\n\ndef f(payload):\n"
+        '    data = "".join(payload)\n'
+        '    return httpx.get("http://example.test", params=data)\n',
+        "import unknown\n\ndef f(payload):\n"
+        '    data = "".join(payload)\n'
+        '    return unknown.post("http://example.test", content=data)\n',
+    ],
+    ids=["non-body-keyword", "unrecognised-module"],
+)
+def test_http_body_keyword_argument_requires_recognised_api(source: str) -> None:
+    _assert_plan_for(source, "data", None, None)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            'import pytest\n\n@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+            "def test_ok(source: str, result: str) -> None:\n"
+            "    assert result == transform(source)\n"
+        ),
+        (
+            "import pytest\n\n"
+            '@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+            "def test_ok(source: str, result: str) -> None:\n"
+            "    assert transform(source) == result\n"
+        ),
+        (
+            'import pytest\n\n@pytest.mark.parametrize(["source", "result"], [("a", "a")])\n'
+            "def test_ok(source: str, result: str) -> None:\n"
+            "    assert result == transform(source)\n"
+        ),
+    ],
+    ids=["result-on-right", "result-on-left", "list-form-argnames"],
+)
+def test_parametrize_result_compared_for_equality_is_suggestion_only(source: str) -> None:
+    tree = ast.parse(source)
+    parameter = next(node for node in ast.walk(tree) if isinstance(node, ast.arg) and node.arg == "result")
+
+    plans = plan_suggestions(tree, {"data", "result"}, set())
+
+    proposal = plans[(parameter.lineno, parameter.col_offset)]
+    assert proposal.name == "expected_result"
+    assert proposal.confidence is Confidence.SUGGESTION_ONLY
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            'import pytest\n\n@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+            "def test_ok(source: str, result: str) -> None:\n"
+            "    return result\n"
+        ),
+        ("def test_ok(result: str) -> None:\n    assert result == 1\n"),
+    ],
+    ids=["no-equality-comparison", "no-parametrize-decorator"],
+)
+def test_parametrize_result_without_full_evidence_produces_no_proposal(source: str) -> None:
+    tree = ast.parse(source)
+    parameter = next(node for node in ast.walk(tree) if isinstance(node, ast.arg) and node.arg == "result")
+
+    plans = plan_suggestions(tree, {"data", "result"}, set())
+
+    assert (parameter.lineno, parameter.col_offset) not in plans
+
+
+def test_parametrize_result_proposal_requires_result_in_forbidden_names() -> None:
+    source = (
+        'import pytest\n\n@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+        "def test_ok(source: str, result: str) -> None:\n"
+        "    assert result == transform(source)\n"
+    )
+    assert plan_suggestions(ast.parse(source), {"data"}, set()) == {}
+
+
+def test_parametrize_result_proposal_respects_ignored_lines() -> None:
+    source = (
+        'import pytest\n\n@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+        "def test_ok(source: str, result: str) -> None:\n"
+        "    assert result == transform(source)\n"
+    )
+    tree = ast.parse(source)
+    parameter = next(node for node in ast.walk(tree) if isinstance(node, ast.arg) and node.arg == "result")
+
+    assert plan_suggestions(tree, {"data", "result"}, {parameter.lineno}) == {}
+
+
+def test_parametrize_result_proposal_requires_a_matching_parameter() -> None:
+    source = (
+        'import pytest\n\n@pytest.mark.parametrize("source,result", [("a", "a")])\n'
+        "def test_ok(source: str, outcome: str) -> None:\n"
+        "    assert outcome == transform(source)\n"
+    )
+    assert plan_suggestions(ast.parse(source), {"data", "result"}, set()) == {}
+
+
+def test_parametrize_result_proposal_ignores_non_literal_argnames() -> None:
+    source = (
+        "import pytest\n\nARGNAMES = 'source,result'\n\n"
+        "@pytest.mark.parametrize(ARGNAMES, [('a', 'a')])\n"
+        "def test_ok(source: str, result: str) -> None:\n"
+        "    assert result == transform(source)\n"
+    )
+    assert plan_suggestions(ast.parse(source), {"data", "result"}, set()) == {}
+
+
+@pytest.mark.parametrize(
+    ("function_name", "name"),
+    [
+        ("compress", "uncompressed"),
+        ("decompress", "compressed"),
+    ],
+)
+def test_verb_parameter_proposal_is_suggestion_only(function_name: str, name: str) -> None:
+    source = f"class Codec:\n    def {function_name}(self, data: bytes) -> bytes: ...\n"
+    tree = ast.parse(source)
+    parameter = next(node for node in ast.walk(tree) if isinstance(node, ast.arg) and node.arg == "data")
+
+    proposal = plan_suggestions(tree, {"data", "result"}, set())[(parameter.lineno, parameter.col_offset)]
+
+    assert proposal.name == name
+    assert proposal.confidence is Confidence.SUGGESTION_ONLY
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "class Codec:\n    def transform(self, data: bytes) -> bytes: ...\n",
+        "class Codec:\n    def compress(self, payload: bytes) -> bytes: ...\n",
+    ],
+    ids=["unrecognised-verb", "no-data-parameter"],
+)
+def test_verb_parameter_proposal_requires_a_recognised_verb_and_data_parameter(source: str) -> None:
+    assert plan_suggestions(ast.parse(source), {"data", "result"}, set()) == {}
+
+
+def test_verb_parameter_proposal_requires_data_in_forbidden_names() -> None:
+    source = "class Codec:\n    def compress(self, data: bytes) -> bytes: ...\n"
+    assert plan_suggestions(ast.parse(source), {"result"}, set()) == {}
+
+
+def test_verb_parameter_proposal_respects_ignored_lines() -> None:
+    source = "class Codec:\n    def compress(self, data: bytes) -> bytes: ...\n"
+    tree = ast.parse(source)
+    parameter = next(node for node in ast.walk(tree) if isinstance(node, ast.arg) and node.arg == "data")
+
+    assert plan_suggestions(tree, {"data", "result"}, {parameter.lineno}) == {}
+
+
+def test_verb_parameter_proposal_avoids_name_already_used_in_scope() -> None:
+    source = "class Codec:\n    def compress(self, data: bytes, uncompressed: bytes) -> bytes: ...\n"
+    assert plan_suggestions(ast.parse(source), {"data", "result"}, set()) == {}
 
 
 @pytest.mark.parametrize(
