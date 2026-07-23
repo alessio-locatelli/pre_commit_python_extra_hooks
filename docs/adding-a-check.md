@@ -68,9 +68,9 @@ Create `tests/test_your_check.py` using `tmp_path` and `pytest.mark.parametrize`
 
 For larger example files, add fixtures under `tests/fixtures/your_check/`, following the `good/`/`bad/`/`ignore/` (and `autofix/`, if relevant) convention used by `tests/fixtures/validate_function_name/`.
 
-## 4. Update README.md
+## 4. Document the check
 
-Add a subsection under "Available Checks" → "ruff-extra-rules (grouped)", following the format used by the existing checks (why it exists, a short example, suppression syntax).
+Add `docs/rules/your-check.md` (why it exists, a short example, suppression syntax — follow the format of an existing page like `docs/rules/forbid-vars.md`), then add a row for it to the table under README.md's "Available Checks".
 
 ## 5. Validate
 
