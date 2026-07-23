@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from pre_commit_hooks.ast_checks._base import is_fix_failed
-from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck
+from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck, _collect_replacements, _collect_scope_replacements
 
 
 @pytest.mark.parametrize(
@@ -180,10 +180,10 @@ async def fetch(data):  # Should be flagged
         (
             """
 def fetch_users():
-    data = response.get()  # Should suggest 'response' as name
+    data = response.get()
     return data
 """,
-            {"message_contains": "response", "fixable": True},
+            {"message_contains": "data"},
         ),
         (
             """
@@ -257,42 +257,36 @@ class TestSomething:
             {"message_contains": "result"},
         ),
         (
-            # The semantic category's get_<x> -> <x> substitution can
-            # itself produce a forbidden name; the fix then falls back to
-            # a generic 'var' name instead of introducing a new violation.
             """def fetch():
     result = get_result()
     return result
 """,
-            {"fixable": True, "suggestion": "var"},
+            {"message_contains": "result"},
         ),
         (
             """def process():
     data = get_user()
     return data
 """,
-            {"fixable": True, "suggestion": "user"},
+            {"fixable": False, "suggestion": "user"},
         ),
         (
-            """def process():
+            """import requests
+
+def process():
     data = requests.get(url).json()
     return data
 """,
-            {"suggestion": "response"},
+            {"fixable": False, "suggestion": "payload"},
         ),
         (
-            # The regex-group name substitution looks up the match on the
-            # *target's own* source line. When the matched call lives on a
-            # different line than the target (e.g. a parenthesized
-            # multi-line RHS), that lookup finds nothing and the raw
-            # group-reference name is kept as-is.
             """def process():
     data = (
         get_user()
     )
     return data
 """,
-            {"suggestion": r"\1"},
+            {"fixable": False, "suggestion": "user"},
         ),
     ],
     ids=[
@@ -301,7 +295,7 @@ class TestSomething:
         "function-variable",
         "function-parameter",
         "async-function-parameter",
-        "autofix-suggestion",
+        "unknown-receiver",
         "async-function-variable",
         "vararg-parameter",
         "kwarg-parameter",
@@ -312,10 +306,10 @@ class TestSomething:
         "function-annotated-assignment-with-value",
         "result-variable",
         "result-variable-in-class-method",
-        "suggestion-fallback-when-in-forbidden-names",
-        "semantic-naming-with-regex-groups",
-        "find-best-match-prefers-higher-specificity",
-        "semantic-naming-false-when-match-not-on-target-line",
+        "forbidden-derived-name",
+        "producer-suggestion-only",
+        "http-json-payload-suggestion-only",
+        "multiline-producer-suggestion-only",
     ],
 )
 def test_check_reports_single_violation(source: str, expected: dict[str, Any]) -> None:
@@ -393,22 +387,19 @@ def test_multiple_violations_same_scope() -> None:
     assert names == {"data", "result"}
 
 
-def test_generate_unique_name_cache_hit_for_repeated_reassignment() -> None:
-    # Branch coverage: the second reassignment of the same forbidden name
-    # in the same scope returns the cached suggestion instead of
-    # recomputing it.
+def test_reassignment_suppresses_suggestions() -> None:
     source = """def process():
-    data = requests.get()
+    data: Response = get_response()
     print(data)
-    data = requests.get()
+    data = get_response()
     return data
 """
 
     violations = ForbidVarsCheck().check(Path("test.py"), ast.parse(source), source)
 
     assert len(violations) == 2
-    suggestions = {v.fix_data["suggestion"] for v in violations if v.fix_data}
-    assert suggestions == {"response"}
+    assert all(not violation.fixable for violation in violations)
+    assert all(violation.fix_data and violation.fix_data["suggestion"] is None for violation in violations)
 
 
 def test_model_validator_decorator_skips_arg_check() -> None:
@@ -436,11 +427,11 @@ def test_model_validator_decorator_skips_arg_check() -> None:
     assert len(violations) == 1
 
 
-def test_name_conflict_counter_increment() -> None:
+def test_name_collision_suppresses_suggestion() -> None:
     source = """def process():
     response = 1
     response_2 = 2
-    data = response.get()  # Should suggest response_3
+    data: Response = get_response()
     return data
 """
 
@@ -451,8 +442,9 @@ def test_name_conflict_counter_increment() -> None:
         violations = ForbidVarsCheck().check(filepath, ast.parse(source), source)
 
         assert len(violations) == 1
+        assert not violations[0].fixable
         assert violations[0].fix_data is not None
-        assert violations[0].fix_data["suggestion"] == "response_3"
+        assert violations[0].fix_data["suggestion"] is None
 
 
 def test_tokenize_error_handling() -> None:
@@ -482,9 +474,11 @@ def test_prefilter_pattern() -> None:
 
 
 def test_autofix_applies_suggestions() -> None:
-    source = """def fetch_users():
-    data = response.get()
-    return data
+    source = """import requests
+
+def fetch_users():
+    data = requests.get(url)
+    return data.status_code
 """
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -503,11 +497,8 @@ def test_autofix_applies_suggestions() -> None:
 
         fixed_content = filepath.read_text()
 
-        # May use response_2 instead of response to avoid a naming conflict.
-        assert "data" not in fixed_content or "# pytriage" in fixed_content
-        has_response = "return response" in fixed_content
-        has_response_2 = "return response_2" in fixed_content
-        assert has_response or has_response_2
+        assert "data" not in fixed_content
+        assert "return response.status_code" in fixed_content
 
 
 def test_autofix_no_fixable_violations() -> None:
@@ -537,7 +528,7 @@ def test_autofix_follows_closure_reference_into_nested_function() -> None:
     # can change runtime behavior"; "MUST ensure that a fix does not change
     # name binding or scope unintentionally".
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         return data
@@ -571,7 +562,7 @@ def test_autofix_follows_closure_reference_into_nested_function() -> None:
 
 def test_autofix_follows_closure_reference_into_lambda() -> None:
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
     return lambda: data
 """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -591,7 +582,7 @@ def test_autofix_follows_closure_reference_into_lambda() -> None:
 
 def test_autofix_follows_closure_reference_into_comprehension() -> None:
     source = """def outer(response, items):
-    data = response.json()
+    data: Payload = response.json()
     return [str(data) for _ in items]
 """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -609,7 +600,7 @@ def test_autofix_follows_closure_reference_into_comprehension() -> None:
     ast.parse(fixed_content)  # Must still be valid Python.
 
 
-def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope() -> None:
+def test_walrus_rebinding_suppresses_suggestion() -> None:
     # Regression: PEP 572 binds a `:=` target inside a comprehension to the
     # nearest *enclosing* non-comprehension scope, not the comprehension
     # itself — so a walrus target sharing the outer variable's name is the
@@ -620,7 +611,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
     # kept the pre-walrus value — a silent change to what's actually
     # returned.
     source = """def outer(response, items):
-    data = response.json()
+    data: Payload = response.json()
     return [(data := item) for item in items], data
 """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -630,12 +621,11 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert fixed_content.count("payload") == 3  # assignment, walrus target, trailing reference
+    assert fixed_content == source
 
 
 @pytest.mark.parametrize(
@@ -649,7 +639,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # comprehension's own body (also "data") is correctly left
             # alone.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
     return [data for data in data]
 """,
             "return [data for data in payload]",
@@ -660,7 +650,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # still not shadowed here (the for-targets are x/z, not
             # "data"), so it's an ordinary closure reference.
             """def outer(response, xs):
-    data = response.json()
+    data: Payload = response.json()
     return [x for x in xs for z in data]
 """,
             "for z in payload",
@@ -670,7 +660,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # key/value/generators shape, distinct from list/set/generator
             # comprehensions.
             """def outer(response, xs):
-    data = response.json()
+    data: Payload = response.json()
     return {x: data for x in xs}
 """,
             "{x: payload for x in xs}",
@@ -682,7 +672,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # even though the parameter itself ("data") also shadows the
             # name within the function's own body.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(x: data = data) -> data:
         return x
@@ -695,7 +685,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # Branch coverage: *args/**kwargs annotations go through the
             # same vararg/kwarg-inclusive path as regular parameters.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(*args: data, **kwargs: data):
         return args, kwargs
@@ -712,7 +702,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # scope directly) — but aren't shadowed there either, so they
             # must still be renamed.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[T](x: data) -> T:
         return x
@@ -725,7 +715,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # Branch coverage: a lambda's own default value, distinct code
             # path from a def's.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
     return lambda x=data: x
 """,
             "return lambda x=payload: x",
@@ -735,7 +725,7 @@ def test_autofix_renames_walrus_target_that_escapes_comprehension_to_outer_scope
             # parameter annotation, but no *return* annotation at all —
             # distinct from the previous case, which has both.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[T](x: data):
         return x
@@ -779,7 +769,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # A nested function's own same-named parameter is a distinct
             # binding, not a reference to the outer variable.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(data):
         return data
@@ -792,7 +782,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # A nested function's own local reassignment (not a parameter)
             # is likewise a distinct, shadowing binding.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         data = "local"
@@ -806,7 +796,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # A doubly-nested def/class sharing the outer variable's name
             # shadows it for the rest of the enclosing nested scope too.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         def data():
@@ -822,7 +812,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # An import binding the same name inside a nested scope shadows
             # the outer variable the same way an assignment would.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         import data
@@ -837,7 +827,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # A comprehension's own `for` target shadows the outer variable
             # for reads inside that comprehension.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
     return [data for data in range(3)], data
 """,
             "[data for data in range(3)]",
@@ -851,7 +841,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # exception (syntactically valid, so atomic_write_text()'s
             # compile() check couldn't catch it).
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         try:
@@ -867,7 +857,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # Regression: a match `case data:` capture binds via
             # ast.MatchAs.name, also a plain string, not an ast.Name.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(command):
         match command:
@@ -882,7 +872,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # Regression: a match `case {**rest}:` mapping-rest capture
             # binds via ast.MatchMapping.rest, also a plain string.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(command):
         match command:
@@ -899,7 +889,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # regular parameter, type params are accessible at runtime
             # inside the function body too.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[data]() -> data:
         return data
@@ -916,7 +906,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # renamed both the del and the function's own later local
             # reassignment into the outer variable's new name.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         del data
@@ -935,7 +925,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # shadow and renamed `data.models` (a valid attribute access on
             # the imported module) into `payload.models` (nonsensical).
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         import data.models
@@ -951,7 +941,7 @@ def test_autofix_renames_reference_evaluated_in_enclosing_scope(source: str, exp
             # shadows via the ast.ImportFrom branch, distinct from the
             # dotted ast.Import case above.
             """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         from collections import data
@@ -1011,7 +1001,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
     # violation is honestly reported as unfixable, not offered and then
     # rejected.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         nonlocal data
@@ -1042,7 +1032,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
     "source",
     [
         # Regression: `def data(): ...` rebinds the *same* local slot as the
-        # earlier `data = response.json()` — Python resolves a closure (or
+        # earlier `data: Payload = response.json()` — Python resolves a closure (or
         # any same-scope reference) to whichever binding is current at call
         # time, not definition time. Confirmed against CPython: calling
         # `reader()` after `def data()` has executed returns the *function*,
@@ -1051,7 +1041,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # predates the def in the source) would silently repoint both at an
         # unrelated value instead.
         """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1064,7 +1054,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # Regression: same failure class via `class data: ...` instead of
         # `def` — ast.ClassDef.name is also a plain string.
         """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1081,7 +1071,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # binding classification purposes, and a reference between the two
         # bindings has no way to know which one a rename should target.
         """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1096,7 +1086,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # Regression: a match `case data:` capture in the same scope, also
         # a plain-string ast.MatchAs.name.
         """def outer(response, command):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1110,7 +1100,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # Regression: a match `case {**data}:` mapping-rest capture in the
         # same scope, also a plain-string ast.MatchMapping.rest.
         """def outer(response, command):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1125,7 +1115,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # the bare name "data" (ast.alias.name is the full dotted path,
         # never equal to a bare name — this exercises the split-on-dot path).
         """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1137,7 +1127,7 @@ def test_autofix_never_offered_for_name_referenced_via_nonlocal() -> None:
         # Regression: a non-dotted `from x import data` in the same scope,
         # distinct branch from the dotted import above.
         """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def reader():
         return data
@@ -1195,7 +1185,7 @@ def test_autofix_never_offered_for_module_global_read_in_function() -> None:
 
 def loader(response):
     global data
-    data = response.json()
+    data: Payload = response.json()
 
 
 def reader():
@@ -1227,10 +1217,10 @@ def test_autofix_avoids_cross_scope_suggestion_collision() -> None:
     # pattern ("payload") — `return data, result` must not become `return
     # payload, payload`, silently making both returned values identical.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(response2):
-        result = response2.json()
+        result: Payload = response2.json()
         return data, result
 
     return inner(response)
@@ -1242,16 +1232,11 @@ def test_autofix_avoids_cross_scope_suggestion_collision() -> None:
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert "result" not in fixed_content
-    return_line = next(line for line in fixed_content.splitlines() if line.strip().startswith("return "))
-    returned_names = [name.strip() for name in return_line.strip().removeprefix("return ").split(",")]
-    assert len(returned_names) == len(set(returned_names)), fixed_content
-    ast.parse(fixed_content)  # Must still be valid Python.
+    assert fixed_content == source
 
 
 def test_autofix_avoids_suggestion_colliding_with_existing_nested_name() -> None:
@@ -1260,7 +1245,7 @@ def test_autofix_avoids_suggestion_colliding_with_existing_nested_name() -> None
     # avoids an already-existing identifier that lives in a nested scope,
     # not just a colliding future suggestion.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         payload = 5
@@ -1275,13 +1260,11 @@ def test_autofix_avoids_suggestion_colliding_with_existing_nested_name() -> None
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert "payload = 5" in fixed_content  # inner's own existing name, untouched
-    ast.parse(fixed_content)
+    assert fixed_content == source
 
 
 def test_autofix_avoids_suggestion_colliding_with_nested_parameter_name() -> None:
@@ -1290,7 +1273,7 @@ def test_autofix_avoids_suggestion_colliding_with_nested_parameter_name() -> Non
     # collide with a nested function's own parameter and silently rebind a
     # closure read to that parameter instead of the renamed outer variable.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(payload):
         return data
@@ -1304,20 +1287,11 @@ def test_autofix_avoids_suggestion_colliding_with_nested_parameter_name() -> Non
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert "def inner(payload):" in fixed_content  # inner's own parameter, untouched
-    module_namespace: dict[str, Any] = {}
-    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
-
-    class FakeResponse:
-        def json(self) -> str:
-            return "value"
-
-    assert module_namespace["outer"](FakeResponse()) == "value"
+    assert fixed_content == source
 
 
 def test_autofix_avoids_suggestion_colliding_with_nested_global_declaration() -> None:
@@ -1330,7 +1304,7 @@ def test_autofix_avoids_suggestion_colliding_with_nested_global_declaration() ->
     source = """payload = "module-level unrelated value"
 
 def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner():
         global payload
@@ -1345,20 +1319,11 @@ def outer(response):
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert "global payload" in fixed_content  # unrelated global declaration, untouched
-    module_namespace: dict[str, Any] = {}
-    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
-
-    class FakeResponse:
-        def json(self) -> str:
-            return "closure value"
-
-    assert module_namespace["outer"](FakeResponse()) == "closure value"
+    assert fixed_content == source
 
 
 def test_autofix_renames_walrus_target_inside_default_evaluated_in_enclosing_scope() -> None:
@@ -1370,7 +1335,7 @@ def test_autofix_renames_walrus_target_inside_default_evaluated_in_enclosing_sco
     # while the body's closure read was left stale, splitting one variable
     # into two and breaking the fixed code at runtime.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(x=(data := response.json())):
         return data, x
@@ -1408,7 +1373,7 @@ def test_autofix_follows_closure_through_scope_that_itself_contains_a_shadowing_
     # into `deeper`'s body too, wrongly concluding `middle` itself shadows
     # `data`, and skipping `middle`'s own legitimate closure reference.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def middle():
         def deeper():
@@ -1452,10 +1417,10 @@ def test_autofix_avoids_suggestion_collision_when_nested_closure_precedes_captur
     # violation is always assigned first regardless of source order.
     source = """def outer(response, response2):
     def inner():
-        result = response2.json()
+        result: Payload = response2.json()
         return data, result
 
-    data = response.json()
+    data: Payload = response.json()
     return inner()
 """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1465,29 +1430,11 @@ def test_autofix_avoids_suggestion_collision_when_nested_closure_precedes_captur
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
-    assert "result" not in fixed_content
-    return_line = next(line for line in fixed_content.splitlines() if "return" in line and "," in line)
-    returned_names = [name.strip() for name in return_line.split("return", 1)[1].split(",")]
-    assert len(returned_names) == len(set(returned_names))  # must stay two distinct names
-    module_namespace: dict[str, Any] = {}
-    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
-
-    class FakeResponse:
-        def __init__(self, value: str) -> None:
-            self._value = value
-
-        def json(self) -> str:
-            return self._value
-
-    assert module_namespace["outer"](FakeResponse("outer value"), FakeResponse("inner value")) == (
-        "outer value",
-        "inner value",
-    )
+    assert fixed_content == source
 
 
 def test_autofix_does_not_rename_annotation_under_deferred_annotations() -> None:
@@ -1504,7 +1451,7 @@ def test_autofix_does_not_rename_annotation_under_deferred_annotations() -> None
 data = int
 
 def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(x: data):
         return x
@@ -1542,7 +1489,7 @@ def test_autofix_still_follows_annotation_closure_without_deferred_annotations()
     # this is the pre-existing, still-correct behavior the deferred-
     # annotations exclusion above must not disturb.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(x: data):
         return x
@@ -1603,7 +1550,7 @@ class Response:
         return int
 
 response = Response()
-data = response.json()
+data: Payload = response.json()
 result = response.json()
 
 def f(x: data) -> result:
@@ -1634,7 +1581,7 @@ def test_autofix_follows_closure_into_type_parameter_bound_and_default() -> None
     # defaulted one) is branch coverage for a `ParamSpec`/`TypeVarTuple`
     # with nothing to yield.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[**Q, T: data = data, *Ts = data, **P = data]():
         return T, Ts, P, Q
@@ -1679,7 +1626,7 @@ def test_autofix_does_not_rename_type_parameter_bound_referencing_a_peer_type_pa
     # wrongly rename such a reference, repointing it at the renamed outer
     # variable instead of the peer it actually resolves to.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[data, T: data]():
         return T, data
@@ -1722,10 +1669,10 @@ def test_autofix_does_not_reuse_a_nested_functions_own_mapping_for_its_default()
     # outright (`x=data` became `x=payload_2oad`) rather than merely
     # mis-renaming it.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner(x=data):
-        data = response.json()
+        data: InnerPayload = response.json()
         return x, data
 
     return inner
@@ -1743,6 +1690,7 @@ def test_autofix_does_not_reuse_a_nested_functions_own_mapping_for_its_default()
 
     assert "data" not in fixed_content
     assert "def inner(x=payload):" in fixed_content
+    assert "inner_payload: InnerPayload = response.json()" in fixed_content
     module_namespace: dict[str, Any] = {}
     exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
 
@@ -1777,22 +1725,11 @@ def test_autofix_does_not_rename_a_nested_functions_own_type_parameter_bound_via
         tree = ast.parse(source)
         check = ForbidVarsCheck()
         violations = check.check(filepath, tree, source)
-        assert check.fix(filepath, violations, source, tree) is True
+        assert check.fix(filepath, violations, source, tree) is False
 
         fixed_content = filepath.read_text()
 
-    assert "def inner[data, T: data](response2):" in fixed_content
-    module_namespace: dict[str, Any] = {}
-    exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
-
-    class FakeResponse:
-        def json(self) -> str:
-            return "runtime value"
-
-    inner = module_namespace["outer"](None)
-    peer_type_var, type_var = inner.__type_params__
-    assert type_var.__bound__ is peer_type_var
-    assert inner(FakeResponse()) == (type_var, "runtime value")
+    assert fixed_content == source
 
 
 def test_autofix_does_not_rename_type_alias_bound_referencing_a_peer_type_parameter() -> None:
@@ -1805,7 +1742,7 @@ def test_autofix_does_not_rename_type_alias_bound_referencing_a_peer_type_parame
     # case in `_collect_replacements`, which walked into the alias's
     # `type_params`/`value` with no peer-name filtering whatsoever.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     type Alias[data, T: data] = T
 
@@ -1823,7 +1760,7 @@ def test_autofix_does_not_rename_type_alias_bound_referencing_a_peer_type_parame
         fixed_content = filepath.read_text()
 
     assert "type Alias[data, T: data] = T" in fixed_content
-    assert "payload = response.json()" in fixed_content
+    assert "payload: Payload = response.json()" in fixed_content
     module_namespace: dict[str, Any] = {}
     exec(compile(ast.parse(fixed_content), "<forbid_vars_fixture>", "exec"), module_namespace)  # noqa: S102
 
@@ -1847,7 +1784,7 @@ def test_autofix_follows_closure_into_type_alias_value() -> None:
     # `_type_param_defaults_and_bounds` yielding a non-empty, non-peer expr
     # alongside a non-empty filtered mapping).
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     type Alias[T: int] = tuple[T, data]
 
@@ -1893,7 +1830,7 @@ def test_autofix_follows_closure_into_generic_functions_own_annotation_despite_b
     # and left it completely unrenamed, even though it should have followed
     # the outer rename like any other enclosing-scope reference.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[T](value: data):
         data = 1
@@ -1939,7 +1876,7 @@ def test_autofix_does_not_rename_generic_functions_own_annotation_referencing_a_
     # return annotation to the peer `TypeVar`, not an outer local of the
     # same name.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[data](value: data) -> data:
         return value
@@ -1983,7 +1920,7 @@ def test_autofix_does_not_follow_generic_functions_own_annotation_under_deferred
     source = """from __future__ import annotations
 
 def outer(response):
-    data = response.json()
+    data: Payload = response.json()
 
     def inner[T](value: data):
         return value
@@ -2009,7 +1946,7 @@ def test_scope_names_ignore_unnamed_except_and_match_captures() -> None:
     # ExceptHandler/MatchAs node with `name=None` — `_get_scope_names()`
     # must not treat that as introducing a bound name.
     source = """def outer(response):
-    data = response.json()
+    data: Payload = response.json()
     try:
         pass
     except Exception:
@@ -2035,8 +1972,10 @@ def test_scope_names_ignore_unnamed_except_and_match_captures() -> None:
 
 
 def test_autofix_replaces_all_uses_in_scope() -> None:
-    source = """def fetch_users():
-    data = response.get()
+    source = """import requests
+
+def fetch_users():
+    data = requests.get(url)
     print(data)
     result = data.json()
     return result
@@ -2053,8 +1992,8 @@ def test_autofix_replaces_all_uses_in_scope() -> None:
 
         fixed_content = filepath.read_text()
 
-        assert "data" not in fixed_content or "# pytriage" in fixed_content
-        assert "result" not in fixed_content or "# pytriage" in fixed_content
+        assert "data" not in fixed_content
+        assert "result = response.json()" in fixed_content
         assert ".json()" in fixed_content
         assert "print(" in fixed_content
 
@@ -2089,11 +2028,11 @@ def test_autofix_avoids_walrus_target_collision_in_comprehension() -> None:
 
 def test_scope_isolation() -> None:
     source = """def func1():
-    data = response.get()
+    data: FirstPayload = get_first_payload()
     return data
 
 def func2():
-    data = file.read()
+    data: SecondPayload = get_second_payload()
     return data
 """
 
@@ -2109,21 +2048,29 @@ def func2():
         check.fix(filepath, violations, source, tree)
         fixed_content = filepath.read_text()
 
-        has_response = "response = response.get()" in fixed_content
-        has_response_2 = "response_2 = response.get()" in fixed_content
-        assert has_response or has_response_2
+        assert "first_payload: FirstPayload = get_first_payload()" in fixed_content
+        assert "second_payload: SecondPayload = get_second_payload()" in fixed_content
         assert "def func1():" in fixed_content
         assert "def func2():" in fixed_content
 
 
-def test_apply_fixes_second_violation_same_name_reuses_replacement() -> None:
-    # Branch coverage: when two violations in the same scope share the
-    # same forbidden name, only the first one's suggestion is kept as the
-    # replacement for that name.
+def test_scope_replacement_helpers_skip_class_bodies_and_support_modules() -> None:
+    class_tree = ast.parse("class Container:\n    value = data\n")
+    module_tree = ast.parse("data = value\n")
+
+    assert _collect_replacements(class_tree.body[0], {"data": "payload"}, has_future_annotations=False) == []
+    assert _collect_scope_replacements(
+        module_tree,
+        {"data": "payload"},
+        has_future_annotations=False,
+    ) == [(1, 0, "data", "payload")]
+
+
+def test_repeated_binding_leaves_the_file_unchanged() -> None:
     source = """def process():
-    data = response.get()
+    data: Payload = get_payload()
     print(data)
-    data = other.get()
+    data = get_payload()
     print(data)
 """
 
@@ -2140,16 +2087,18 @@ def test_apply_fixes_second_violation_same_name_reuses_replacement() -> None:
 
         fixed_content = filepath.read_text()
 
-    assert "data" not in fixed_content
+    assert fixed_content == source
 
 
 def test_autofix_replaces_name_on_line_with_non_ascii_text() -> None:
     # Regression: ast.col_offset is a UTF-8 byte offset, not a character
     # offset. Non-ASCII text earlier on the same line as the forbidden
     # name must not throw off the position used to locate and replace it.
-    source = """def process():
+    source = """import requests
+
+def process():
     label = "café"; data = requests.get(url)
-    return data
+    return data.status_code
 """
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -2167,7 +2116,7 @@ def test_autofix_replaces_name_on_line_with_non_ascii_text() -> None:
 
     assert "data" not in fixed_content
     assert "response = requests.get(url)" in fixed_content
-    assert "return response" in fixed_content
+    assert "return response.status_code" in fixed_content
 
 
 def test_check_reports_character_offset_not_byte_offset_before_multibyte_text() -> None:
@@ -2186,9 +2135,11 @@ def test_check_reports_character_offset_not_byte_offset_before_multibyte_text() 
 
 
 def test_fix_write_failure_returns_false(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    source = """def process():
+    source = """import requests
+
+def process():
     data = requests.get(url)
-    return data
+    return data.status_code
 
 
 def other():

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import logging
-import re
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from ._base import (
@@ -18,13 +17,13 @@ from ._base import (
     Violation,
     atomic_write_text,
     byte_col_to_char_col,
-    fast_get_source_segment,
     find_ignored_lines,
     ignore_pattern_for,
     mark_fix_failed,
     split_lines_like_ast,
 )
-from ._scope import iter_within_scope, iter_within_scope_from
+from ._forbid_vars_suggestions import Confidence, plan_suggestions
+from ._scope import iter_within_scope_from
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -49,69 +48,16 @@ class ForbidVarsFixData(TypedDict):
     name: VariableName
     line: int
     col: int
+    byte_col: int
     suggestion: VariableName | None
+    auto_fixable: bool
 
 
 DEFAULT_FORBIDDEN_NAMES = {"data", "result"}
 
-DEFAULT_AUTOFIX_PATTERNS = {
-    "http": [
-        {"regex": r"\.get\(.*\)", "name": "response"},
-        {"regex": r"\.post\(.*\)", "name": "response"},
-        {"regex": r"\.json\(\)", "name": "payload"},
-    ],
-    "file": [
-        {"regex": r"open\(.*\)", "name": "file_handle"},
-        {"regex": r"\.read_text\(.*\)", "name": "file_content"},
-        {"regex": r"\.read\(.*\)", "name": "content"},
-        {"regex": r"json\.load\(.*\)", "name": "parsed_data"},
-    ],
-    "database": [
-        {"regex": r"\.execute\(.*\)", "name": "cursor"},
-        {"regex": r"\.fetchall\(.*\)", "name": "rows"},
-        {"regex": r"\.objects\.filter\(.*\)", "name": "queryset"},
-        {"regex": r"\.objects\.get\(.*\)", "name": "instance"},
-    ],
-    "data-science": [
-        {"regex": r"pd\.read_csv\(.*\)", "name": "df"},
-        {"regex": r"np\.array\(.*\)", "name": "arr"},
-        {"regex": r"re\.search\(.*\)", "name": "match"},
-        {"regex": r"re\.findall\(.*\)", "name": "matches"},
-    ],
-    "semantic": [
-        {"regex": r"get_([a-zA-Z0-9_]+)\(.*\)", "name": r"\1"},
-        {"regex": r"find_([a-zA-Z0-9_]+)\(.*\)", "name": r"found_\1"},
-        {"regex": r"create_([a-zA-Z0-9_]+)\(.*\)", "name": r"new_\1"},
-    ],
-}
-
-
-def _compile_patterns(
-    patterns_dict: dict[str, list[dict[str, str]]],
-) -> dict[str, list[dict[str, Any]]]:
-    """Pre-compiles each pattern's regex once, up front, instead of on every match attempt."""
-    compiled: dict[str, list[dict[str, Any]]] = {}
-    for category, patterns in patterns_dict.items():
-        compiled[category] = []
-        for pattern in patterns:
-            compiled[category].append(
-                {
-                    "regex": pattern["regex"],  # Keep original for reference
-                    "compiled": re.compile(pattern["regex"]),
-                    "name": pattern["name"],
-                }
-            )
-    return compiled
-
-
-# Autofix patterns are always active and not user-configurable — see README.
-AUTOFIX_PATTERNS = _compile_patterns(DEFAULT_AUTOFIX_PATTERNS)
-
 
 class ForbiddenNameVisitor(ast.NodeVisitor):
-    """Detects forbidden variable names in every context where a variable is
-    defined, and tries to find an autofix suggestion.
-    """
+    """Detects forbidden variable names in every context where a variable is defined."""
 
     def __init__(
         self,
@@ -119,365 +65,14 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         source: str,
     ) -> None:
         self.forbidden_names = forbidden_names
-        self.source = source
-        self.source_lines = source.splitlines()
-        # For fast_get_source_segment only: split on the same line
-        # boundaries ast's own lineno/end_lineno use, unlike
-        # self.source_lines above (see split_lines_like_ast).
         self._ast_lines = split_lines_like_ast(source)
         self.violations: list[ForbidVarsFixData] = []
-        self.current_scope: list[ast.AST] = []
-        self.tree: ast.Module | None = None
-        self.has_future_annotations = False
-        self._annotation_names_cache: set[VariableName] | None = None
-        self.scope_used_suggestions: dict[int | None, set[str]] = {}
-        # Maps (scope_id, forbidden_var_name) to the generated suggestion
-        self.scope_var_suggestions: dict[tuple[int | None, str], str] = {}
-        # Cache scope names to avoid O(n²) repeated AST walks (performance optimization)
-        self.scope_names_cache: dict[int | None, set[str]] = {}
-        # Cache global/nonlocal-declared names to avoid O(n²) repeated AST walks (performance optimization)
-        self.global_nonlocal_names_cache: dict[int | None, set[str]] = {}
-        # Cache non-Name rebinding names (def/class/import/except/match) to avoid O(n²) repeated AST walks
-        self.non_name_rebinding_names_cache: dict[int | None, set[str]] = {}
-        # Fixable violations found during visit(), queued here rather than
-        # given a suggestion immediately — see assign_suggestions().
-        self._pending_suggestions: list[tuple[ForbidVarsFixData, VariableName, VariableName, list[ast.AST]]] = []
-
-    def assign_suggestions(self) -> None:
-        """Generate a suggestion for every fixable violation found during
-        `visit()`, in ascending scope-depth order (module scope first, most
-        deeply nested scope last) rather than the AST's own textual/visit
-        order.
-
-        `_generate_unique_name()` avoids a name already claimed by an
-        *ancestor* scope's own violation, since `fix()`'s closure-following
-        rename can land an ancestor's rename inside a descendant scope too
-        (`_ancestor_used_suggestions`). That check only works if the
-        ancestor's own suggestion has already been chosen by the time a
-        descendant scope's violation asks — true when the ancestor's own
-        violation happens to appear earlier in the source, but *not* when a
-        nested closure is defined *before* the variable it will eventually
-        capture is assigned (valid Python: closures resolve names at call
-        time, not definition time). Processing strictly by ascending scope
-        depth instead of visit order guarantees every ancestor of a given
-        scope — which by definition has a strictly smaller depth — has
-        already had all of its own violations assigned a suggestion,
-        regardless of where either one appears in the source.
-
-        Depth ties (siblings, or violations in the same scope) keep their
-        original relative order (`sorted` is stable), which matches the
-        previous behavior for same-scope name suffixing (`payload`,
-        `payload_2`, ...) exactly.
-        """
-        for violation, suggested_name, forbidden_name, scope_stack in sorted(
-            self._pending_suggestions, key=lambda pending: len(pending[3])
-        ):
-            violation["suggestion"] = self._generate_unique_name(suggested_name, forbidden_name, scope_stack)
-
-    def _get_scope_names(self, scope_node: ast.AST | None) -> set[VariableName]:
-        """`scope_node=None` means module-level scope. Cached to avoid repeated AST walks for the same scope.
-
-        Deliberately walks the *entire* subtree — including every nested
-        function/lambda/comprehension, unlike `collect_scope_names()`'s own
-        immediate-scope-only traversal — since `fix()`'s closure-following
-        rename (`_collect_replacements()`) can propagate a suggestion into
-        any non-shadowing nested scope. A suggestion that's merely unique
-        within `scope_node`'s own immediate names could still collide with
-        an unrelated name (or another violation's own independently
-        generated suggestion) that lives in one of those nested scopes —
-        this errs conservative (occasionally avoiding a name a rename would
-        never actually reach) rather than risk two different renames
-        landing on the same identifier in the same scope.
-
-        Also includes every *non*-`ast.Name` binding a nested scope can
-        introduce (`ast.arg`, `except ... as`, match captures, type
-        parameters, `def`/`class`/import names — the same set
-        `_binds_name_in_nested_scope` treats as shadowing), not just plain
-        `ast.Name` references: a suggestion equal to a nested function's own
-        *parameter* name (never itself an `ast.Name` node) would otherwise
-        go undetected here, silently rebinding a closure read to that
-        parameter once the rename lands inside the nested function's body.
-
-        Also reserves every name declared in a `global`/`nonlocal`
-        statement anywhere in the subtree (`_global_or_nonlocal_names`): a
-        suggestion equal to one would, once the closure-following rename
-        reaches that nested scope, turn what used to be a closure read into
-        a lookup of that unrelated global/nonlocal binding instead — same
-        failure class as the parameter collision above, just via a name
-        that isn't a binding construct at all, only a redirection to one
-        that lives elsewhere.
-        """
-        scope_id = id(scope_node) if scope_node else None
-
-        if scope_id in self.scope_names_cache:
-            return self.scope_names_cache[scope_id]
-
-        assert self.tree is not None, "tree must be set by check() before scope lookups"
-        names: set[VariableName] = set()
-        for node in ast.walk(scope_node or self.tree):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            elif isinstance(node, ast.arg):
-                names.add(node.arg)
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-                names.add(node.name)
-            elif isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
-                if node.name is not None:
-                    names.add(node.name)
-            elif isinstance(node, ast.MatchMapping) and node.rest is not None:
-                names.add(node.rest)
-            elif isinstance(node, ast.TypeVar | ast.ParamSpec | ast.TypeVarTuple):
-                names.add(node.name)
-            elif isinstance(node, ast.alias):
-                names.add(node.asname or node.name.split(".")[0])
-        names |= self._global_or_nonlocal_names(scope_node)
-
-        self.scope_names_cache[scope_id] = names
-        return names
-
-    def _global_or_nonlocal_names(self, scope_node: ast.AST | None) -> set[VariableName]:
-        """Every name declared in a `global`/`nonlocal` statement anywhere
-        within `scope_node`'s subtree, at any nesting depth. Cached per
-        scope like `_get_scope_names`, since `_check_name()` calls
-        `_referenced_via_global_or_nonlocal()` once per violation in the
-        scope — without caching, a scope with many matching violations
-        re-walks its own subtree once per violation.
-        """
-        scope_id = id(scope_node) if scope_node else None
-
-        if scope_id in self.global_nonlocal_names_cache:
-            return self.global_nonlocal_names_cache[scope_id]
-
-        assert self.tree is not None, "tree must be set by check() before scope lookups"
-        names: set[VariableName] = set()
-        for node in ast.walk(scope_node or self.tree):
-            if isinstance(node, ast.Global | ast.Nonlocal):
-                names.update(node.names)
-
-        self.global_nonlocal_names_cache[scope_id] = names
-        return names
-
-    def _referenced_via_global_or_nonlocal(self, name: VariableName) -> bool:
-        """Whether `name` is mentioned in a `global`/`nonlocal` statement
-        anywhere within the current scope's subtree, at any nesting depth.
-
-        A `global`/`nonlocal` declaration stores its name as a plain string
-        (`ast.Global.names`/`ast.Nonlocal.names`), not an `ast.Name` node,
-        so `fix()`'s rename has no position there it could safely rewrite —
-        renaming everything else while leaving that declaration stale can
-        silently misdirect a later read (`NameError`) or, worse, a later
-        write (creating an unrelated new local/nonlocal binding instead of
-        mutating the variable the declaration named, with no error at all).
-        Refusing to suggest a fix at all for such a violation, checked here
-        at detection time so `fixable` stays honest, avoids the whole
-        class rather than trying to patch each such construct safely.
-        """
-        scope_node = self.current_scope[-1] if self.current_scope else self.tree
-        return name in self._global_or_nonlocal_names(scope_node)
-
-    def _non_name_rebinding_names(self, scope_node: ast.AST | None) -> set[VariableName]:
-        """Every name bound directly within `scope_node`'s own scope (never
-        crossing into a nested function/lambda/comprehension/class — unlike
-        `_global_or_nonlocal_names`, this is about ordinary lexical binding,
-        which respects scope boundaries) via a construct whose own name is a
-        plain string, not an `ast.Name` node: `def`/`async def`/`class`,
-        `except ... as`, a match capture, or an import. Cached per scope like
-        `_get_scope_names`/`_global_or_nonlocal_names`.
-        """
-        scope_id = id(scope_node) if scope_node else None
-
-        if scope_id in self.non_name_rebinding_names_cache:
-            return self.non_name_rebinding_names_cache[scope_id]
-
-        assert self.tree is not None, "tree must be set by check() before scope lookups"
-        names: set[VariableName] = set()
-        for node in iter_within_scope(scope_node or self.tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-                names.add(node.name)
-            elif isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
-                if node.name is not None:
-                    names.add(node.name)
-            elif isinstance(node, ast.MatchMapping) and node.rest is not None:
-                names.add(node.rest)
-            elif isinstance(node, ast.Import):
-                names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                names.update(alias.asname or alias.name for alias in node.names)
-
-        self.non_name_rebinding_names_cache[scope_id] = names
-        return names
-
-    def _rebound_via_non_name_construct(self, name: VariableName) -> bool:
-        """Whether `name` is *also* bound, anywhere else in the current
-        scope, by a construct whose own name `fix()`'s purely
-        `ast.Name`-position-based rename has no way to rewrite.
-
-        Python's "one binding governs the whole scope" rule applies
-        uniformly regardless of *which* kind of statement does the binding —
-        a `def`/`class` with the same name, an `except ... as`/match capture,
-        or an import all rebind the same local slot an ordinary assignment
-        would. Since a closure resolves a free variable *lazily*, against
-        whatever that slot currently holds at call time (not at the point
-        the closure was defined), renaming only the assignment — and any
-        closure/same-scope reference that predates such a rebinding in the
-        source — while leaving the rebinding construct's own name untouched
-        would silently change which value every one of those references
-        actually observes at runtime. Confirmed against CPython: `data =
-        response.json()` followed later, in the same scope, by `def data():
-        ...` makes every reference to `data` in that scope — including one
-        textually *before* the `def` — resolve to the function once it's
-        actually called, not the original assignment. Refusing to suggest a
-        fix at all for such a violation, checked here at detection time so
-        `fixable` stays honest, avoids the whole class rather than trying to
-        rewrite a construct whose name isn't a rewritable `ast.Name` node.
-        """
-        scope_node = self.current_scope[-1] if self.current_scope else self.tree
-        return name in self._non_name_rebinding_names(scope_node)
-
-    def _annotation_referenced_names(self) -> set[VariableName]:
-        """Every identifier referenced anywhere in the module within a
-        parameter or return annotation expression, cached once (module-wide,
-        not per-scope: under PEP 563 every annotation resolves the same way
-        regardless of how deeply it's nested — see
-        `_unsafe_module_scope_annotation_reference`).
-        """
-        if self._annotation_names_cache is not None:
-            return self._annotation_names_cache
-
-        assert self.tree is not None, "tree must be set by check() before scope lookups"
-        names: set[VariableName] = set()
-        for node in ast.walk(self.tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                for annotation in _signature_annotations(node.args):
-                    names.update(child.id for child in ast.walk(annotation) if isinstance(child, ast.Name))
-                if node.returns is not None:
-                    names.update(child.id for child in ast.walk(node.returns) if isinstance(child, ast.Name))
-
-        self._annotation_names_cache = names
-        return names
-
-    def _unsafe_module_scope_annotation_reference(self, name: VariableName) -> bool:
-        """Whether renaming a module-scope `name` is unsafe because some
-        annotation elsewhere in the module also mentions it.
-
-        Under PEP 563 (`from __future__ import annotations`), every
-        annotation is stored as a string and resolved later only against the
-        annotated function's own module globals — *never* against any
-        enclosing scope's locals, and *ignoring* any local shadowing along
-        the way (confirmed against real `typing.get_type_hints()` behavior:
-        a nested function's own local of the same name has no effect on
-        what its annotations resolve to). So a rename of a module-level
-        binding should, in principle, follow into every annotation
-        referencing it, at any nesting depth, regardless of intervening
-        shadowing — a fundamentally different resolution rule than the
-        shadow-respecting closure-following `_collect_replacements()` uses
-        for ordinary references. Building a second, annotation-specific
-        traversal that ignores shadowing (while everything else respects
-        it) is disproportionate for how rarely a fixable violation's RHS
-        pattern (e.g. `.json()`) would plausibly double as a type
-        elsewhere, so this refuses to suggest a fix instead, the same
-        "don't touch what we can't safely follow" treatment already given
-        to `global`/`nonlocal`. Only relevant for a module-scope violation:
-        a nested scope's own local is already never followed into any
-        annotation under deferred annotations regardless (see
-        `_outer_scope_children`), so no annotation there could ever
-        possibly resolve to it in the first place.
-        """
-        return not self.current_scope and self.has_future_annotations and name in self._annotation_referenced_names()
-
-    def _ancestor_used_suggestions(self, scope_stack: list[ast.AST]) -> set[VariableName]:
-        """Union of every already-used suggestion in the current scope's own
-        bucket and every *ancestor* scope's bucket (module scope, then each
-        enclosing function, down to the immediate one) — `scope_stack` is a
-        snapshot of `current_scope` from the point a violation was found
-        (see `assign_suggestions`), not necessarily the live stack.
-
-        A suggestion chosen for an ancestor scope's own violation can still
-        end up inside a scope nested within it, via `fix()`'s
-        closure-following rename (`_binds_name_in_nested_scope`) — so a
-        violation in this scope must avoid reusing a suggestion an ancestor
-        already claimed, or the two independently-renamed variables would
-        collide into the same identifier once `fix()` actually runs. This
-        only works because `assign_suggestions()` processes every scope's
-        violations in ascending depth order: an ancestor (strictly shallower
-        than this scope) has always already had its own suggestions chosen
-        by the time this is called, regardless of which one appears earlier
-        in the source.
-        """
-        used = set(self.scope_used_suggestions.get(None, set()))
-        for ancestor in scope_stack:
-            used |= self.scope_used_suggestions.get(id(ancestor), set())
-        return used
-
-    def _generate_unique_name(
-        self, suggestion: VariableName, forbidden_var_name: VariableName, scope_stack: list[ast.AST]
-    ) -> VariableName:
-        """Considers only the current scope (plus its ancestors, see
-        `_ancestor_used_suggestions`), so variables with the same name in
-        unrelated, non-nested functions don't get unnecessary suffixes
-        (e.g., response_2, response_3). `scope_stack` is a snapshot of
-        `current_scope` from the point the violation was found.
-        """
-        if suggestion in self.forbidden_names:
-            suggestion = "var"
-
-        scope_node = scope_stack[-1] if scope_stack else None
-        scope_id = id(scope_node) if scope_node else None
-
-        cache_key = (scope_id, forbidden_var_name)
-        if cache_key in self.scope_var_suggestions:
-            return self.scope_var_suggestions[cache_key]
-
-        # Names anywhere in this scope's own subtree (crossing into nested
-        # scopes too — see _get_scope_names).
-        scope_names = self._get_scope_names(scope_node)
-        ancestor_used = self._ancestor_used_suggestions(scope_stack)
-
-        if scope_id not in self.scope_used_suggestions:
-            self.scope_used_suggestions[scope_id] = set()
-
-        if (
-            suggestion not in scope_names
-            and suggestion not in self.scope_used_suggestions[scope_id]
-            and suggestion not in ancestor_used
-        ):
-            self.scope_used_suggestions[scope_id].add(suggestion)
-            self.scope_var_suggestions[cache_key] = suggestion
-            return suggestion
-
-        counter = 2
-        while (
-            f"{suggestion}_{counter}" in scope_names
-            or f"{suggestion}_{counter}" in self.scope_used_suggestions[scope_id]
-            or f"{suggestion}_{counter}" in ancestor_used
-        ):
-            counter += 1
-
-        unique = f"{suggestion}_{counter}"
-        self.scope_used_suggestions[scope_id].add(unique)
-        self.scope_var_suggestions[cache_key] = unique
-        return unique
-
-    def _find_best_match(self, rhs_source: str) -> dict[str, Any] | None:
-        """Find the best autofix pattern for a given RHS source."""
-        best_match = None
-        max_specificity = -1
-
-        for patterns in AUTOFIX_PATTERNS.values():
-            for pattern in patterns:
-                if pattern["compiled"].search(rhs_source):
-                    specificity = len(pattern["regex"])
-                    if specificity > max_specificity:
-                        max_specificity = specificity
-                        best_match = pattern
-        return best_match
 
     def _check_name(
         self,
         name: VariableName,
         lineno: int,
         col_offset: int,
-        match: dict[str, Any] | None = None,
     ) -> None:
         if name in self.forbidden_names:
             # fix_data (built from this dict) must stay serializable, so it
@@ -495,55 +90,24 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
                 # re-derive their own edit positions fresh from the tree,
                 # never from this stored value.
                 "col": byte_col_to_char_col(self._ast_lines[lineno - 1], col_offset),
+                "byte_col": col_offset,
                 "suggestion": None,
+                "auto_fixable": False,
             }
-            if (
-                match
-                and not self._referenced_via_global_or_nonlocal(name)
-                and not self._unsafe_module_scope_annotation_reference(name)
-                and not self._rebound_via_non_name_construct(name)
-            ):
-                suggested_name = match["name"]
-                # Handle semantic naming where name is from regex group
-                if "\\" in suggested_name:
-                    rhs_source = self.source_lines[lineno - 1]
-                    regex_match = re.search(match["regex"], rhs_source)
-                    if regex_match:
-                        suggested_name = regex_match.expand(suggested_name)
-
-                # Suggestion generation is deferred to assign_suggestions()
-                # (called after the full tree has been visited), not done
-                # here — see its docstring for why visit-order isn't safe.
-                self._pending_suggestions.append((violation, suggested_name, name, list(self.current_scope)))
             self.violations.append(violation)
 
     def visit_Assign(self, node: ast.Assign) -> None:
         """Visit regular assignment nodes: data = 1."""
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             target = node.targets[0]
-            # Reuses self.source_lines (computed once) instead of
-            # ast.get_source_segment's own per-call re-split of the whole
-            # file — see fast_get_source_segment.
-            rhs_source = fast_get_source_segment(self.source, self._ast_lines, node.value)
-            # fast_get_source_segment always resolves given a consistent
-            # tree/source pair, which check() guarantees.
-            assert rhs_source
-            match = self._find_best_match(rhs_source)
-            self._check_name(target.id, target.lineno, target.col_offset, match)
+            self._check_name(target.id, target.lineno, target.col_offset)
 
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         """Visit annotated assignment nodes: data: int = 1."""
         if isinstance(node.target, ast.Name):
-            if node.value:
-                # See visit_Assign above.
-                rhs_source = fast_get_source_segment(self.source, self._ast_lines, node.value)
-                match = self._find_best_match(rhs_source) if rhs_source else None
-            else:
-                match = None
-
-            self._check_name(node.target.id, node.target.lineno, node.target.col_offset, match)
+            self._check_name(node.target.id, node.target.lineno, node.target.col_offset)
         self.generic_visit(node)
 
     @staticmethod
@@ -562,17 +126,13 @@ class ForbiddenNameVisitor(ast.NodeVisitor):
         """Visit function definition nodes: def foo(data):."""
         if not self._has_decorator_named(node, "model_validator"):
             self._check_function_args(node)
-        self.current_scope.append(node)
         self.generic_visit(node)
-        self.current_scope.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         """Visit async function definition nodes: async def foo(data):."""
         if not self._has_decorator_named(node, "model_validator"):
             self._check_function_args(node)
-        self.current_scope.append(node)
         self.generic_visit(node)
-        self.current_scope.pop()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit class body but only descend into method definitions.
@@ -1180,9 +740,7 @@ def _apply_fixes(
             # (see the module docstring above); this narrows
             # VariableName | None to VariableName for the dict below.
             assert new_name is not None
-            if old_name not in replacements:
-                # First violation of this name in this scope wins
-                replacements[old_name] = new_name
+            replacements[old_name] = new_name
         scope_replacements[scope_id] = replacements
 
     # Step 3: Collect replacements for each scope
@@ -1232,23 +790,28 @@ class ForbidVarsCheck(BaseCheck):
 
     def check(self, _filepath: Path, tree: ast.Module, source: str) -> list[Violation]:
         visitor = ForbiddenNameVisitor(self.forbidden_names, source)
-        visitor.tree = tree  # Store tree for scope-aware name generation
-        visitor.has_future_annotations = _has_future_annotations_import(tree)
         visitor.visit(tree)
-        visitor.assign_suggestions()
 
-        # Lazy tokenization: only tokenize if violations found
         if visitor.violations:
             ignored_lines = find_ignored_lines(source, IGNORE_PATTERN)
             raw_violations = [v for v in visitor.violations if v["line"] not in ignored_lines]
+            suggestions = plan_suggestions(tree, self.forbidden_names, ignored_lines)
         else:
             raw_violations = []
+            suggestions = {}
 
         violations = []
         for v in raw_violations:
+            proposal = suggestions.get((v["line"], v["byte_col"]))
+            if proposal is not None:
+                v["suggestion"] = proposal.name
+                v["auto_fixable"] = proposal.confidence is Confidence.AUTO_FIX
             message = f"Forbidden variable name '{v['name']}' found."
             if v.get("suggestion"):
-                message += f" Consider renaming to '{v['suggestion']}'."
+                if v["auto_fixable"]:
+                    message += f" Consider renaming to '{v['suggestion']}'."
+                else:
+                    message += f" Suggestion only: consider renaming to '{v['suggestion']}'."
             else:
                 message += " Use a more descriptive name."
             message += " Or add '# pytriage: ignore=TRI001' to suppress."
@@ -1260,7 +823,7 @@ class ForbidVarsCheck(BaseCheck):
                     line=v["line"],
                     col=v["col"],
                     message=message,
-                    fixable=bool(v.get("suggestion")),
+                    fixable=v["auto_fixable"],
                     # Violation.fix_data is intentionally untyped (dict[str,
                     # Any]) at this boundary; see ForbidVarsFixData above for
                     # the shape check()/fix() actually agree on.

@@ -558,7 +558,9 @@ def test_apply_fixes_handles_utf8_bom(tmp_path: Path) -> None:
     # "utf-8-sig", the same encoding used to write back) — reading it back
     # with "utf-8-sig" strips it again, same as the original read.
     filepath = tmp_path / "with_bom.py"
-    filepath.write_bytes(b"\xef\xbb\xbfdata = requests.get(url)\n")
+    filepath.write_bytes(
+        b"\xef\xbb\xbfimport requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     orchestrator = CheckOrchestrator(checks=[ForbidVarsCheck()], fix_mode=True)
     violations = orchestrator.process_files([str(filepath)])
@@ -567,7 +569,9 @@ def test_apply_fixes_handles_utf8_bom(tmp_path: Path) -> None:
     assert fix_data is not None
     assert fix_data["fixed"] is True
     assert filepath.read_bytes().startswith(b"\xef\xbb\xbf")
-    assert filepath.read_text(encoding="utf-8-sig") == "response = requests.get(url)\n"
+    assert filepath.read_text(encoding="utf-8-sig") == (
+        "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n"
+    )
 
 
 def test_apply_fixes_recomputes_stale_positions(tmp_path: Path) -> None:
@@ -1143,7 +1147,10 @@ def test_apply_fixes_skips_check_with_no_fixable_violations(tmp_path: Path) -> N
     # skipped in the fix loop rather than attempting (and no-op'ing) a fix.
     filepath = tmp_path / "module.py"
     filepath.write_text(
-        "data = requests.get(url)\n"
+        "import requests\n\n"
+        "def request():\n"
+        "    data = requests.get(url)\n"
+        "    return data.status_code\n"
         "\n\n"
         "class Base:\n"
         "    def __init__(self):\n"
@@ -1249,7 +1256,9 @@ def test_apply_fixes_marks_violation_rejected_when_fix_produces_invalid_syntax(
     # existing per-check try/except isolation (one check's bad fix doesn't
     # block another's unrelated one).
     filepath = tmp_path / "module.py"
-    filepath.write_text("\n\n\ndata = requests.get(url)\n")
+    filepath.write_text(
+        "\n\n\nimport requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     forbid_vars = ForbidVarsCheck()
 
@@ -1283,7 +1292,9 @@ def test_apply_fixes_marks_violation_errored_when_fix_raises_unexpectedly(
     # itself blew up." An unrelated check's fix in the same file must still
     # apply normally.
     filepath = tmp_path / "module.py"
-    filepath.write_text("\n\n\ndata = requests.get(url)\n")
+    filepath.write_text(
+        "\n\n\nimport requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     forbid_vars = ForbidVarsCheck()
 
@@ -1319,14 +1330,32 @@ def test_apply_fixes_marks_already_resolved_violation_fixed_not_errored(
     # which change actually landed on disk. Only the violation(s) still
     # present after the crash must be marked errored.
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\nresult = things.fetchall()\n")
+    filepath.write_text(
+        "import requests\n\n"
+        "def first():\n"
+        "    data = requests.get(url)\n"
+        "    return data.status_code\n\n"
+        "def second():\n"
+        "    result = requests.get(url)\n"
+        "    return result.status_code\n"
+    )
 
     forbid_vars = ForbidVarsCheck()
 
     def partial_then_raise(fp: Path, *_args: object, **_kwargs: object) -> None:
         # Simulates a multi-write check that already committed the fix for
         # "data" before crashing while attempting "result".
-        atomic_write_text(fp, "response = requests.get(url)\nresult = things.fetchall()\n", "utf-8")
+        atomic_write_text(
+            fp,
+            "import requests\n\n"
+            "def first():\n"
+            "    response = requests.get(url)\n"
+            "    return response.status_code\n\n"
+            "def second():\n"
+            "    result = requests.get(url)\n"
+            "    return result.status_code\n",
+            "utf-8",
+        )
         raise RuntimeError("simulated fix bug partway through")
 
     monkeypatch.setattr(forbid_vars, "fix", partial_then_raise)
@@ -1335,8 +1364,8 @@ def test_apply_fixes_marks_already_resolved_violation_fixed_not_errored(
     violations = orchestrator.process_files([str(filepath)])
 
     by_line = {v.line: v for v in violations[str(filepath)]}
-    data_violation = by_line[1]
-    result_violation = by_line[2]
+    data_violation = by_line[4]
+    result_violation = by_line[8]
 
     assert data_violation.fix_data is not None
     assert data_violation.fix_data.get("fixed") is True
@@ -1347,7 +1376,7 @@ def test_apply_fixes_marks_already_resolved_violation_fixed_not_errored(
 
     fixed_content = filepath.read_text()
     assert "response = requests.get(url)" in fixed_content
-    assert "result = things.fetchall()" in fixed_content
+    assert "result = requests.get(url)" in fixed_content
 
 
 def test_apply_fixes_records_rule_failure_when_fix_raises_after_resolving_everything(
@@ -1360,12 +1389,18 @@ def test_apply_fixes_records_rule_failure_when_fix_raises_after_resolving_everyt
     # somewhere, or a genuine internal failure would be completely
     # invisible behind what looks like a fully successful fix.
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     forbid_vars = ForbidVarsCheck()
 
     def fix_then_raise(fp: Path, *_args: object, **_kwargs: object) -> None:
-        atomic_write_text(fp, "response = requests.get(url)\n", "utf-8")
+        atomic_write_text(
+            fp,
+            "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n",
+            "utf-8",
+        )
         raise RuntimeError("simulated cleanup bug after a successful fix")
 
     monkeypatch.setattr(forbid_vars, "fix", fix_then_raise)
@@ -1378,7 +1413,9 @@ def test_apply_fixes_records_rule_failure_when_fix_raises_after_resolving_everyt
     assert violation.fix_data.get("fixed") is True
     assert not is_fix_errored(violation)
     assert orchestrator.rule_failures == [(str(filepath), "forbid-vars")]
-    assert filepath.read_text() == "response = requests.get(url)\n"
+    assert filepath.read_text() == (
+        "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n"
+    )
 
 
 def test_apply_fixes_marks_only_the_rejected_violation_of_a_multi_write_check(
@@ -1592,7 +1629,9 @@ def test_apply_fixes_marks_nothing_fixed(
     configure: Callable[[CheckOrchestrator, ForbidVarsCheck, pytest.MonkeyPatch], None],
 ) -> None:
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     forbid_vars = ForbidVarsCheck()
     orchestrator = CheckOrchestrator(checks=[forbid_vars], fix_mode=True)
@@ -1841,7 +1880,9 @@ def test_main_reports_column_alongside_line(tmp_path: Path, capsys: pytest.Captu
 
 def test_main_reports_fixable_violation_without_fix_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\nprint(data)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     exit_code = main([str(filepath), "--select", "forbid-vars"])
     assert exit_code == 1
@@ -1853,7 +1894,9 @@ def test_main_reports_fixable_violation_without_fix_flag(tmp_path: Path, capsys:
 
 def test_main_fix_flag_marks_violation_fixed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\nprint(data)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     exit_code = main([str(filepath), "--select", "forbid-vars", "--fix"])
     assert exit_code == 1
@@ -1866,7 +1909,9 @@ def test_main_fix_flag_marks_violation_fixed(tmp_path: Path, capsys: pytest.Capt
     # already assert the file stays untouched; only the success path was
     # never checked against the real on-disk content, just the printed
     # [FIXED] line.
-    assert filepath.read_text() == "response = requests.get(url)\nprint(response)\n"
+    assert filepath.read_text() == (
+        "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n"
+    )
 
 
 def test_main_fix_flag_reports_rejected_fix(
@@ -1884,7 +1929,9 @@ def test_main_fix_flag_reports_rejected_fix(
     monkeypatch.setattr(ForbidVarsCheck, "fix", broken_fix)
 
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     with caplog.at_level("DEBUG"):
         exit_code = main([str(filepath), "--select", "forbid-vars", "--fix"])
@@ -1896,7 +1943,7 @@ def test_main_fix_flag_reports_rejected_fix(
     assert "https://github.com/alessio-locatelli/ruff-extra-rules/issues" in err
     assert "[FIXED]" not in err
     assert "Run with --fix" not in err
-    assert filepath.read_text() == "data = requests.get(url)\n"
+    assert "data = requests.get(url)" in filepath.read_text()
     # [FIX REJECTED] above already reports this; a raw traceback alongside
     # it on stderr would just be redundant noise (ch. 7: "MUST NOT emit
     # uncontrolled human-oriented text into a machine-readable output
@@ -1920,7 +1967,9 @@ def test_main_fix_flag_reports_errored_fix(
     monkeypatch.setattr(ForbidVarsCheck, "fix", broken_fix)
 
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     with caplog.at_level("DEBUG"):
         exit_code = main([str(filepath), "--select", "forbid-vars", "--fix"])
@@ -1933,7 +1982,7 @@ def test_main_fix_flag_reports_errored_fix(
     assert "[FIXED]" not in err
     assert "[FIX REJECTED]" not in err
     assert "Run with --fix" not in err
-    assert filepath.read_text() == "data = requests.get(url)\n"
+    assert "data = requests.get(url)" in filepath.read_text()
     # [FIX ERRORED] above already reports this; a raw traceback alongside it
     # on stderr would just be redundant noise (ch. 7: "MUST NOT emit
     # uncontrolled human-oriented text into a machine-readable output
@@ -1953,7 +2002,9 @@ def test_main_fix_flag_reports_failed_fix(
     subdir = tmp_path / "readonly"
     subdir.mkdir()
     filepath = subdir / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
     subdir.chmod(0o555)
     try:
         with caplog.at_level("DEBUG"):
@@ -1969,7 +2020,7 @@ def test_main_fix_flag_reports_failed_fix(
     assert "[FIX ERRORED]" not in err
     assert "[FIX REJECTED]" not in err
     assert "Run with --fix" not in err
-    assert filepath.read_text() == "data = requests.get(url)\n"
+    assert "data = requests.get(url)" in filepath.read_text()
     # [FIX FAILED] above already reports this; a raw traceback alongside it
     # on stderr would just be redundant noise (ch. 7: "MUST NOT emit
     # uncontrolled human-oriented text into a machine-readable output
@@ -2000,7 +2051,11 @@ def test_main_reports_rule_failure_when_reread_fails_mid_fix_loop(
 
     filepath = tmp_path / "module.py"
     filepath.write_text(
-        "data = requests.get(url)\n\n\nclass Base:\n    def __init__(self):\n        pass\n\n\n"
+        "import requests\n\n"
+        "def request():\n"
+        "    data = requests.get(url)\n"
+        "    return data.status_code\n\n\n"
+        "class Base:\n    def __init__(self):\n        pass\n\n\n"
         "class Child(Base):\n    def __init__(self, **kwargs):\n        super().__init__(**kwargs)\n"
     )
 
@@ -2051,7 +2106,11 @@ def test_main_reports_rule_failure_when_recompute_raises_mid_fix_loop(
 
     filepath = tmp_path / "module.py"
     filepath.write_text(
-        "data = requests.get(url)\n\n\nclass Base:\n    def __init__(self):\n        pass\n\n\n"
+        "import requests\n\n"
+        "def request():\n"
+        "    data = requests.get(url)\n"
+        "    return data.status_code\n\n\n"
+        "class Base:\n    def __init__(self):\n        pass\n\n\n"
         "class Child(Base):\n    def __init__(self, **kwargs):\n        super().__init__(**kwargs)\n"
     )
 
@@ -2089,13 +2148,19 @@ def test_main_reports_rule_failure_when_fix_raises_after_resolving_everything(
     # surface in the run's own output, or a genuine internal failure would
     # be completely invisible behind what reads as full success.
     def fix_then_raise(_self: object, filepath: Path, *_args: object, **_kwargs: object) -> None:
-        atomic_write_text(filepath, "response = requests.get(url)\n", "utf-8")
+        atomic_write_text(
+            filepath,
+            "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n",
+            "utf-8",
+        )
         raise RuntimeError("simulated cleanup bug after a successful fix")
 
     monkeypatch.setattr(ForbidVarsCheck, "fix", fix_then_raise)
 
     filepath = tmp_path / "module.py"
-    filepath.write_text("data = requests.get(url)\n")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n"
+    )
 
     with caplog.at_level("DEBUG"):
         exit_code = main([str(filepath), "--select", "forbid-vars", "--fix"])
@@ -2105,7 +2170,9 @@ def test_main_reports_rule_failure_when_fix_raises_after_resolving_everything(
     assert "[FIXED]" in err
     assert "[FIX ERRORED]" not in err
     assert f"{filepath}: error: check 'forbid-vars' raised an unexpected exception" in err
-    assert filepath.read_text() == "response = requests.get(url)\n"
+    assert filepath.read_text() == (
+        "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n"
+    )
     # The error line above already reports this; a raw traceback alongside
     # it on stderr would just be redundant noise (ch. 7: "MUST NOT emit
     # uncontrolled human-oriented text into a machine-readable output
@@ -2378,7 +2445,10 @@ def test_main_handles_path_containing_spaces_and_unicode(
     directory = tmp_path / "my proj café 日本語"
     directory.mkdir()
     filepath = directory / "module café.py"
-    filepath.write_text("data = requests.get(url)\n", encoding="utf-8")
+    filepath.write_text(
+        "import requests\n\ndef request():\n    data = requests.get(url)\n    return data.status_code\n",
+        encoding="utf-8",
+    )
 
     real_run = subprocess.run
     # Every subprocess.run call made once the spy is installed below is a
@@ -2418,7 +2488,9 @@ def test_main_handles_path_containing_spaces_and_unicode(
 
     assert exit_code == 1
     assert "[FIXED]" in capsys.readouterr().err
-    assert filepath.read_text(encoding="utf-8") == "response = requests.get(url)\n"
+    assert filepath.read_text(encoding="utf-8") == (
+        "import requests\n\ndef request():\n    response = requests.get(url)\n    return response.status_code\n"
+    )
 
 
 def test_process_files_handles_a_large_file(tmp_path: Path) -> None:
@@ -2431,8 +2503,8 @@ def test_process_files_handles_a_large_file(tmp_path: Path) -> None:
     # violation in a large file is still found and fixed correctly, with
     # nothing dropped, corrupted, or left unprocessed.
     function_count = 300
-    source = "\n\n".join(
-        f"def func_{i}():\n    data = requests.get(url)\n    return data" for i in range(function_count)
+    source = "import requests\n\n" + "\n\n".join(
+        f"def func_{i}():\n    data = requests.get(url)\n    return data.status_code" for i in range(function_count)
     )
     filepath = tmp_path / "large_module.py"
     filepath.write_text(source + "\n", encoding="utf-8")
