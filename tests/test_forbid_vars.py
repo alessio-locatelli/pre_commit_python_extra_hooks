@@ -9,7 +9,12 @@ from typing import Any
 import pytest
 
 from pre_commit_hooks.ast_checks._base import is_fix_failed
-from pre_commit_hooks.ast_checks.forbid_vars import ForbidVarsCheck, _collect_replacements, _collect_scope_replacements
+from pre_commit_hooks.ast_checks.forbid_vars import (
+    ForbidVarsCheck,
+    _collect_replacements,
+    _collect_scope_replacements,
+    _function_name_describes_parameter,
+)
 
 
 @pytest.mark.parametrize(
@@ -106,6 +111,26 @@ def process():
     data, result = get_values()  # Multiple targets - not supported
     return data, result
 """,
+        # The enclosing function's own name already describes the
+        # parameter ("feed" + "data", "parse..." + "result"), the same way
+        # a class name already provides context for its own attributes.
+        """from typing import Any, List, Optional, Tuple
+
+def feed_data(
+    self,
+    data: bytes,
+    SEP: Optional[str] = None,
+    *args: Any,
+    **kwargs: Any,
+) -> Tuple[List[bytes], bool, bytes]:
+    return [], True, data
+""",
+        """def parse_client_bulk_write_result(result):
+    return result
+""",
+        """def send_data(data: bytes):
+    return data
+""",
     ],
     ids=[
         "class-attributes",
@@ -120,6 +145,9 @@ def process():
         "annotated-attribute-assignment",
         "async-model-validator-decorator",
         "multiple-assignment-targets",
+        "function-name-describes-data-parameter",
+        "function-name-describes-result-parameter",
+        "function-name-describes-data-parameter-simple",
     ],
 )
 def test_check_reports_no_violations(source: str) -> None:
@@ -288,6 +316,20 @@ def process():
 """,
             {"fixable": False, "suggestion": "user"},
         ),
+        (
+            """from typing import Union, Tuple
+
+def handle(self, data: Union[bytes, bytearray, memoryview]) -> Tuple[bool, bytes]:
+    return True, data
+""",
+            {"fixable": False, "suggestion": None},
+        ),
+        (
+            """def handle(self, data: bytes | int):
+    return data
+""",
+            {"fixable": False, "suggestion": None},
+        ),
     ],
     ids=[
         "pydantic-validator-body-still-checked",
@@ -310,6 +352,8 @@ def process():
         "producer-suggestion-only",
         "http-json-payload-suggestion-only",
         "multiline-producer-suggestion-only",
+        "union-annotated-parameter-never-suggested",
+        "pipe-union-annotated-parameter-never-suggested",
     ],
 )
 def test_check_reports_single_violation(source: str, expected: dict[str, Any]) -> None:
@@ -471,6 +515,22 @@ def test_prefilter_pattern() -> None:
     assert patterns is not None
     assert "data" in patterns
     assert "result" in patterns
+
+
+@pytest.mark.parametrize(
+    ("function_name", "parameter_name", "expected"),
+    [
+        ("feed_data", "data", True),
+        ("parse_client_bulk_write_result", "result", True),
+        ("send_data", "data", True),
+        ("data", "data", False),
+        ("_data", "data", False),
+        ("update", "data", False),
+        ("dataset", "data", False),
+    ],
+)
+def test_function_name_describes_parameter(function_name: str, parameter_name: str, expected: bool) -> None:
+    assert _function_name_describes_parameter(function_name, parameter_name) is expected
 
 
 def test_autofix_applies_suggestions() -> None:

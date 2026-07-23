@@ -284,7 +284,10 @@ def plan_suggestions(
         for scope in _iter_scopes(index.root)
         for proposal in _scope_proposals(scope, forbidden_names, ignored_lines)
     ]
-    return _remove_collisions(proposals, forbidden_names)
+    plan = _remove_collisions(proposals, forbidden_names)
+    plan.update(_parametrize_result_proposals(index, forbidden_names, ignored_lines))
+    plan.update(_verb_parameter_proposals(index, forbidden_names, ignored_lines))
+    return plan
 
 
 @dataclass(frozen=True)
@@ -375,6 +378,8 @@ def _add_use_candidates(
                 candidates["command"].add("literal_shape")
         if _is_len_call(call_argument.call, call_argument.position):
             _confirm_collection_candidates(candidates)
+        if _is_http_body_argument(qname, call_argument.position):
+            candidates["content"].add("consumer_http_body")
 
     for parser_role in parser_roles:
         if parser_role == "json_text" and "bytes" in constraints:
@@ -423,7 +428,8 @@ def _call_candidates(node: ast.Call, scope: ScopeInfo) -> dict[str, set[str]]:
         if "response" in nested:
             return {"payload": {"http_json"}}
 
-    registry_name = _registry_name(_qname(node.func, scope), node, scope)
+    qname = _qname(node.func, scope)
+    registry_name = _registry_name(qname, node, scope)
     if registry_name is not None:
         return {registry_name: {"registry"}}
 
@@ -435,6 +441,9 @@ def _call_candidates(node: ast.Call, scope: ScopeInfo) -> dict[str, set[str]]:
         return {}
 
     candidates: dict[str, set[str]] = {}
+    deserialized_name = _deserialized_argument_name(qname, node)
+    if deserialized_name is not None:
+        candidates[deserialized_name] = {"deserializer"}
     for prefix in ("get", "fetch", "load", "read", "parse", "create", "build", "make", "find"):
         marker = f"{prefix}_"
         if name.startswith(marker) and len(name) > len(marker):
@@ -453,6 +462,14 @@ def _call_candidates(node: ast.Call, scope: ScopeInfo) -> dict[str, set[str]]:
         if return_name is not None:
             candidates.setdefault(return_name, set()).add("return_annotation")
     return candidates
+
+
+def _deserialized_argument_name(qname: tuple[str, ...] | None, node: ast.Call) -> str | None:
+    if qname not in {("json", "loads"), ("tomllib", "loads")}:
+        return None
+    if not node.args or not isinstance(node.args[0], ast.Name):
+        return None
+    return f"deserialized_{node.args[0].id}"
 
 
 def _registry_name(qname: tuple[str, ...] | None, node: ast.Call, scope: ScopeInfo) -> str | None:
@@ -482,6 +499,8 @@ def _registry_name(qname: tuple[str, ...] | None, node: ast.Call, scope: ScopeIn
         return "match"
     if qname in {("re", "findall"), ("re", "finditer")}:
         return "matches"
+    if qname == ("sys", "exc_info"):
+        return "exception_information"
     return None
 
 
@@ -540,6 +559,102 @@ def _remove_collisions(
         for index, planned_proposal in enumerate(planned)
         if index not in rejected and _is_valid_name(planned_proposal.proposal.name, forbidden_names)
     }
+
+
+def _parametrize_result_proposals(
+    index: _Index,
+    forbidden_names: set[str],
+    ignored_lines: set[int],
+) -> Iterable[tuple[TargetKey, RenameProposal]]:
+    if "result" not in forbidden_names:
+        return
+    for scope in _iter_scopes(index.root):
+        node = scope.node
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) or not _has_parametrize_argname(node, "result"):
+            continue
+        parameter = next((arg for arg in _arguments(node.args) if arg.arg == "result"), None)
+        if parameter is None or parameter.lineno in ignored_lines:
+            continue
+        if "expected_result" in _reachable_names(scope) or not _compares_name_for_equality(node, "result"):
+            continue
+        yield (
+            (parameter.lineno, parameter.col_offset),
+            RenameProposal("expected_result", Confidence.SUGGESTION_ONLY, frozenset({"parametrize_result"})),
+        )
+
+
+def _has_parametrize_argname(node: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+    return any(name in _decorator_parametrize_argnames(decorator) for decorator in node.decorator_list)
+
+
+def _decorator_parametrize_argnames(decorator: ast.expr) -> frozenset[str]:
+    if not isinstance(decorator, ast.Call) or not _is_parametrize_call(decorator.func) or not decorator.args:
+        return frozenset()
+    return _parse_argnames(decorator.args[0])
+
+
+def _is_parametrize_call(func: ast.expr) -> bool:
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "parametrize"
+        and isinstance(func.value, ast.Attribute)
+        and func.value.attr == "mark"
+        and isinstance(func.value.value, ast.Name)
+        and func.value.value.id == "pytest"
+    )
+
+
+def _parse_argnames(node: ast.expr) -> frozenset[str]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return frozenset(part.strip() for part in node.value.split(","))
+    if isinstance(node, ast.List | ast.Tuple):
+        return frozenset(
+            element.value
+            for element in node.elts
+            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        )
+    return frozenset()
+
+
+def _compares_name_for_equality(node: ast.AST, name: str) -> bool:
+    return any(
+        isinstance(child, ast.Compare)
+        and len(child.ops) == 1
+        and isinstance(child.ops[0], ast.Eq)
+        and len(child.comparators) == 1
+        and (_is_load_name(child.left, name) or _is_load_name(child.comparators[0], name))
+        for child in ast.walk(node)
+    )
+
+
+def _is_load_name(expression: ast.expr, name: str) -> bool:
+    return isinstance(expression, ast.Name) and isinstance(expression.ctx, ast.Load) and expression.id == name
+
+
+_VERB_PARAMETER_NAMES = {"compress": "uncompressed", "decompress": "compressed"}
+
+
+def _verb_parameter_proposals(
+    index: _Index,
+    forbidden_names: set[str],
+    ignored_lines: set[int],
+) -> Iterable[tuple[TargetKey, RenameProposal]]:
+    if "data" not in forbidden_names:
+        return
+    for scope in _iter_scopes(index.root):
+        node = scope.node
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        proposed_name = _VERB_PARAMETER_NAMES.get(node.name)
+        if proposed_name is None:
+            continue
+        parameter = next((arg for arg in _arguments(node.args) if arg.arg == "data"), None)
+        if parameter is None or parameter.lineno in ignored_lines or proposed_name in _reachable_names(scope):
+            continue
+        yield (
+            (parameter.lineno, parameter.col_offset),
+            RenameProposal(proposed_name, Confidence.SUGGESTION_ONLY, frozenset({"verb_parameter"})),
+        )
 
 
 def _annotation_name(annotation: ast.expr | None) -> str | None:
@@ -703,6 +818,16 @@ def _is_parser_argument(qname: tuple[str, ...] | None, position: int | str, pars
 
 def _is_subprocess_argument(qname: tuple[str, ...] | None, position: int | str) -> bool:
     return qname == ("subprocess", "run") and position in {0, "args"}
+
+
+def _is_http_body_argument(qname: tuple[str, ...] | None, position: int | str) -> bool:
+    return (
+        qname is not None
+        and len(qname) == 2
+        and qname[0] in {"requests", "httpx"}
+        and qname[1] in {"post", "put", "patch", "request"}
+        and position == "content"
+    )
 
 
 def _is_len_call(node: ast.Call, position: int | str) -> bool:
